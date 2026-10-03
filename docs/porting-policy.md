@@ -1,32 +1,37 @@
 # Porting policy
 
 This repository is a port of the [ArduPilot WebTools](https://github.com/ArduPilot/WebTools), and
-only of them. Every tool's logic must match the original exactly.
+only of them. The maths stays the same; the code gets better.
 
-## Rules
+## The maths must not change
 
-1. **Same logic, same results.** For the same inputs, a ported tool computes the same values, picks
-   the same defaults, accepts and rejects the same inputs, and writes the same files as the original.
-   Oracle tests that run the upstream JavaScript side by side are the proof.
-2. **Only WebTools code.** Logic comes from `upstream/` (including the libraries and modules it ships).
-   No logic is taken from other projects. Third-party libraries the original uses (Plotly, Leaflet,
-   fft.js, ml-matrix, Ruckig, ...) are used through their npm packages at compatible versions.
-3. **No added features.** Do not add analysis, options, outputs or checks the original does not have.
-4. **No removed features.** Every option, output and piece of information the original offers is
-   available in the port.
-5. **Upstream bugs are reproduced, not fixed.** If the original computes something wrong, the port
-   computes the same thing and the bug is recorded in [`upstream-bugs.md`](upstream-bugs.md) with a
-   reproduction. Fixes can be proposed upstream and adopted here later, deliberately.
+For the same inputs, a ported tool produces the same numbers, parsed values, decisions (defaults,
+which data is used, what is accepted or rejected) and output files as the original. This includes
+the original's maths bugs: they are reproduced and recorded in [`upstream-bugs.md`](upstream-bugs.md)
+with a reproduction, so a fix can be made deliberately later. Oracle tests that run the upstream
+JavaScript side by side are the proof.
 
-## What may differ
+## The code should improve
 
-- **Presentation.** Layout, styling, wording, theming and component choice (the CustomBuild look,
-  chips instead of radio buttons, a rail instead of a table of fieldsets). The same information and
-  options must remain.
-- **Browser constraints.** Where the original's approach no longer works in current browsers, the
-  minimum change that restores the same behaviour (e.g. https map tiles instead of http). `alert()`
-  and `confirm()` become in-page messages carrying the same text and the same choices.
-- **Crashes.** Where the original throws and the page stops working, the port may show an error
-  instead, provided the outcome for the user is otherwise the same (no result is produced).
+Nothing about the original's code structure has to survive. Rewrite freely: typed domain models,
+pure functions, smaller modules, clear names, removal of globals and DOM coupling, better error
+handling. See [`typescript-standard.md`](typescript-standard.md).
 
-Every intentional difference is listed, with its reason, in the tool's file under `docs/audit/`.
+## Scope
+
+- **Only WebTools logic.** Logic comes from `upstream/` (including the libraries and modules it
+  ships). Nothing is taken from other projects. Third-party libraries the original uses (Plotly,
+  Leaflet, fft.js, ml-matrix, Ruckig, ...) are used through their npm packages.
+- **No new analysis.** Do not add computations, outputs or checks that produce results the original
+  does not.
+- **Nothing removed.** Every option, output and piece of information the original offers remains.
+- **Presentation and convenience are free.** Layout, styling, wording, theming, components, and
+  conveniences that do not change any computed result (filtering or sorting a table, a Stop button,
+  showing a value the original only logged to the console) may differ or be added.
+- **Browser constraints and crashes.** Where the original's approach no longer works in current
+  browsers, make the minimum change that restores it. Where the original throws and stops, the port
+  may show an error instead. `alert()`/`confirm()` become in-page messages with the same text and
+  choices.
+
+Every difference that is not purely code structure is listed, with its reason, in the tool's file
+under `docs/audit/`.
