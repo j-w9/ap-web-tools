@@ -1,0 +1,58 @@
+/* S-Curve Tool: the few layout rules the shared shell does not cover. */
+
+.scurve-plot3d {
+  width: 100%;
+  height: min(78vh, 760px);
+  min-height: 420px;
+}
+
+.scurve-param__name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.scurve-param__name small {
+  color: rgb(var(--g500));
+  font-size: 11px;
+}
+
+.scurve-param--enum {
+  margin: 10px 0 6px;
+}
+
+.scurve-param--enum .scurve-param__name {
+  margin-bottom: 6px;
+  color: rgb(var(--g300));
+}
+
+.scurve-waypoints td.apwt-field {
+  display: table-cell;
+  margin: 0;
+}
+
+.scurve-waypoints td.apwt-field input[type='number'] {
+  width: 100%;
+  min-width: 80px;
+}
+
+.scurve-waypoints__name {
+  display: block;
+  color: rgb(var(--g100));
+}
+
+.scurve-waypoints__help {
+  display: block;
+  font-family: var(--font);
+  font-size: 12px;
+  color: rgb(var(--g500));
+}
+
+.scurve-note {
+  margin: 0;
+  color: rgb(var(--g400));
+  font-size: 14px;
+}

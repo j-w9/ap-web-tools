@@ -223,7 +223,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Explore the S-curve trajectories used for waypoint navigation.',
     category: 'simulation',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'SCurveTool',
     opens: NONE
   },
