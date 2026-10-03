@@ -180,12 +180,13 @@ export class DataflashLog {
     return this.scan.formats.filter((f): f is FormatDefinition => f !== undefined)
   }
 
-  /** Record counts and byte usage per message type. */
+  /** Record counts and byte usage per message type that has at least one record. */
   stats(): ReadonlyMap<string, MessageStats> {
     const out = new Map<string, MessageStats>()
     for (const fmt of this.scan.formats) {
       if (fmt === undefined) continue
       const count = this.scan.offsets[fmt.id]?.length ?? 0
+      if (count === 0) continue
       const recordSize = fmt.size + HEADER_SIZE
       out.set(fmt.name, { count, recordSize, bytes: count * recordSize })
     }
@@ -406,30 +407,34 @@ export class DataflashLog {
       info.format.fieldOffsets[dataIdx + 1] !== undefined
         ? (info.format.fieldOffsets[dataIdx + 1] as number) - dataOffset
         : info.format.size - dataOffset
-    const chunks = new Map<string, Uint8Array[]>()
+    // Each FILE record carries the byte `Offset` of its chunk. Files can be written more than
+    // once in a log, so chunks are placed at their offsets (later writes win) rather than
+    // appended; appending would duplicate the content. Logs without `Offset` fall back to
+    // appending in log order.
+    const fileOffsets = this.getNumbers(FILE, 'Offset')
+    const chunks = new Map<string, { at: number; bytes: Uint8Array }[]>()
+    const appendPos = new Map<string, number>()
     for (let i = 0; i < offsets.length; i++) {
-      const name = names[i] as string
-      const start = (offsets[i] as number) + dataOffset
-      let len = lengths === undefined ? dataSize : Math.min(lengths[i] as number, dataSize)
+      const name = names[i]!
+      const start = offsets[i]! + dataOffset
+      let len = lengths === undefined ? dataSize : Math.min(lengths[i]!, dataSize)
       if (lengths === undefined && STRING_TYPES.has(dataType)) {
         while (len > 0 && this.bytes[start + len - 1] === 0) len--
       }
+      const at = fileOffsets === undefined ? (appendPos.get(name) ?? 0) : fileOffsets[i]!
+      appendPos.set(name, at + len)
       let list = chunks.get(name)
       if (list === undefined) {
         list = []
         chunks.set(name, list)
       }
-      list.push(this.bytes.subarray(start, start + len))
+      list.push({ at, bytes: this.bytes.subarray(start, start + len) })
     }
     for (const [name, list] of chunks) {
-      const total = list.reduce((n, c) => n + c.byteLength, 0)
-      const joined = new Uint8Array(total)
-      let pos = 0
-      for (const c of list) {
-        joined.set(c, pos)
-        pos += c.byteLength
-      }
-      out.set(name, joined)
+      const size = list.reduce((n, c) => Math.max(n, c.at + c.bytes.byteLength), 0)
+      const file = new Uint8Array(size)
+      for (const c of list) file.set(c.bytes, c.at)
+      out.set(name, file)
     }
     return out
   }
