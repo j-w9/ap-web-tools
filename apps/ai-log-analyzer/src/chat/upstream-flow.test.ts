@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DataflashLog } from '@apwt/dataflash'
 import { OpenAiAssistantBackend, openAiAssistantsApi } from '../assistant/openai-backend.js'
 import { FakeOpenAiServer, type Json, type StreamEvent } from '../test-utils/fake-openai.js'
@@ -155,6 +155,23 @@ const streamError: StreamEvent = {
 // ----------------------------------------------------------------------------------- driver
 
 let Parser: UpstreamParserCtor
+// Upstream calls its async connect path without handling rejections (e.g. a 401 while connecting or a
+// failed thread creation), so those promises reject unhandled inside the upstream code under test.
+// That is upstream behaviour, recorded in docs/upstream-bugs.md; collect them here so they are
+// asserted instead of failing the run as unhandled.
+const upstreamRejections: string[] = []
+const onUnhandled = (reason: unknown) => {
+  // Errors from the vm realm are not instances of this realm's Error, so read the text.
+  upstreamRejections.push(String(reason).replace(/^Error: /, ''))
+}
+process.on('unhandledRejection', onUnhandled)
+afterAll(() => {
+  process.off('unhandledRejection', onUnhandled)
+  for (const message of upstreamRejections) {
+    expect(['Invalid API key (401)', 'Could not create conversation thread']).toContain(message)
+  }
+})
+
 beforeAll(async () => {
   Parser = await loadUpstreamParser()
 })
