@@ -183,7 +183,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Custom displays of a live MAVLink telemetry stream over WebSocket.',
     category: 'live',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'TelemetryDashboard',
     opens: NONE
   },
@@ -233,7 +233,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Overlay log telemetry on flight video and export the result.',
     category: 'logs',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'VideoOverlay',
     opens: NONE
   },
@@ -253,7 +253,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'A small web ground station for boats and buoys, with secure WebSocket support.',
     category: 'live',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'SimpleGCS',
     opens: NONE
   }

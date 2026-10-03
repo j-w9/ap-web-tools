@@ -1,0 +1,367 @@
+/* Telemetry Dashboard: the grid frame, popups, editor overlay and dialogs in the CustomBuild look. */
+
+.td-dashboard-frame {
+  /* Upstream filled the window; here the grid gets a full viewport below the header. */
+  height: max(640px, calc(100vh - 96px));
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* The dashboard keeps the user's colours: its background is part of the layout. */
+.td-dashboard {
+  width: 100%;
+  height: 100%;
+  color: #000;
+}
+
+/* ---- Popups (tippy) ---- */
+
+.tippy-box:not([data-theme]) {
+  background: rgb(var(--s2));
+  color: rgb(var(--g100));
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.tippy-box:not([data-theme]) > .tippy-arrow {
+  color: rgb(var(--s2));
+}
+
+.td-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 300px;
+  padding: 4px 2px;
+  font-family: var(--font);
+  text-align: left;
+}
+
+.td-tip__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.td-tip__title {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.td-tip__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.td-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.td-icon-button:hover {
+  border-color: var(--yellow);
+  color: var(--yellow-text);
+}
+
+.td-icon-button:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 1px;
+}
+
+.td-help {
+  width: 20px;
+  height: 20px;
+  font-size: 0.85em;
+}
+
+/* Formio forms render on white, as in the original. */
+.td-form {
+  border-radius: 6px;
+  padding: 6px;
+  background: #fff;
+  color: #000;
+}
+
+.td-panel {
+  width: 400px;
+  max-width: calc(100vw - 32px);
+}
+
+.td-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.td-panel__heading {
+  margin: 6px 0 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(var(--g400));
+}
+
+.td-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.td-panel__row .td-field__label {
+  flex: 1;
+}
+
+.td-panel__group {
+  padding-left: 12px;
+  border-left: 2px solid var(--card-border);
+}
+
+.td-panel__group > * + * {
+  margin-top: 8px;
+}
+
+.td-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.td-field__label {
+  font-size: 0.9rem;
+  color: rgb(var(--g300));
+}
+
+.td-field input[type='url'],
+.td-field input[type='password'] {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: rgb(var(--s1));
+  color: rgb(var(--g100));
+}
+
+.td-field input:invalid {
+  border-color: var(--red-text);
+}
+
+.td-field input[type='color'] {
+  width: 64px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  background: rgb(var(--s1));
+}
+
+.td-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.td-check input {
+  width: 1.1em;
+  height: 1.1em;
+  accent-color: var(--yellow);
+}
+
+/* ---- Menu widget ---- */
+
+.td-menu-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.td-menu-icon {
+  color: black;
+  font-size: min(3.2em, 70%);
+  cursor: pointer;
+}
+
+.td-menu-icon i {
+  font-size: clamp(16px, 2.6vw, 44px);
+}
+
+/* ---- Palette ---- */
+
+.td-palette {
+  width: 600px;
+  height: 400px;
+  max-width: calc(100vw - 32px);
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.td-palette > .grid-stack-item-content {
+  position: relative;
+  height: 100%;
+  background: #fff;
+  border-radius: 6px;
+}
+
+/* ---- Editor overlay ---- */
+
+.td-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  padding: 1%;
+  background: rgb(var(--s) / 0.7);
+  backdrop-filter: blur(2px);
+  color: rgb(var(--g100));
+  font-family: var(--font);
+}
+
+.td-editor[hidden] {
+  display: none;
+}
+
+.td-editor__frame {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+}
+
+.td-editor__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.td-editor__columns {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-height: 0;
+}
+
+.td-editor__column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+}
+
+.td-editor__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgb(var(--s3));
+}
+
+.td-editor__bar--end {
+  justify-content: flex-end;
+}
+
+.td-editor__test-grid {
+  flex: 1;
+  border-radius: 6px;
+  background: #fff;
+  color: #000;
+}
+
+.td-editor__script {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.td-editor__script .monaco-editor {
+  position: absolute !important;
+}
+
+.td-editor__form {
+  flex: 1;
+  overflow: auto;
+}
+
+.td-editor__form .builder-sidebar_search {
+  display: none;
+}
+
+.td-chip {
+  padding: 4px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--g200));
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.td-chip--active {
+  background: var(--yellow);
+  border-color: var(--yellow);
+  color: #111;
+}
+
+@media (max-width: 1000px) {
+  .td-editor__columns {
+    flex-direction: column;
+  }
+}
+
+/* ---- Dialogs (in-page alert and confirm) ---- */
+
+.td-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(var(--s) / 0.6);
+  color: rgb(var(--g100));
+  font-family: var(--font);
+}
+
+.td-dialog {
+  max-width: 480px;
+  width: 100%;
+  padding: 18px 20px;
+}
+
+.td-dialog__text {
+  margin: 0 0 16px;
+  white-space: pre-line;
+}
+
+.td-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

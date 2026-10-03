@@ -1,0 +1,273 @@
+/*
+ * Third-party styles upstream loads globally (Bootstrap 4.6 and Formio for widget forms, gridstack,
+ * tippy). They sit in a cascade layer so the shared tool styles, which are unlayered, always win.
+ * Formio's stylesheet holds old IE hacks the build's CSS minifier rejects, so it is linked as a
+ * file at start-up instead (see vendor-styles.ts).
+ */
+@import 'bootstrap/dist/css/bootstrap.min.css' layer(vendor);
+@import 'gridstack/dist/gridstack.min.css' layer(vendor);
+@import 'gridstack/dist/gridstack-extra.min.css' layer(vendor);
+@import 'tippy.js/dist/tippy.css' layer(vendor);
+@import 'tippy.js/themes/light-border.css' layer(vendor);
+
+/* ---------- Stage: video with the widget grid on top ---------- */
+.vo-stage-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.vo-stage {
+  position: relative;
+  display: flex;
+  outline: 2px solid gray;
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #cccccc 25%, transparent 25%), linear-gradient(-45deg, #cccccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #cccccc 75%), linear-gradient(-45deg, transparent 75%, #cccccc 75%);
+  background-size: 32px 32px;
+  background-position:
+    0 0,
+    0 16px,
+    16px -16px,
+    -16px 0;
+}
+
+.vo-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.vo-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.vo-overlay .grid-stack,
+.vo-palette.grid-stack {
+  background: transparent !important;
+}
+
+.vo-overlay .grid-stack {
+  height: 100%;
+}
+
+/* ---------- Player controls ---------- */
+.vo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.vo-time {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: rgb(var(--g300));
+  min-width: 92px;
+}
+
+.vo-seek {
+  flex: 1 1 200px;
+  appearance: none;
+  height: 8px;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+.vo-volume {
+  width: 80px;
+  accent-color: var(--yellow);
+}
+
+.vo-select {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--s4));
+  background: rgb(var(--s2));
+  color: rgb(var(--g100));
+}
+
+.vo-btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+.vo-btn-row > * {
+  flex: 1;
+}
+
+/* ---------- Palette ---------- */
+.vo-palette {
+  min-height: 100px;
+}
+
+/* ---------- Widget popup (tippy) ---------- */
+.vo-tip {
+  display: flex;
+  flex-direction: column;
+  min-width: 300px;
+}
+
+.vo-tip__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 2em;
+  padding: 2px;
+}
+
+.vo-tip__name {
+  flex: 1;
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+.vo-tip__button {
+  display: inline-flex;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.vo-tip__button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.vo-tip__button:hover {
+  color: var(--yellow);
+}
+
+.vo-tip__form {
+  border-radius: 4px;
+  padding: 5px;
+  background-color: white;
+  color: #000;
+  flex: 1;
+}
+
+/* ---------- Widget editor ---------- */
+.vo-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  padding: 1%;
+  background-color: rgb(var(--s) / 0.7);
+  display: none;
+}
+
+.vo-editor__panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: 8px 12px 12px;
+  gap: 8px;
+}
+
+.vo-editor__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vo-editor__body {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-height: 0;
+}
+
+.vo-editor__column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.vo-editor__test {
+  flex: 1;
+  background: white;
+  border-radius: 6px;
+}
+
+.vo-editor__tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.vo-editor__tabs button[aria-pressed='true'] {
+  border-color: var(--yellow);
+  color: var(--yellow-text);
+}
+
+.vo-editor__text,
+.vo-editor__form {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 6px;
+  overflow: auto;
+}
+
+.vo-editor__form {
+  padding: 4px;
+  background: white;
+  color: #000;
+}
+
+.vo-editor .monaco-editor {
+  position: absolute !important;
+}
+
+/* ---------- Dialogs and export progress ---------- */
+.vo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgb(var(--s) / 0.6);
+  backdrop-filter: blur(2px);
+}
+
+.vo-modal__panel {
+  min-width: 300px;
+  max-width: 520px;
+  padding: 18px 22px;
+}
+
+.vo-modal__text {
+  white-space: pre-line;
+  margin: 0 0 14px;
+}
+
+.vo-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  white-space: pre-line;
+}
+
+.vo-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgb(var(--s4));
+  overflow: hidden;
+  margin: 10px 0 14px;
+}
+
+.vo-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--yellow);
+}

@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "noEmit": false, "types": ["vite/client", "node"] },
+  "include": ["src"],
+  "references": [{ "path": "../../packages/mavlink" }, { "path": "../../packages/tool-shell" }]
+}

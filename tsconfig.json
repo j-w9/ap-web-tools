@@ -72,6 +72,15 @@
     },
     {
       "path": "apps/ai-log-analyzer"
+    },
+    {
+      "path": "apps/simple-gcs"
+    },
+    {
+      "path": "apps/telemetry-dashboard"
+    },
+    {
+      "path": "apps/video-overlay"
     }
   ]
 }

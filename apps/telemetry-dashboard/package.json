@@ -1,0 +1,17 @@
+{
+  "name": "@apwt/telemetry-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@apwt/mavlink": "*",
+    "@apwt/tool-shell": "*",
+    "@fortawesome/fontawesome-free": "6.6.0",
+    "bootstrap": "4.6.0",
+    "formiojs": "4.21.7",
+    "gridstack": "10.3.1",
+    "monaco-editor": "0.57.0",
+    "tippy.js": "6.3.7"
+  }
+}
