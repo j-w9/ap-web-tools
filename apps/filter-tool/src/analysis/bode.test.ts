@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gyroBode, pidBode, unwrapPhase, type BodeScale, type PidFiltering } from './bode.js'
+import { gyroBode, pidBode, type BodeScale, type PidFiltering } from './bode.js'
 import {
   DEFAULT_INPUTS,
   NOTCH_PREFIXES,
@@ -135,22 +135,5 @@ describe('pidBode matches upstream calculate_pid', () => {
         }
       }
     })
-  })
-})
-
-describe('unwrapPhase', () => {
-  it('matches upstream unwrap', () => {
-    const up = loadFilterToolUpstream()
-    const next = rng(3)
-    const phase = Array.from({ length: 500 }, () => (next() - 0.5) * 360)
-    expect(Array.from(unwrapPhase(phase))).toEqual(up.unwrap(phase))
-  })
-
-  it('biases toward positive jumps from notches', () => {
-    expect(Array.from(unwrapPhase([0, -60, -50, 270]))).toEqual([0, 300, 310, 270])
-  })
-
-  it('handles an empty array', () => {
-    expect(unwrapPhase([]).length).toBe(0)
   })
 })

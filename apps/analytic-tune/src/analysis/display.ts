@@ -4,7 +4,8 @@
  * meaningful. Ported from upstream `redraw_freq_resp`, `get_amplitude_scale` and
  * `get_frequency_scale`.
  */
-import { arrayLog10, arrayScale, complexAbs, complexPhase, type ComplexArray } from '@apwt/signal'
+import { phaseDegrees, unwrapPhase } from '@apwt/filters'
+import { arrayLog10, arrayScale, complexAbs, type ComplexArray } from '@apwt/signal'
 import type { FrequencyResponse, MeasuredResponses } from './freq-resp.js'
 import type { PredictedResponses } from './predict.js'
 import type { TuneVehicle } from './params.js'
@@ -158,36 +159,13 @@ export function gainOf(h: ComplexArray, scale: GainScale): Float64Array {
 }
 
 /**
- * Unwrap phase (degrees) by looking for jumps larger than a threshold. Notches produce large
- * positive phase steps, so the thresholds are biased (upstream `unwrap`).
- */
-export function unwrapPhase(phase: ArrayLike<number>): Float64Array {
-  const len = phase.length
-  const negThreshold = 45
-  const posThreshold = 360 - negThreshold
-  const unwrapped = new Float64Array(len)
-  if (len === 0) return unwrapped
-  unwrapped[0] = phase[0]!
-  for (let i = 1; i < len; i++) {
-    let diff = phase[i]! - phase[i - 1]!
-    if (diff > posThreshold) {
-      diff -= 360.0
-    } else if (diff < -negThreshold) {
-      diff += 360.0
-    }
-    unwrapped[i] = unwrapped[i - 1]! + diff
-  }
-  return unwrapped
-}
-
-/**
  * Phase of H in degrees.
  *
  * Deviation: upstream offers an un-wrapped phase option but forces it off when drawing; here the
  * option works.
  */
 export function phaseOf(h: ComplexArray, scale: PhaseScale): Float64Array {
-  const phase = arrayScale(complexPhase(h), 180 / Math.PI)
+  const phase = phaseDegrees(h)
   return scale === 'unwrapped' ? unwrapPhase(phase) : phase
 }
 

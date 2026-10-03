@@ -5,6 +5,9 @@
       "path": "packages/signal"
     },
     {
+      "path": "packages/filters"
+    },
+    {
       "path": "packages/dataflash"
     },
     {

@@ -4,6 +4,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../packages/signal" },
+    { "path": "../../packages/filters" },
     { "path": "../../packages/dataflash" },
     { "path": "../../packages/ardupilot" },
     { "path": "../../packages/plot" },

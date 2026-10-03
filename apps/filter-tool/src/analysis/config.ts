@@ -10,7 +10,7 @@ import {
   type NotchTracking,
   type OperatingPoint,
   type PidGains
-} from './filters.js'
+} from '@apwt/filters'
 import { NOTCH_PREFIXES, notchParam, pidParam, type Inputs, type NotchPrefix, type PidAxis } from './params.js'
 
 /** `_OPTS` bits the filter maths uses. */

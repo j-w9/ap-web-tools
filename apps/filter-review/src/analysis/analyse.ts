@@ -3,7 +3,7 @@ import { MAX_GYROS } from './constants.js'
 import { runGyroFft, type FftWindowOptions, type GyroFft } from './fft/batch-fft.js'
 import type { TrackingInterpolation } from './filters/harmonic-notch.js'
 import { transferFunctions, type FilterSet } from './filters/filter-set.js'
-import { zGrid, type ZGrid } from './filters/z-grid.js'
+import { zGrid, type ZGrid } from '@apwt/filters'
 import type { GyroData, GyroInstance } from './gyro-data.js'
 import type { NotchTarget } from './tracking/target.js'
 

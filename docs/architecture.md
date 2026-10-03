@@ -17,6 +17,7 @@
 | Package            | Depends on               | Contents                                                                                   |
 | ------------------ | ------------------------ | ------------------------------------------------------------------------------------------ |
 | `@apwt/signal`     | `fft.js`                 | complex and array math, windows, batch FFT, amplitude/frequency scaling                    |
+| `@apwt/filters`    | `@apwt/signal`           | filter and controller models (low-pass, notch, harmonic notch, PID), chains, phase unwrap  |
 | `@apwt/dataflash`  | –                        | DataFlash `.bin` parser: lazy, columnar typed arrays, per-instance access, params, modes   |
 | `@apwt/ardupilot`  | `@apwt/dataflash`        | param names/values/files, device ids, firmware version and board, board id table           |
 | `@apwt/plot`       | `plotly.js`, react       | `PlotlyChart` component, axis-range linking, default colours                               |

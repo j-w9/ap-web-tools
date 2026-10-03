@@ -2,23 +2,29 @@
  * Frequency responses of filter chains as Bode data, ported from upstream
  * `evaluate_transfer_functions`, `unwrap`, `calculate_filter` and `calculate_pid`.
  */
-import { arrayFromRange, arrayLog10, arrayScale, complexAbs, complexMul, complexPhase, type ComplexArray } from '@apwt/signal'
-import { NOTCH_PREFIXES, type Inputs, type NotchPrefix, type PidAxis } from './params.js'
-import { notchConfig, operatingPoint, pidGains } from './config.js'
 import {
+  chainResponse,
+  designBiquadLowPass,
   designHarmonicNotch,
-  designLowPass,
   designPid,
-  gyroFilterResponse,
-  isFilterEnabled,
+  elementResponse,
+  frequencyGrid,
+  isElementEnabled,
+  phaseDegrees,
   pidResponse,
   unityResponse,
+  unwrapPhase,
   zGrid,
-  type GyroFilter,
-  type HarmonicNotchFilter,
-  type LowPassFilter,
-  type PidController
-} from './filters.js'
+  type BiquadLowPass,
+  type HarmonicNotch,
+  type Pid
+} from '@apwt/filters'
+import { arrayLog10, arrayScale, complexAbs, complexMul, type ComplexArray } from '@apwt/signal'
+import { NOTCH_PREFIXES, type Inputs, type NotchPrefix, type PidAxis } from './params.js'
+import { notchConfig, operatingPoint, pidGains } from './config.js'
+
+/** One filter in the gyro chain. */
+export type GyroFilter = HarmonicNotch | BiquadLowPass
 
 export type MagnitudeScale = 'dB' | 'linear'
 export type PhaseScale = 'unwrapped' | 'wrapped'
@@ -34,73 +40,22 @@ export interface Bode {
   readonly phase: Float64Array
 }
 
-/**
- * Unwrap phase (degrees) by looking for jumps larger than a threshold. Notches produce large
- * positive phase steps, so the thresholds are biased (upstream `unwrap`).
- */
-export function unwrapPhase(phase: ArrayLike<number>): Float64Array {
-  const len = phase.length
-  const negThreshold = 45
-  const posThreshold = 360 - negThreshold
-  const unwrapped = new Float64Array(len)
-  if (len === 0) return unwrapped
-  unwrapped[0] = phase[0]!
-  for (let i = 1; i < len; i++) {
-    let diff = phase[i]! - phase[i - 1]!
-    if (diff > posThreshold) {
-      diff -= 360.0
-    } else if (diff < -negThreshold) {
-      diff += 360.0
-    }
-    unwrapped[i] = unwrapped[i - 1]! + diff
-  }
-  return unwrapped
-}
-
 /** Bode data of a complex response. */
 export function toBode(h: ComplexArray, scale: BodeScale): Bode {
   const abs = complexAbs(h)
-  const phase = arrayScale(complexPhase(h), 180 / Math.PI)
+  const phase = phaseDegrees(h)
   return {
     magnitude: scale.magnitude === 'dB' ? arrayScale(arrayLog10(abs), 20.0) : abs,
     phase: scale.phase === 'unwrapped' ? unwrapPhase(phase) : phase
   }
 }
 
-/** Frequencies `step, 2 step, ...` up to `max` (Hz), as upstream. */
-export function frequencyGrid(maxHz: number, stepHz: number): Float64Array {
-  return arrayFromRange(stepHz, maxHz, stepHz)
-}
-
-/** Product of every filter's response; each group has its own sample rate. */
-export function chainResponse(freq: Float64Array, groups: readonly (readonly ResponseSource[])[]): ComplexArray {
-  let total = unityResponse(freq.length)
-  for (const group of groups) {
-    const first = group[0]
-    if (first === undefined) continue
-    const grid = zGrid(freq, first.sampleRate)
-    for (const source of group) total = complexMul(total, source.response(grid))
-  }
-  return total
-}
-
-/** Anything with a sample rate and a transfer function. */
-interface ResponseSource {
-  readonly sampleRate: number
-  response(grid: ReturnType<typeof zGrid>): ComplexArray
-}
-
-const gyroSource = (filter: GyroFilter): ResponseSource => ({
-  sampleRate: filter.sampleRate,
-  response: (grid) => gyroFilterResponse(filter, grid)
-})
-
 // ---------- Gyro filters ----------
 
 /** The gyro filter chain in upstream order: notch 1, notch 2, low-pass. */
 export interface GyroFilters {
-  readonly notches: Readonly<Record<NotchPrefix, HarmonicNotchFilter>>
-  readonly lowPass: LowPassFilter
+  readonly notches: Readonly<Record<NotchPrefix, HarmonicNotch>>
+  readonly lowPass: BiquadLowPass
 }
 
 export function gyroFilters(inputs: Inputs, sampleRate: number): GyroFilters {
@@ -108,7 +63,7 @@ export function gyroFilters(inputs: Inputs, sampleRate: number): GyroFilters {
   const notch = (prefix: NotchPrefix) => designHarmonicNotch(sampleRate, notchConfig(inputs, prefix), op)
   return {
     notches: { INS_HNTCH: notch('INS_HNTCH'), INS_HNTC2: notch('INS_HNTC2') },
-    lowPass: designLowPass(sampleRate, inputs.INS_GYRO_FILTER)
+    lowPass: designBiquadLowPass(sampleRate, inputs.INS_GYRO_FILTER)
   }
 }
 
@@ -148,9 +103,9 @@ export function gyroBode(inputs: Inputs, scale: BodeScale): GyroBode {
   const grid = zGrid(freq, sampleRate)
   let total = unityResponse(freq.length)
   const components = list.map((filter, i): GyroComponent => {
-    const h = gyroFilterResponse(filter, grid)
+    const h = elementResponse(filter, grid)
     total = complexMul(total, h)
-    return { key: keys[i]!, filter, enabled: isFilterEnabled(filter), bode: toBode(h, scale) }
+    return { key: keys[i]!, filter, enabled: isElementEnabled(filter), bode: toBode(h, scale) }
   })
   return {
     freq,
@@ -167,7 +122,7 @@ export type PidFiltering = 'pre' | 'post'
 
 export interface PidBode {
   readonly freq: Float64Array
-  readonly pid: PidController
+  readonly pid: Pid
   readonly total: Bode
   readonly p: Bode
   readonly i: Bode
@@ -189,14 +144,12 @@ export function pidBode(inputs: Inputs, axis: PidAxis, filtering: PidFiltering, 
   const pid = designPid(loopRate, pidGains(inputs, axis))
   const terms = pidResponse(pid, zGrid(freq, loopRate))
 
-  const pidSource: ResponseSource = { sampleRate: loopRate, response: () => terms.total }
-  const groups: ResponseSource[][] = [[pidSource]]
+  const groups: (Pid | GyroFilter)[][] = [[pid]]
   let gyro: Bode | null = null
   if (filtering === 'post') {
-    const gyroRate = inputs.GyroSampleRate
-    const sources = gyroFilterList(gyroFilters(inputs, gyroRate)).map(gyroSource)
-    gyro = toBode(chainResponse(freq, [sources]), scale)
-    groups.push(sources)
+    const gyroList = gyroFilterList(gyroFilters(inputs, inputs.GyroSampleRate))
+    gyro = toBode(chainResponse(freq, [gyroList]), scale)
+    groups.push(gyroList)
   }
   return {
     freq,

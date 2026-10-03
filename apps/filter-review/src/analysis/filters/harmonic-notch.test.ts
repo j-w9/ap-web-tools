@@ -5,7 +5,7 @@ import { fixture } from '../test-utils/logs.js'
 import { createTrackingTargets } from '../tracking/targets.js'
 import { buildFilters, transferFunctions } from './filter-set.js'
 import { HarmonicNotchFilter } from './harmonic-notch.js'
-import { zGrid } from './z-grid.js'
+import { zGrid } from '@apwt/filters'
 import { interpolateTargets } from '../analyse.js'
 
 const targets = createTrackingTargets(DataflashLog.parse(fixture('copter-files.bin')))

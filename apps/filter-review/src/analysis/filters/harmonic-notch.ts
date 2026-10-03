@@ -1,10 +1,15 @@
+import {
+  accumulateTrackedNotchGroup,
+  designTrackedNotchGroup,
+  type TrackedNotch,
+  type TransferAccumulator,
+  type ZGrid
+} from '@apwt/filters'
 import { MAX_NUM_HARMONICS } from '../constants.js'
 import type { NotchParams } from '../filter-params.js'
 import type { FilterVersion } from '../filter-version.js'
 import { STATIC_MODE } from '../tracking/static.js'
 import type { InterpolatedTarget, NotchTarget, TargetFrequency, TrackingContext } from '../tracking/target.js'
-import { MultiNotch, NotchFilter, type CenteredFilter } from './notch.js'
-import type { TransferAccumulator, ZGrid } from './z-grid.js'
 
 /** Option bits of `_OPTS` that change the filter shape. */
 export const NOTCH_OPTIONS = {
@@ -31,7 +36,8 @@ export class HarmonicNotchFilter {
   readonly warnings: readonly string[]
   /** Whether the notch is enabled and has tracking data. */
   readonly enabled: boolean
-  private readonly notches: readonly CenteredFilter[]
+  /** One group of notches per selected harmonic (several for double, triple and quintuple notches). */
+  private readonly notches: readonly (readonly TrackedNotch[])[]
 
   /**
    * @param targets Tracking sources in upstream `tracking_methods` order; the first whose
@@ -51,13 +57,13 @@ export class HarmonicNotchFilter {
     }
     this.enabled = params.enable > 0 && this.tracking !== null && this.tracking.haveData(params, filterVersion)
 
-    const notches: CenteredFilter[] = []
+    const notches: (readonly TrackedNotch[])[] = []
     if (this.enabled) {
       const quintuple = (params.options & NOTCH_OPTIONS.quintuple) !== 0
       const triple = (params.options & NOTCH_OPTIONS.triple) !== 0
       const double = (params.options & NOTCH_OPTIONS.double) !== 0
 
-      let numCompositeNotches = 1
+      let numCompositeNotches: 1 | 2 | 3 | 5 = 1
       if (double) {
         numCompositeNotches = 2
       } else if (triple) {
@@ -74,11 +80,9 @@ export class HarmonicNotchFilter {
       for (let n = 0; n < MAX_NUM_HARMONICS; n++) {
         if ((params.harmonics & (1 << n)) === 0) continue
         const harmonic = n + 1
-        if (numCompositeNotches === 1) {
-          notches.push(new NotchFilter(params.attenuation, params.bandwidth * harmonic, harmonic, minFreq, 1.0))
-        } else {
-          notches.push(new MultiNotch(params.attenuation, params.bandwidth, harmonic, minFreq, numCompositeNotches, params.freq))
-        }
+        notches.push(
+          designTrackedNotchGroup(params.attenuation, params.bandwidth, harmonic, minFreq, numCompositeNotches, params.freq)
+        )
       }
     }
     this.notches = notches
@@ -122,8 +126,8 @@ export class HarmonicNotchFilter {
     // Get target frequencies from target
     const freq = tracking.get(this.tracking)?.frequencies(index, this.params, this.filterVersion) ?? null
     if (freq === null) return
-    for (const notch of this.notches) {
-      for (const f of freq) notch.transfer(h, f, sampleFreq, grid)
+    for (const group of this.notches) {
+      for (const f of freq) accumulateTrackedNotchGroup(h, group, f, sampleFreq, grid)
     }
   }
 }

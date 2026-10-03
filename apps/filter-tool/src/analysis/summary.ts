@@ -1,4 +1,4 @@
-import type { HarmonicNotchFilter } from './filters.js'
+import type { HarmonicNotch } from '@apwt/filters'
 
 /** What a harmonic notch is doing, for a one-line status under its settings. */
 export type NotchStatus =
@@ -7,7 +7,7 @@ export type NotchStatus =
   | { readonly kind: 'empty' }
   | { readonly kind: 'active'; readonly notchCount: number; readonly fundamentalHz: number }
 
-export function notchStatus(filter: HarmonicNotchFilter): NotchStatus {
+export function notchStatus(filter: HarmonicNotch): NotchStatus {
   if (!filter.enabled) return { kind: 'disabled' }
   if (filter.notches.length === 0) return { kind: 'empty' }
   return { kind: 'active', notchCount: filter.notches.length, fundamentalHz: filter.fundamentalHz }

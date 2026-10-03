@@ -15,6 +15,7 @@ npm-workspaces monorepo. Shared logic lives in framework-free packages; each too
 | `packages/dataflash`      | ArduPilot DataFlash (`.bin`) log parser: lazy, instance-aware, typed columns            |
 | `packages/ardupilot`      | ArduPilot domain helpers: parameter files, device ids, firmware version, board ids      |
 | `packages/signal`         | Array and complex maths, FFT windowing and spectrum helpers                             |
+| `packages/filters`        | Digital filter and rate controller models with frequency responses, phase unwrap/wrap   |
 | `packages/plot`           | Typed Plotly wrapper that follows the page theme, axis linking                          |
 | `packages/tool-shell`     | Shared page frame in the CustomBuild style, controls, tool registry, "Open in" hand-off |
 | `apps/<tool>`             | One Vite entry per tool, served at `apps/<tool>/`                                       |

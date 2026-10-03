@@ -8,6 +8,7 @@ import {
   type PlotlyHTMLElement
 } from '@apwt/plot'
 import { DataflashLog } from '@apwt/dataflash'
+import { wrapPhase } from '@apwt/filters'
 import { fftAmplitudeScale, fftFrequencyScale, type AmplitudeKind } from '@apwt/signal'
 import {
   ChipLabel,
@@ -34,7 +35,7 @@ import { gyroInfoText } from './analysis/gyro-sensors.js'
 import { loadFilterReviewLog, trackingContext, type FilterReviewLog } from './analysis/load.js'
 import { applyParamFile, filterParamFileText } from './analysis/param-file.js'
 import type { AliasMode } from './analysis/plots/alias.js'
-import { bodeResponse, wrapPhase } from './analysis/plots/bode.js'
+import { bodeResponse } from './analysis/plots/bode.js'
 import { loggedNotchLines, notchMarkers, notchTrackingLines } from './analysis/plots/notch-lines.js'
 import type { TimeRange } from './analysis/time-index.js'
 import {

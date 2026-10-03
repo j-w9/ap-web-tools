@@ -20,7 +20,7 @@ import {
   runFft,
   type ComplexArray
 } from '@apwt/signal'
-import { chainResponse, designPid, frequencyGrid } from './filters.js'
+import { chainResponse, designPid, frequencyGrid } from '@apwt/filters'
 import type { TuneAxis } from './params.js'
 import { SIGNAL_KEYS, type AirspeedScaling, type TimeHistory } from './time-history.js'
 

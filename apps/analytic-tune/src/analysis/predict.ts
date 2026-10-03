@@ -24,7 +24,7 @@ import {
   type NotchTracking,
   type OperatingPoint,
   type TransferElement
-} from './filters.js'
+} from '@apwt/filters'
 import {
   controllerParams,
   filterIndex,

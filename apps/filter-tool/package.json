@@ -6,6 +6,7 @@
   "type": "module",
   "dependencies": {
     "@apwt/ardupilot": "*",
+    "@apwt/filters": "*",
     "@apwt/plot": "*",
     "@apwt/signal": "*",
     "@apwt/tool-shell": "*",

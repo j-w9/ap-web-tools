@@ -1,21 +1,28 @@
-import { complexDiv, type ComplexArray } from '@apwt/signal'
+import {
+  accumulateBiquad,
+  accumulatorResponse,
+  copyAccumulator,
+  designBiquadLowPass,
+  unitAccumulator,
+  type ZGrid
+} from '@apwt/filters'
+import type { ComplexArray } from '@apwt/signal'
 import type { FilterParams } from '../filter-params.js'
 import type { FilterVersion } from '../filter-version.js'
 import type { NotchTarget } from '../tracking/target.js'
 import { HarmonicNotchFilter, type TrackingInterpolation } from './harmonic-notch.js'
-import { LowPassFilter } from './low-pass.js'
-import { copyAccumulator, unitAccumulator, type ZGrid } from './z-grid.js'
 
 /** The gyro filter chain: one low-pass and the harmonic notches. */
 export interface FilterSet {
-  readonly lowPass: LowPassFilter
+  /** `INS_GYRO_FILTER` cut-off (Hz); zero or less disables the low-pass. */
+  readonly lowPassHz: number
   readonly notches: readonly HarmonicNotchFilter[]
 }
 
 /** Build the filter chain from parameters (upstream `load_filters`). */
 export function buildFilters(params: FilterParams, targets: readonly NotchTarget[], filterVersion: FilterVersion): FilterSet {
   return {
-    lowPass: new LowPassFilter(params.gyroFilter),
+    lowPassHz: params.gyroFilter,
     notches: params.notches.map((p) => new HarmonicNotchFilter(p, targets, filterVersion))
   }
 }
@@ -37,7 +44,8 @@ export function transferFunctions(
   const staticH = unitAccumulator(grid.z1.re.length)
 
   // Low pass does not change frequency in flight
-  filters.lowPass.transfer(staticH, sampleRate, grid)
+  const lowPass = designBiquadLowPass(sampleRate, filters.lowPassHz).biquad
+  if (lowPass !== null) accumulateBiquad(staticH, grid, lowPass)
 
   // Evaluate any static notch
   for (const notch of filters.notches) {
@@ -51,7 +59,7 @@ export function transferFunctions(
     for (const notch of filters.notches) {
       if (notch.enabled && !notch.isStatic) notch.transfer(h, tracking, j, sampleRate, grid)
     }
-    out[j] = complexDiv(h.num, h.den)
+    out[j] = accumulatorResponse(h)
   }
   return out
 }

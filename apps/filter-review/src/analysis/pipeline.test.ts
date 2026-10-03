@@ -2,6 +2,7 @@
 // FilterReview's calculate(), calculate_transfer_function() and redraw() on the same log.
 import { describe, expect, it } from 'vitest'
 import { DataflashLog } from '@apwt/dataflash'
+import { wrapPhase } from '@apwt/filters'
 import { fftAmplitudeScale, fftFrequencyScale, type ComplexArray } from '@apwt/signal'
 import { analyseGyro, instanceTransfer, type InstanceTransfer } from './analyse.js'
 import { GYRO_AXES } from './fft/batch-fft.js'
@@ -10,7 +11,7 @@ import { defaultNotchParams, type FilterParams, type NotchParams } from './filte
 import type { FilterVersion } from './filter-version.js'
 import { loadFilterReviewLog, trackingContext, type LoadOptions } from './load.js'
 import { aliasHelper, type AliasMode } from './plots/alias.js'
-import { bodeResponse, wrapPhase } from './plots/bode.js'
+import { bodeResponse } from './plots/bode.js'
 import { harmonicStats, loggedNotchLines, notchMarkers, notchTrackingLines } from './plots/notch-lines.js'
 import { spectrogramData } from './plots/spectrogram.js'
 import { estimatedPostSpectrum, meanSpectrum } from './plots/spectrum.js'
