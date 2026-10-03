@@ -41,7 +41,7 @@ function expectSame(mine: TransferAccumulator, theirs: { num: Pair; den: Pair },
 }
 
 describe('accumulated biquad low-pass', () => {
-  it.each([20, 45.5, 0, -1, 400])('matches upstream FilterReview DigitalBiquadFilter at %d Hz', (cutoff) => {
+  it.each([20, 45.5, 0, -1, 400, NaN])('matches upstream FilterReview DigitalBiquadFilter at %d Hz', (cutoff) => {
     const rate = 2000
     const h = unitAccumulator(freq.length)
     const biquad = designBiquadLowPass(rate, cutoff).biquad

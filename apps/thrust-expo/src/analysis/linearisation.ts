@@ -149,16 +149,19 @@ export function uncorrectedThrust(data: ThrustData, range: OutputRange, actuator
 }
 
 /**
- * Run the whole linearisation. Returns null with no samples (upstream clears the plots).
- *
- * Deviation: upstream tests `if (thrustExpo)`, so a manual expo of exactly 0 (linear) was
- * replaced by a fit. Here a finite fixed value, including 0, is always honoured; a
- * non-finite one (an empty input) still falls back to the fit, as upstream.
+ * Whether upstream keeps a given expo rather than fitting: it tests `if (thrustExpo)`, so 0 and
+ * NaN (an empty input) are refitted. Upstream bug reproduced: a manual expo of exactly 0 (linear)
+ * cannot be tried (docs/upstream-bugs.md).
  */
+export function keepsExpo(setting: ExpoSetting): setting is { readonly kind: 'fixed'; readonly expo: number } {
+  return setting.kind === 'fixed' && setting.expo !== 0 && !Number.isNaN(setting.expo)
+}
+
+/** Run the whole linearisation. Returns null with no samples (upstream clears the plots). */
 export function linearise(data: ThrustData, range: OutputRange, setting: ExpoSetting): Linearisation | null {
   if (data.pwm.length === 0) return null
   const actuator = actuatorTestValues()
-  const fixed = setting.kind === 'fixed' && Number.isFinite(setting.expo)
+  const fixed = keepsExpo(setting)
   const result = fixed ? correctedThrust(data, range, setting.expo, actuator) : fitExpo(data, range, actuator)
   return {
     actuator,

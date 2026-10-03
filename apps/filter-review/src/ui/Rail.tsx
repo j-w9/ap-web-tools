@@ -1,12 +1,12 @@
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 import { Download, ExternalLink, Upload } from 'lucide-react'
-import { stepWindowSize } from '@apwt/signal'
+import { fftWindowSizeInc } from '@apwt/signal'
 import { ControlGroup, LogInput, RadioChips, RailCard, type LogFact } from '@apwt/tool-shell'
-import type { FilterParams, NotchParams } from '../analysis/filter-params.js'
 import { SUPPORTED_FILTER_VERSIONS, type FilterVersion } from '../analysis/filter-version.js'
 import type { GyroLogType } from '../analysis/gyro-data.js'
+import type { FilterParamName, PageValues } from '../analysis/page-values.js'
 import { NotchEditor } from './NotchEditor.js'
-import { NumberField } from './NumberField.js'
+import { CommitNumberField, NumberField, TextNumberField } from './NumberField.js'
 
 const VERSION_HELP: Readonly<Record<FilterVersion, string>> = {
   1: 'Original filter implementation.',
@@ -15,10 +15,10 @@ const VERSION_HELP: Readonly<Record<FilterVersion, string>> = {
   4: 'Quintuple (5) notch fully functional.'
 }
 
-/** FFT settings: window size for raw logs, windows per batch for batch logs. */
+/** FFT inputs as their value strings: window size for raw logs, windows per batch for batch logs. */
 export interface FftSettings {
-  windowSize: number
-  windowsPerBatch: number
+  windowSize: string
+  windowsPerBatch: string
 }
 
 export interface RailProps {
@@ -26,8 +26,8 @@ export interface RailProps {
   onFile: (file: File) => void
   /** Gyro sources in the log, null before loading. */
   available: { batch: boolean; raw: boolean } | null
-  logType: GyroLogType
-  onLogTypeChange: (type: GyroLogType) => void
+  /** Gyro data in use, null before loading. */
+  logType: GyroLogType | null
   fft: FftSettings
   onFftChange: (fft: FftSettings) => void
   timeRange: [number, number]
@@ -35,9 +35,9 @@ export interface RailProps {
   onTimeRangeChange: (range: [number, number]) => void
   filterVersion: FilterVersion
   onFilterVersionChange: (version: FilterVersion) => void
-  params: FilterParams
-  onParamsChange: (params: FilterParams) => void
-  harmonicCount: number
+  values: PageValues
+  onValueChange: (name: FilterParamName, value: string | number) => void
+  sixteenHarmonics: boolean
   availableModes: ReadonlySet<number>
   onSaveParams: () => void
   onLoadParams: (file: File) => void
@@ -50,10 +50,14 @@ export interface RailProps {
 export function Rail(p: RailProps) {
   const loaded = p.timeLimits !== null
   const paramFileId = useId()
-  const setNotch = (index: number, notch: NotchParams) => {
-    const notches: [NotchParams, NotchParams] = [p.params.notches[0], p.params.notches[1]]
-    notches[index] = notch
-    p.onParamsChange({ ...p.params, notches })
+  // Last committed window size, upstream's `data-last` (starts at the input's default, 1024;
+  // values the calculation writes back do not change it)
+  const lastWindowSize = useRef(1024)
+  const commitWindowSize = (text: string): string => {
+    const entered = parseFloat(text)
+    const next = fftWindowSizeInc(lastWindowSize.current, entered)
+    lastWindowSize.current = next
+    return Object.is(next, entered) ? text : String(next)
   }
 
   return (
@@ -65,14 +69,22 @@ export function Rail(p: RailProps) {
       <ControlGroup label="Gyro data">
         <RadioChips
           name="log-type"
-          value={p.logType}
-          onChange={p.onLogTypeChange}
+          value={p.logType ?? 'raw'}
+          onChange={() => undefined}
           options={[
-            { value: 'raw', label: 'Raw IMU', disabled: p.available !== null && !p.available.raw },
-            { value: 'batch', label: 'Batch sampling', disabled: p.available !== null && !p.available.batch }
+            { value: 'raw', label: 'Raw IMU', disabled: true },
+            { value: 'batch', label: 'Batch sampling', disabled: true }
           ]}
         />
-        <p className="fr-hint">Used when a log has both. Raw logging gives continuous data; batch logging gives short bursts.</p>
+        <p className="fr-hint">
+          {p.available === null
+            ? 'Raw IMU data is used whenever the log has it; batch sampling only when there is no raw data.'
+            : p.available.raw && p.available.batch
+              ? 'This log has both; raw IMU data is used, as in the original tool.'
+              : p.logType === 'raw'
+                ? 'This log has raw IMU data.'
+                : 'This log has batch sampling data.'}
+        </p>
       </ControlGroup>
 
       <ControlGroup label="Analysis window">
@@ -94,29 +106,23 @@ export function Rail(p: RailProps) {
       </ControlGroup>
 
       <ControlGroup label="FFT">
-        {p.logType === 'raw' ? (
-          <label className="apwt-field">
-            <span>Window size</span>
-            <input
-              type="number"
-              min={2}
-              step={1}
-              value={p.fft.windowSize}
-              onChange={(e) => {
-                const v = Number(e.target.value)
-                p.onFftChange({ ...p.fft, windowSize: stepWindowSize(v, v > p.fft.windowSize ? 'up' : 'down') })
-              }}
-            />
-          </label>
-        ) : (
-          <NumberField
-            label="Windows per batch"
-            step={1}
-            min={1}
-            value={p.fft.windowsPerBatch}
-            onChange={(v) => p.onFftChange({ ...p.fft, windowsPerBatch: Math.max(1, Math.round(v)) })}
-          />
-        )}
+        <CommitNumberField
+          label="Windows per batch"
+          step={1}
+          min={1}
+          disabled={p.logType !== 'batch'}
+          value={p.fft.windowsPerBatch}
+          onChange={(windowsPerBatch) => p.onFftChange({ ...p.fft, windowsPerBatch })}
+        />
+        <CommitNumberField
+          label="Window size"
+          step={1}
+          min={1}
+          disabled={p.logType !== 'raw'}
+          value={p.fft.windowSize}
+          commit={commitWindowSize}
+          onChange={(windowSize) => p.onFftChange({ ...p.fft, windowSize })}
+        />
       </ControlGroup>
 
       <ControlGroup label="Filter version">
@@ -130,30 +136,32 @@ export function Rail(p: RailProps) {
       </ControlGroup>
 
       <ControlGroup label="Low-pass filter">
-        <NumberField
+        <TextNumberField
           label="Cut-off (Hz)"
           title="INS_GYRO_FILTER"
           step={0.1}
-          value={p.params.gyroFilter}
-          onChange={(v) => p.onParamsChange({ ...p.params, gyroFilter: v })}
+          disabled={!loaded}
+          value={p.values.INS_GYRO_FILTER}
+          onChange={(v) => p.onValueChange('INS_GYRO_FILTER', v)}
         />
-        <NumberField
+        <TextNumberField
           label="Loop rate (Hz)"
           title="SCHED_LOOP_RATE, used for aliasing"
           step={1}
           min={25}
-          value={p.params.loopRate}
-          onChange={(v) => p.onParamsChange({ ...p.params, loopRate: v })}
+          disabled={!loaded}
+          value={p.values.SCHED_LOOP_RATE}
+          onChange={(v) => p.onValueChange('SCHED_LOOP_RATE', v)}
         />
       </ControlGroup>
 
-      {p.params.notches.map((notch, i) => (
+      {[0, 1].map((i) => (
         <ControlGroup key={i} label={`Harmonic notch ${i + 1}`}>
           <NotchEditor
             index={i}
-            params={notch}
-            onChange={(n) => setNotch(i, n)}
-            harmonicCount={p.harmonicCount}
+            values={p.values}
+            onChange={p.onValueChange}
+            sixteenHarmonics={p.sixteenHarmonics}
             availableModes={p.availableModes}
             disabled={!loaded}
           />
@@ -195,7 +203,7 @@ export function Rail(p: RailProps) {
           )}
         </div>
         {p.paramMessage && <p className="fr-hint">{p.paramMessage}</p>}
-        <p className="fr-hint">Filter changes update the estimate, Bode plot and notch overlays straight away.</p>
+        <p className="fr-hint">Changes update the plots straight away; the original tool waited for its Calculate buttons.</p>
       </ControlGroup>
     </RailCard>
   )

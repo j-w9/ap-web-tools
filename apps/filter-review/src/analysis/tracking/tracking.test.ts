@@ -159,3 +159,20 @@ describe('atmosphere model', () => {
     }
   })
 })
+
+describe('FFT target with FTN2 but no FTN1', () => {
+  it('stops the calculation like upstream', async () => {
+    const log = new LogAppender(fixture('copter-sitl.bin'))
+    log.define(221, 'FTN2', 'QBffffffff', 'TimeUS,Id,PkX,PkY,PkZ,BwX,BwY,EnX,EnY,EnZ', 's#zzzzz---', 'F---------')
+    for (let t = 10; t < 12; t += 0.1) {
+      for (let p = 0; p < 3; p++) log.write('FTN2', [Math.round(t * 1e6) + p, p, 90 * (p + 1), 91 * (p + 1), 90, 5, 5, 1, 1, 1])
+    }
+    const bytes = log.toBytes()
+    const fft = createTrackingTargets(DataflashLog.parse(bytes)).fft
+    expect(fft.haveData()).toBe(true)
+    expect(() => fft.interpolate([10.5, 11])).toThrow(TypeError)
+    const u = loadFilterReviewUpstream()
+    u.set('__log', await parseWithUpstream(bytes))
+    expect(() => u.run('new FFTTarget(__log).interpolate(0, [10.5, 11])')).toThrow()
+  })
+})

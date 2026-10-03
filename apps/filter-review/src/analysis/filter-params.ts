@@ -61,11 +61,6 @@ export function defaultNotchParams(): NotchParams {
   return { enable: 0, mode: 1, freq: 80, bandwidth: 40, attenuation: 40, ref: 0, minRatio: 1, harmonics: 3, options: 0 }
 }
 
-/** Filter values before a log is read (page defaults). */
-export function defaultFilterParams(): FilterParams {
-  return { gyroFilter: 20, loopRate: 400, notches: [defaultNotchParams(), defaultNotchParams()] }
-}
-
 /**
  * Convert a logged bitmask value to its unsigned `bits`-wide form, as upstream
  * `parameter_get_value` does for bitmask inputs narrower than 32 bits.
@@ -86,21 +81,4 @@ export function unsignedBitmask(value: number, bits: number): number {
  */
 export function hasSixteenHarmonics(log: DataflashLog): boolean {
   return log.param('INS_RAW_LOG_OPT') !== undefined
-}
-
-/** Read the filter parameters from a log (last value wins), falling back to the defaults. */
-export function readFilterParams(log: DataflashLog): FilterParams {
-  const params = defaultFilterParams()
-  params.gyroFilter = log.param('INS_GYRO_FILTER') ?? params.gyroFilter
-  params.loopRate = log.param('SCHED_LOOP_RATE') ?? params.loopRate
-  const harmonicBits = hasSixteenHarmonics(log) ? 32 : 8
-  params.notches.forEach((notch, index) => {
-    const names = notchParamNames(index)
-    for (const key of Object.keys(names) as (keyof NotchParams)[]) {
-      const value = log.param(names[key])
-      if (value !== undefined) notch[key] = value
-    }
-    notch.harmonics = unsignedBitmask(notch.harmonics, harmonicBits)
-  })
-  return params
 }

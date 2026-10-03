@@ -12,6 +12,16 @@ export interface AliasHelper {
 }
 
 /**
+ * Upstream sizes its arrays with `new Array(n)`, which throws for a length that is not a
+ * whole number from 0 to 2^32 - 1 (typed arrays would silently take NaN as 0). This happens
+ * when `SCHED_LOOP_RATE` is empty, zero or negative.
+ */
+function arrayLength(n: number): number {
+  if (!Number.isInteger(n) || n < 0 || n > 0xffffffff) throw new RangeError('Invalid array length')
+  return n
+}
+
+/**
  * Build the aliasing helper. With aliasing enabled the spectrum is re-sampled to fine bins
  * and folded about the loop-rate Nyquist frequency; `only` keeps just the folded part.
  */
@@ -31,13 +41,13 @@ export function aliasHelper(
   // it; smaller steps maintain amplitude in interpolation
   const len = Math.ceil(nyquist / (0.1 * (fft.averageSampleRate / fft.windowSize))) + 1
   const reSampleDt = nyquist / (len - 1)
-  const bins = new Float64Array(len)
+  const bins = new Float64Array(arrayLength(len))
   for (let i = 0; i < len; i++) bins[i] = i * reSampleDt
 
   // Pre-calculate linear interpolation indexes and scale factors
   const fftBins = fft.bins
   const totalBins = Math.floor(fftBins[fftBins.length - 1]! / reSampleDt)
-  const interpIndex = new Int32Array(totalBins)
+  const interpIndex = new Int32Array(arrayLength(totalBins))
   const interpScale = new Float64Array(totalBins)
   let index = 0
   for (let i = 0; i < totalBins; i++) {

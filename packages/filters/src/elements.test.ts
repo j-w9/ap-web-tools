@@ -1,5 +1,5 @@
 import { arrayScale, complexAbs, complexPhase } from '@apwt/signal'
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   chainResponse,
   designAngleP,
@@ -158,6 +158,18 @@ describe('elements match upstream FilterTool', () => {
         `notch ${n}`
       )
     }
+  })
+
+  it('LPF_1P has no sample_rate in FilterTool, which only matters if it led a group (it never does)', () => {
+    // Upstream FilterTool's LPF_1P never assigns this.sample_rate, with or without a cut-off
+    // (AnalyticTune's does). FilterTool only builds LPF_1P inside PID, whose transfer does not read
+    // it, so no FilterTool result depends on it: the PID comparisons above prove that.
+    expect(up.run('new LPF_1P(400, 0).sample_rate')).toBeUndefined()
+    expect(up.run('new LPF_1P(400, 20).sample_rate')).toBeUndefined()
+    expect(loadUpstream('AnalyticTune').run('new LPF_1P(400, 0).sample_rate')).toBe(400)
+    // Leading a group, it would evaluate on z = e^(j w / undefined): all NaN.
+    const lead = evaluateUpstream(up, 'new LPF_1P(400, 20)', 200, 50)
+    expect(lead.attenuation.every((v) => Number.isNaN(v))).toBe(true)
   })
 
   it('PID terms sum to the total', () => {

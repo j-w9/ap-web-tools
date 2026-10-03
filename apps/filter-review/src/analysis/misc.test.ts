@@ -5,6 +5,7 @@ import { readFilterVersion } from './filter-version.js'
 import { defaultTimeRange, throttleActiveRange } from './flight-data.js'
 import { gyroInfoText } from './gyro-sensors.js'
 import { firstParamIgnoringChanges } from './log-params.js'
+import { aliasHelper } from './plots/alias.js'
 import { fixture } from './test-utils/logs.js'
 import { findEndIndex, findStartIndex } from './time-index.js'
 
@@ -70,5 +71,16 @@ describe('gyroInfoText', () => {
     expect(gyroInfoText({ index: 1, deviceId: 3 | (1 << 3) | (125 << 8) | (0x34 << 16), rate: undefined })).toBe(
       'ICM42688 via DRONECAN at ? Hz'
     )
+  })
+})
+
+describe('aliasHelper', () => {
+  const fft = { bins: Float64Array.from([0, 100, 200, 300]), averageSampleRate: 600, windowSize: 6 }
+  it('throws like upstream new Array() for an empty, zero or negative loop rate', () => {
+    expect(() => aliasHelper(fft, 'on', NaN)).toThrow(RangeError)
+    expect(() => aliasHelper(fft, 'on', 0)).toThrow(RangeError)
+    expect(() => aliasHelper(fft, 'on', -400)).toThrow(RangeError)
+    expect(aliasHelper(fft, 'none', NaN).bins).toBe(fft.bins)
+    expect(aliasHelper(fft, 'on', 400).bins.length).toBe(21)
   })
 })

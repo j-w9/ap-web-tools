@@ -1,13 +1,18 @@
 import { Calculator } from 'lucide-react'
-import { stepWindowSize } from '@apwt/signal'
 import { ControlGroup, LogInput, RailCard, type LogFact, Chip } from '@apwt/tool-shell'
 import { ALL_SPEC_KEYS, specLabel, type SpecKey } from '../analysis/vehicle.js'
+import { CommitNumberInput } from './CommitNumberInput.js'
+
+/** Text shown in a number input for a value; NaN (an empty or invalid entry) shows as empty. */
+const numberText = (n: number): string => (Number.isNaN(n) ? '' : String(n))
 
 export interface RailProps {
   facts: readonly LogFact[] | null
   onFile: (file: File) => void
-  windowSize: number
-  onWindowSizeChange: (size: number) => void
+  /** Window size input text, as upstream keeps it (validated only when calculating). */
+  windowSize: string
+  /** Committed window size text (native change event). */
+  onWindowSizeCommit: (raw: string) => void
   timeRange: [number, number]
   timeLimits: [number, number] | null
   onTimeRangeChange: (range: [number, number]) => void
@@ -49,26 +54,24 @@ export function Rail(p: RailProps) {
       <ControlGroup label="Analysis window">
         <label className="apwt-field">
           <span>Start (s)</span>
-          <input
-            type="number"
+          <CommitNumberInput
             step={1}
             disabled={!loaded}
-            min={p.timeLimits?.[0]}
+            min={p.timeLimits?.[0] ?? 0}
             max={p.timeLimits?.[1]}
-            value={p.timeRange[0]}
-            onChange={(e) => p.onTimeRangeChange([Number(e.target.value), p.timeRange[1]])}
+            value={numberText(p.timeRange[0])}
+            onCommit={(raw) => p.onTimeRangeChange([parseFloat(raw), p.timeRange[1]])}
           />
         </label>
         <label className="apwt-field">
           <span>End (s)</span>
-          <input
-            type="number"
+          <CommitNumberInput
             step={1}
             disabled={!loaded}
-            min={p.timeLimits?.[0]}
+            min={p.timeLimits?.[0] ?? 0}
             max={p.timeLimits?.[1]}
-            value={p.timeRange[1]}
-            onChange={(e) => p.onTimeRangeChange([p.timeRange[0], Number(e.target.value)])}
+            value={numberText(p.timeRange[1])}
+            onCommit={(raw) => p.onTimeRangeChange([p.timeRange[0], parseFloat(raw)])}
           />
         </label>
         <p className="apwt-section__help" style={{ fontSize: 13 }}>
@@ -79,16 +82,7 @@ export function Rail(p: RailProps) {
       <ControlGroup label="FFT">
         <label className="apwt-field">
           <span>Window size</span>
-          <input
-            type="number"
-            min={2}
-            step={1}
-            value={p.windowSize}
-            onChange={(e) => {
-              const v = Number(e.target.value)
-              p.onWindowSizeChange(stepWindowSize(v, v > p.windowSize ? 'up' : 'down'))
-            }}
-          />
+          <CommitNumberInput min={1} step={1} value={p.windowSize} onCommit={p.onWindowSizeCommit} />
         </label>
       </ControlGroup>
 
@@ -100,7 +94,7 @@ export function Rail(p: RailProps) {
           onClick={p.onCalculate}
         >
           <Calculator />
-          Recalculate
+          Calculate
         </button>
       </div>
     </RailCard>

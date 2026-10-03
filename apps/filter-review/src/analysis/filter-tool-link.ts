@@ -1,5 +1,7 @@
 import { pageParams } from './param-file.js'
-import type { FilterParams } from './filter-params.js'
+import type { FilterReviewLog } from './load.js'
+import type { PageValues } from './page-values.js'
+import type { TimeRange } from './time-index.js'
 
 /** Mean tracking values passed to the Filter Tool (upstream `open_in_filter_tool`). */
 export interface FilterToolValues {
@@ -13,19 +15,37 @@ export interface FilterToolValues {
 }
 
 /**
- * Filter Tool URL carrying the current filter settings and mean tracking values as query
- * parameters, in the order upstream adds them. The Filter Tool has no FFT tracking input.
+ * Filter Tool URL carrying the `INS_*` inputs (their value strings, as upstream appends
+ * `item.value`) and the mean tracking values as query parameters, in the order upstream adds
+ * them. The Filter Tool has no FFT tracking input.
  */
-export function filterToolUrl(base: string, params: FilterParams, sixteenHarmonics: boolean, values: FilterToolValues): string {
+export function filterToolUrl(base: string, values: PageValues, tracking: FilterToolValues): string {
   const query = new URLSearchParams()
-  for (const p of pageParams(params, sixteenHarmonics)) query.append(p.name, String(p.value))
-  if (values.gyroSampleRate !== undefined) query.append('GYRO_SAMPLE_RATE', String(Math.round(values.gyroSampleRate)))
-  if (values.throttle !== undefined) query.append('Throttle', String(values.throttle))
-  if (values.rpm1 !== undefined) query.append('RPM1', String(values.rpm1))
-  if (values.escRpm !== undefined) {
-    query.append('ESC_RPM', String(values.escRpm))
-    query.append('NUM_MOTORS', String(values.numMotors ?? ''))
+  for (const p of pageParams(values)) query.append(p.name, p.value)
+  if (tracking.gyroSampleRate !== undefined) query.append('GYRO_SAMPLE_RATE', String(Math.round(tracking.gyroSampleRate)))
+  if (tracking.throttle !== undefined) query.append('Throttle', String(tracking.throttle))
+  if (tracking.rpm1 !== undefined) query.append('RPM1', String(tracking.rpm1))
+  if (tracking.escRpm !== undefined) {
+    query.append('ESC_RPM', String(tracking.escRpm))
+    query.append('NUM_MOTORS', String(tracking.numMotors))
   }
-  if (values.rpm2 !== undefined) query.append('RPM2', String(values.rpm2))
+  if (tracking.rpm2 !== undefined) query.append('RPM2', String(tracking.rpm2))
   return `${base}?${query.toString()}`
+}
+
+/**
+ * Tracking values upstream `open_in_filter_tool` reads: the rate of the first instance of the
+ * Bode plot's IMU and the mean of each tracking source over the analysis window.
+ */
+export function filterToolValues(log: FilterReviewLog, bodeGyro: number, range: TimeRange): FilterToolValues {
+  const gyro = log.gyro.instances.find((g) => g !== null && g.sensorNum === bodeGyro)
+  const t = log.targets
+  return {
+    gyroSampleRate: gyro?.gyroRate,
+    throttle: t.throttle.mean(range),
+    rpm1: t.rpm1.mean(range),
+    escRpm: t.esc.mean(range),
+    numMotors: t.esc.numMotors,
+    rpm2: t.rpm2.mean(range)
+  }
 }

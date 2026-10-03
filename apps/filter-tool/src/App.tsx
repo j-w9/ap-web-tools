@@ -1,23 +1,16 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { PlotlyChart } from '@apwt/plot'
 import { downloadText, ErrorBanner, Section, ToolPage } from '@apwt/tool-shell'
-import { gyroBode, gyroFilters, pidBode, type GyroComponentKey } from './analysis/bode.js'
-import { trackingSourcesInUse } from './analysis/config.js'
+import { gyroBode, pidBode } from './analysis/bode.js'
+import { trackingSourcesShown } from './analysis/config.js'
 import { formatParamFile, parseParamFile } from './analysis/param-file.js'
 import type { InputName } from './analysis/params.js'
 import type { BodeSettings, PidSettings, ToolState } from './analysis/settings.js'
-import { notchStatus } from './analysis/summary.js'
-import { gyroRateProblem, loopRateProblem } from './analysis/validate.js'
+import { attempt } from './analysis/validate.js'
 import { BodeChips, FilteringChips } from './ui/BodeChips.js'
 import { initialState, saveState, shareLink } from './ui/persist.js'
 import { AXIS_LABELS, Rail, type FileStatus } from './ui/Rail.js'
-import { bodeLayout, bodeTraces, type BodeSeries } from './ui/traces.js'
-
-const COMPONENT_NAMES: Readonly<Record<GyroComponentKey, string>> = {
-  INS_HNTCH: 'Notch 1',
-  INS_HNTC2: 'Notch 2',
-  lowPass: 'Gyro low pass'
-}
+import { gyroPlot, pidPlot } from './ui/traces.js'
 
 // The clipboard API only exists on secure (https or localhost) pages.
 const canCopy = 'clipboard' in navigator
@@ -43,58 +36,32 @@ export function App() {
   const { inputs, gyro: gyroSettings, pid: pidSettings } = shown
 
   // ----- Gyro filters -----
-  const gyroProblem = gyroRateProblem(inputs)
-  const gyro = useMemo(() => (gyroProblem === null ? gyroBode(inputs, gyroSettings) : null), [inputs, gyroSettings, gyroProblem])
-  // Upstream only offers components when more than one filter is active.
-  const gyroLegend = gyroSettings.showComponents && gyro !== null && gyro.enabledCount > 1
-  const gyroTraces = useMemo(() => {
-    if (!gyro) return []
-    const series: BodeSeries[] = [
-      { name: 'Combined', bode: gyro.total, visible: true },
-      ...gyro.components.map((c) => ({ name: COMPONENT_NAMES[c.key], bode: c.bode, visible: gyroLegend && c.enabled }))
-    ]
-    return bodeTraces(gyro.freq, series, gyroSettings, gyroLegend)
-  }, [gyro, gyroSettings, gyroLegend])
-  const gyroLayout = useMemo(() => bodeLayout(gyroSettings, 'Magnitude', gyroLegend), [gyroSettings, gyroLegend])
+  const gyroResult = useMemo(() => attempt(() => gyroBode(inputs, gyroSettings)), [inputs, gyroSettings])
+  const gyro = gyroResult.ok ? gyroResult.value : null
+  const gyroChart = useMemo(() => (gyro ? gyroPlot(gyro, gyroSettings) : null), [gyro, gyroSettings])
 
   // ----- Rate PID -----
-  const pidProblem = loopRateProblem(inputs, pidSettings.filtering === 'post')
-  const pid = useMemo(
-    () => (pidProblem === null ? pidBode(inputs, pidSettings.axis, pidSettings.filtering, pidSettings) : null),
-    [inputs, pidSettings, pidProblem]
+  const pidResult = useMemo(
+    () => attempt(() => pidBode(inputs, pidSettings.axis, pidSettings.filtering, pidSettings)),
+    [inputs, pidSettings]
   )
-  const pidLegend = pidSettings.showComponents
-  const pidTraces = useMemo(() => {
-    if (!pid) return []
-    const series: BodeSeries[] = [
-      { name: 'Combined', bode: pid.total, visible: true },
-      { name: 'Gyro filters', bode: pid.gyro, visible: pidLegend },
-      { name: 'Proportional', bode: pid.p, visible: pidLegend },
-      { name: 'Integral', bode: pid.i, visible: pidLegend },
-      { name: 'Derivative', bode: pid.d, visible: pidLegend }
-    ]
-    return bodeTraces(pid.freq, series, pidSettings, pidLegend)
-  }, [pid, pidSettings, pidLegend])
-  const pidLayout = useMemo(() => bodeLayout(pidSettings, 'Gain', pidLegend), [pidSettings, pidLegend])
+  const pid = pidResult.ok ? pidResult.value : null
+  const pidChart = useMemo(() => (pid ? pidPlot(pid, pidSettings) : null), [pid, pidSettings])
 
   // ----- Rail status (from the live state so it tracks typing) -----
-  const notchStatuses = useMemo(() => {
-    const { notches } = gyroFilters(state.inputs, state.inputs.GyroSampleRate)
-    return { INS_HNTCH: notchStatus(notches.INS_HNTCH), INS_HNTC2: notchStatus(notches.INS_HNTC2) }
-  }, [state.inputs])
-  const trackingSources = useMemo(() => trackingSourcesInUse(state.inputs), [state.inputs])
+  const trackingSources = useMemo(() => trackingSourcesShown(state.inputs), [state.inputs])
 
   // ----- Parameter file and link -----
   const loadFile = (file: File) => {
     void file.text().then((text) => {
-      const parsed = parseParamFile(text)
-      const count = Object.keys(parsed.values).length
+      const values = parseParamFile(text)
+      const count = Object.keys(values).length
       if (count === 0) {
-        setError(`${file.name} has no filter or rate controller parameters. Choose an ArduPilot .param file.`)
+        setError(`${file.name} sets none of this tool's inputs. Choose an ArduPilot .param file.`)
         return
       }
       setError(null)
-      setState((s) => ({ ...s, inputs: { ...s.inputs, ...parsed.values } }))
+      setState((s) => ({ ...s, inputs: { ...s.inputs, ...values } }))
       setFileStatus({ kind: 'loaded', name: file.name, count })
     })
   }
@@ -121,7 +88,6 @@ export function App() {
         <Rail
           inputs={state.inputs}
           onInput={setInput}
-          notchStatus={notchStatuses}
           trackingSources={trackingSources}
           axis={state.pid.axis}
           onAxis={(axis) => setPidSettings({ ...state.pid, axis })}
@@ -145,15 +111,15 @@ export function App() {
             onChange={setGyroSettings}
             componentsLabel="Individual filters"
             componentsUnavailable={
-              gyro !== null && gyro.enabledCount < 2 ? 'Enable more than one filter to compare them.' : undefined
+              gyro !== null && gyro.enabledCount < 2 ? 'Shown once more than one filter is enabled.' : undefined
             }
           />
         }
       >
-        {gyroProblem !== null ? (
-          <div className="apwt-empty">{gyroProblem}</div>
+        {!gyroResult.ok ? (
+          <div className="apwt-empty">Calculation failed: {gyroResult.message}</div>
         ) : (
-          <PlotlyChart className="apwt-plot ft-bode" data={gyroTraces} layout={gyroLayout} />
+          gyroChart && <PlotlyChart className="apwt-plot ft-bode" data={gyroChart.data} layout={gyroChart.layout} />
         )}
       </Section>
 
@@ -167,10 +133,10 @@ export function App() {
           </>
         }
       >
-        {pidProblem !== null ? (
-          <div className="apwt-empty">{pidProblem}</div>
+        {!pidResult.ok ? (
+          <div className="apwt-empty">Calculation failed: {pidResult.message}</div>
         ) : (
-          <PlotlyChart className="apwt-plot ft-bode" data={pidTraces} layout={pidLayout} />
+          pidChart && <PlotlyChart className="apwt-plot ft-bode" data={pidChart.data} layout={pidChart.layout} />
         )}
       </Section>
     </ToolPage>

@@ -25,6 +25,8 @@ describe('unwrapPhase', () => {
   })
 
   it('handles an empty array', () => {
+    // Upstream returns [undefined] (it assigns element 0 of an empty array); both plot nothing.
+    expect(loadUpstream('FilterTool').run('unwrap([])')).toEqual([undefined])
     expect(unwrapPhase([]).length).toBe(0)
     expect(unwrapPhaseInclusive([]).length).toBe(0)
   })
@@ -54,5 +56,48 @@ describe('wrapPhase', () => {
     expect(Array.from(a!)).toEqual([0, -160, 170, -120])
     expect(Array.from(b!)).toEqual([1, -358, 363, -716])
     expect(wrapPhase([])).toEqual([])
+  })
+
+  /** Upstream `phase_scale` with "wrap" selected, on copies of `arrays` aliased as `layout` says. */
+  function upstreamWrap(arrays: number[][], layout: number[]): number[][] {
+    const up = loadUpstream('FilterReview')
+    up.set('document', { getElementById: () => ({ checked: true }) })
+    up.set(
+      '__arrays',
+      arrays.map((a) => a.slice())
+    )
+    up.set('__layout', layout)
+    return up.run('phase_scale(__layout.map((k) => __arrays[k]))') as number[][]
+  }
+
+  it('matches upstream phase_scale on unwrapped responses', () => {
+    const next = rng(11)
+    // Unwrapped phases that drift through several turns, as get_phase produces.
+    const drift = (): number[] => {
+      let v = 0
+      return Array.from({ length: 400 }, () => (v += next() * 40 - 25))
+    }
+    const arrays = [drift(), drift(), drift()]
+    const before = arrays.map((a) => a.slice())
+    const mine = wrapPhase(arrays)
+    const theirs = upstreamWrap(arrays, [0, 1, 2])
+    mine.forEach((m, k) => expectBitEqual(m, theirs[k]!, `phase ${k}`))
+    // Something was wrapped, and the inputs are not mutated.
+    expect(Array.from(mine[0]!)).not.toEqual(before[0])
+    expect(arrays).toEqual(before)
+  })
+
+  it('shifts an array passed twice twice, as upstream does when max and min are the same array', () => {
+    const next = rng(12)
+    let v = 0
+    const mean = Array.from({ length: 200 }, () => (v += next() * 30 - 12))
+    const shared = mean.map((x) => x + 5)
+    const mine = wrapPhase([mean, shared, shared])
+    const theirs = upstreamWrap([mean, shared], [0, 1, 1])
+    expect(mine[1]).toBe(mine[2])
+    mine.forEach((m, k) => expectBitEqual(m, theirs[k]!, `phase ${k}`))
+    // The shared array ends up shifted by twice the mean's shift.
+    const i = mean.findIndex((x) => x > 540)
+    expect(mine[1]![i]! - shared[i]!).toBe(2 * (mine[0]![i]! - mean[i]!))
   })
 })

@@ -46,17 +46,6 @@ export interface PidAxisFft {
   axis: AxisFft
 }
 
-/** Keys with data in any batch of the controller. */
-export function availableKeys(data: PidAxisData): ReadonlySet<FftKey> {
-  const keys = new Set<FftKey>()
-  for (const set of data.sets) {
-    for (const batch of set ?? []) {
-      for (const key of Object.keys(batch.signals) as FftKey[]) keys.add(key)
-    }
-  }
-  return keys
-}
-
 /** Context traces shown above the PID plots. */
 export interface FlightData {
   roll?: { time: Float64Array; values: Float64Array }

@@ -22,7 +22,7 @@ import {
 } from '@apwt/signal'
 import { chainResponse, designPid, frequencyGrid } from '@apwt/filters'
 import type { TuneAxis } from './params.js'
-import { SIGNAL_KEYS, type AirspeedScaling, type TimeHistory } from './time-history.js'
+import { SIGNAL_KEYS, type TimeHistory } from './time-history.js'
 
 /** A frequency response with its coherence (0 to 1, how much of the output the input explains). */
 export interface FrequencyResponse {
@@ -87,7 +87,6 @@ export interface IdentifiedResponses {
   readonly sampleRate: number
   readonly windowSize: number
   readonly windowCount: number
-  readonly airspeed: AirspeedScaling
   /** Pilot (SID target) input to attitude, or to rate on yaw. */
   readonly pilot: FrequencyResponse
   /** Mixer input to gyro rate and to attitude (the bare aircraft). */
@@ -113,20 +112,42 @@ function dropDc(r: FrequencyResponse): FrequencyResponse {
   return { H: { re: r.H.re.slice(1), im: r.H.im.slice(1) }, coherence: r.coherence.slice(1) }
 }
 
+/**
+ * The FFT window size upstream calculates with: the input's text read with `parseInt`, which must
+ * have an integer log2 (upstream alerts "Window size must be a power of two" and stops; 0, negative
+ * and empty input fail the same way). A size of 1 passes that test and then fails in the FFT
+ * library, as upstream's does.
+ */
+export function windowSizeFromText(text: string): number {
+  const windowSize = parseInt(text)
+  if (!Number.isInteger(Math.log2(windowSize))) throw new WindowSizeError('Window size must be a power of two')
+  // Throws "FFT size must be a power of two and bigger than 1." for 1, as upstream's `new FFTJS`.
+  new RealFft(windowSize)
+  return windowSize
+}
+
+const TOO_SHORT = 'The analysis window is shorter than one FFT window. Pick a longer window or a smaller FFT size.'
+
 /** Identify every response from a time history with FFT windows of `windowSize` at 50% overlap. */
 export function identifyResponses(history: TimeHistory, axis: TuneAxis, windowSize: number): IdentifiedResponses {
   if (!isPowerOfTwo(windowSize)) throw new WindowSizeError('Window size must be a power of two')
   const windowSpacing = Math.round(windowSize * (1 - 0.5))
-  const fft = runFft(history.signals, SIGNAL_KEYS, {
-    windowSize,
-    windowSpacing,
-    window: hanning(windowSize),
-    fft: new RealFft(windowSize)
-  })
-  const windowCount = fft.center.length
-  if (windowCount === 0) {
-    throw new WindowSizeError('The analysis window is shorter than one FFT window. Pick a longer window or a smaller FFT size.')
+  let fft
+  try {
+    fft = runFft(history.signals, SIGNAL_KEYS, {
+      windowSize,
+      windowSpacing,
+      window: hanning(windowSize),
+      fft: new RealFft(windowSize)
+    })
+  } catch (e) {
+    // Upstream's run_fft throws allocating a negative number of windows; say why instead.
+    if (e instanceof RangeError) throw new WindowSizeError(TOO_SHORT)
+    throw e
   }
+  const windowCount = fft.center.length
+  // With no windows upstream throws reading the first one.
+  if (windowCount === 0) throw new WindowSizeError(TOO_SHORT)
   const { sampleRate } = history
   const s = fft.spectra
   const response = (input: ComplexArray[], output: ComplexArray[]) =>
@@ -137,7 +158,6 @@ export function identifyResponses(history: TimeHistory, axis: TuneAxis, windowSi
     sampleRate,
     windowSize,
     windowCount,
-    airspeed: history.airspeed,
     pilot: response(s.PilotInput, axis === 'Yaw' ? s.Rate : s.Att),
     aircraftGyro: response(s.ActInput, s.GyroRaw),
     aircraftAttitude: response(s.ActInput, s.Att),

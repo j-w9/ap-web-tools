@@ -32,8 +32,10 @@ describe('loadLog', () => {
     expect(loaded.kind).toBe('tlog')
   })
 
-  it('explains empty files', () => {
-    expect(() => loadLog(new ArrayBuffer(100), 'tlog')).toThrow(/No valid MAVLink messages/)
-    expect(() => loadLog(new ArrayBuffer(100), 'bin')).toThrow(/No messages/)
+  it('loads files without usable data as empty logs, as upstream', () => {
+    const tlog = loadLog(new ArrayBuffer(100), 'tlog')
+    expect(tlog.kind === 'tlog' && tlog.tlog.components).toEqual([])
+    const bin = loadLog(new ArrayBuffer(100), 'bin')
+    expect(bin.kind === 'bin' && bin.log.messages.every((m) => m.count === 0)).toBe(true)
   })
 })

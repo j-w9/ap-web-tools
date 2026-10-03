@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { defaultFilterParams, type FilterParams } from './filter-params.js'
 import { filterToolUrl } from './filter-tool-link.js'
-import { applyParamFile, filterParamFileText, pageParams, signedBitmask } from './param-file.js'
+import { bitmaskFromBits, defaultPageValues, filterParamsFromPage, sanitizeNumberInput, withPageValue } from './page-values.js'
+import { applyParamFile, filterParamFileText, pageParams } from './param-file.js'
 
 const upstreamDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../upstream')
 
@@ -29,62 +29,70 @@ function upstreamPageOrder(): string[] {
   return [...ids.filter((id) => !isSelect(id)), ...ids.filter(isSelect)]
 }
 
-function sampleParams(): FilterParams {
-  const p = defaultFilterParams()
-  p.gyroFilter = 0.6499999761581421
-  p.notches[0] = {
-    enable: 1,
-    mode: 3,
-    freq: 81.5,
-    bandwidth: 40.099998474121094,
-    attenuation: 40,
-    ref: 1,
-    minRatio: 0.8,
-    harmonics: 0x83,
-    options: 18
-  }
-  p.notches[1].mode = 7
-  return p
-}
-
 describe('parameter file', () => {
   it('lists parameters in upstream page order', () => {
-    expect(pageParams(defaultFilterParams(), true).map((p) => p.name)).toEqual(upstreamPageOrder())
+    expect(pageParams(defaultPageValues()).map((p) => p.name)).toEqual(upstreamPageOrder())
   })
 
-  it('writes the upstream .param text', () => {
-    const text = filterParamFileText(sampleParams(), false)
-    const lines = text.split('\n')
+  it('writes the page values through param_to_string', () => {
+    let values = defaultPageValues()
+    values = withPageValue(values, 'INS_GYRO_FILTER', 0.6499999761581421)
+    values = withPageValue(values, 'INS_HNTCH_BW', 40.099998474121094)
+    values = withPageValue(values, 'INS_HNTCH_HMNCS', -125)
+    values = withPageValue(values, 'INS_HNTC2_MODE', 7)
+    const lines = filterParamFileText(values).split('\n')
     expect(lines[0]).toBe('INS_GYRO_FILTER,0.65')
     expect(lines).toContain('INS_HNTCH_HMNCS,-125')
     expect(lines).toContain('INS_HNTCH_BW,40.1')
-    // An unknown mode cannot be shown in the drop-down, which then reads as empty
-    expect(lines).toContain('INS_HNTC2_MODE,0')
-    expect(text.endsWith('INS_HNTC2_MODE,0\n')).toBe(true)
-    expect(filterParamFileText(sampleParams(), true).split('\n')).toContain('INS_HNTCH_HMNCS,131')
+    // An unknown mode cannot be shown in the drop-down, which then reads as empty, written as 0
+    expect(lines.at(-2)).toBe('INS_HNTC2_MODE,0')
   })
 
-  it('reads parameter files back', () => {
-    const text = 'INS_HNTCH_ENABLE 1\nINS_HNTCH_FREQ=95\nINS_HNTCH_HMNCS,-1\nSCHED_LOOP_RATE\t800\n# comment\nUNKNOWN,4\n'
-    const { params, applied } = applyParamFile(text, defaultFilterParams(), false)
-    expect(applied).toEqual(['INS_HNTCH_ENABLE', 'INS_HNTCH_FREQ', 'INS_HNTCH_HMNCS', 'SCHED_LOOP_RATE'])
-    expect(params.notches[0]).toMatchObject({ enable: 1, freq: 95, harmonics: 255 })
-    expect(params.loopRate).toBe(800)
-    expect(applyParamFile('  INS_GYRO_FILTER,40\r\nINS_HNTCH_FREQ,abc\n', defaultFilterParams(), false).applied).toEqual([
-      'INS_GYRO_FILTER'
+  it('reads lines as upstream splits them', () => {
+    const text =
+      'INS_HNTCH_ENABLE 1\nINS_HNTCH_FREQ=95\nINS_HNTCH_HMNCS,-1\nSCHED_LOOP_RATE\t800\n# comment\nUNKNOWN,4\n  INS_GYRO_FILTER,40\r\nINS_HNTCH_BW,abc\n'
+    expect(applyParamFile(text).assignments).toEqual([
+      { kind: 'param', name: 'INS_HNTCH_ENABLE', value: '1' },
+      { kind: 'param', name: 'INS_HNTCH_FREQ', value: '95' },
+      { kind: 'param', name: 'INS_HNTCH_HMNCS', value: '-1' },
+      { kind: 'param', name: 'SCHED_LOOP_RATE', value: '800' },
+      { kind: 'param', name: 'INS_HNTCH_BW', value: '' }
     ])
-    const roundTrip = applyParamFile(filterParamFileText(sampleParams(), true), defaultFilterParams(), true).params
-    expect(roundTrip.notches[0]).toEqual({ ...sampleParams().notches[0], bandwidth: 40.1 })
   })
 
-  it('converts narrow bitmasks to their signed form', () => {
-    expect(signedBitmask(255, 8)).toBe(-1)
-    expect(signedBitmask(127, 8)).toBe(127)
-    expect(signedBitmask(255, 32)).toBe(255)
+  it('reads inputs as parameter_get_value', () => {
+    let values = withPageValue(defaultPageValues(), 'INS_HNTCH_HMNCS', -1)
+    values = withPageValue(values, 'INS_HNTCH_FREQ', '')
+    expect(filterParamsFromPage(values, false).notches[0].harmonics).toBe(255)
+    expect(filterParamsFromPage(values, true).notches[0].harmonics).toBe(-1)
+    expect(filterParamsFromPage(values, true).notches[0].freq).toBeNaN()
+    expect(filterParamsFromPage(defaultPageValues(), true).gyroFilter).toBe(20)
+  })
+
+  it('sanitizes like a number input', () => {
+    expect(['12', '-1.5', '.5', '1e3', '5.', '+5', ' 5', '1x', 'NaN', 'Infinity', '1e400', ''].map(sanitizeNumberInput)).toEqual([
+      '12',
+      '-1.5',
+      '.5',
+      '1e3',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
+    ])
+  })
+
+  it('converts bitmask chips as read_bits', () => {
+    expect(bitmaskFromBits([0, 1, 7], 8)).toBe(-125)
+    expect(bitmaskFromBits([0, 1, 7], 32)).toBe(131)
   })
 
   it('builds the Filter Tool link', () => {
-    const url = filterToolUrl('https://example.org/FilterTool/', defaultFilterParams(), true, {
+    const url = filterToolUrl('https://example.org/FilterTool/', defaultPageValues(), {
       gyroSampleRate: 1999.6,
       throttle: 0.3,
       rpm1: undefined,
@@ -93,9 +101,10 @@ describe('parameter file', () => {
       rpm2: undefined
     })
     const query = new URL(url).searchParams
-    expect(query.get('INS_GYRO_FILTER')).toBe('20')
+    expect(query.get('INS_GYRO_FILTER')).toBe('20.0')
     expect(query.get('GYRO_SAMPLE_RATE')).toBe('2000')
     expect(query.get('NUM_MOTORS')).toBe('4')
     expect(query.has('RPM1')).toBe(false)
+    expect(query.has('SCHED_LOOP_RATE')).toBe(false)
   })
 })

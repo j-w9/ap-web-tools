@@ -6,6 +6,7 @@
  * whole URL before reading it, so reading here is case-insensitive too.
  */
 import type { MagnitudeScale, PhaseScale, PidFiltering } from './bode.js'
+import { assignFieldValue } from './fields.js'
 import { DEFAULT_INPUTS, INPUT_NAMES, PID_AXES, type InputName, type Inputs, type PidAxis } from './params.js'
 
 export type FrequencyAxis = 'log' | 'linear'
@@ -117,10 +118,17 @@ export function stateToQuery(state: ToolState): string {
   return query.toString()
 }
 
-/** Case-insensitive lookup into a query string. */
-function lowerCaseQuery(search: string): ReadonlyMap<string, string> {
+/**
+ * Case-insensitive lookup into a query string; the first of repeated keys wins, as
+ * `searchParams.get`. Upstream lowercases the whole link, values included, so `lowerValues`
+ * makes e.g. `Infinity` read as `infinity`, which is not a number.
+ */
+function lowerCaseQuery(search: string, lowerValues: boolean): ReadonlyMap<string, string> {
   const map = new Map<string, string>()
-  for (const [key, value] of new URLSearchParams(search)) map.set(key.toLowerCase(), value)
+  for (const [key, value] of new URLSearchParams(search)) {
+    const k = key.toLowerCase()
+    if (!map.has(k)) map.set(k, lowerValues ? value.toLowerCase() : value)
+  }
   return map
 }
 
@@ -135,22 +143,35 @@ function readBode(query: ReadonlyMap<string, string>, prefix: '' | 'PID_', base:
     phase: read(keys.phase, PHASE, base.phase),
     frequencyAxis: read(keys.frequencyAxis, FREQ_AXIS, base.frequencyAxis),
     frequencyUnit: read(keys.frequencyUnit, FREQ_UNIT, base.frequencyUnit),
-    showComponents: read(keys.showComponents, BOOL, base.showComponents)
+    // Upstream: `checked = value === 'true'`, so any other value unchecks.
+    showComponents: (() => {
+      const text = query.get(keys.showComponents.toLowerCase())
+      return text === undefined ? base.showComponents : text.toLowerCase() === 'true'
+    })()
   }
 }
 
 /**
- * State from a query string, starting from `base`. Unknown keys and unparsable values are
- * ignored, so partial or upstream links work.
+ * Where a query string comes from. A share `link` is read as upstream `load()` reads its URL:
+ * values that `parseFloat` to `NaN` are skipped. `stored` state stands in for upstream's cookies,
+ * which `load_cookies` applies even when they hold `NaN` (an input left empty stays empty).
  */
-export function stateFromQuery(search: string, base: ToolState = DEFAULT_STATE): ToolState {
-  const query = lowerCaseQuery(search)
+export type QuerySource = 'link' | 'stored'
+
+/**
+ * State from a query string, starting from `base`. Unknown keys are ignored, so partial or
+ * upstream links work. Each number is assigned to its form control as upstream does
+ * ({@link assignFieldValue}), so e.g. `INS_HNTCH_MODE=1.5` or `Throttle=Infinity` reads as `NaN`.
+ */
+export function stateFromQuery(search: string, base: ToolState = DEFAULT_STATE, source: QuerySource = 'link'): ToolState {
+  const query = lowerCaseQuery(search, source === 'link')
   const inputs: Record<InputName, number> = { ...base.inputs }
   for (const name of INPUT_NAMES) {
     const text = query.get(name.toLowerCase())
     if (text === undefined) continue
     const value = parseFloat(text)
-    if (Number.isFinite(value)) inputs[name] = value
+    if (source === 'link' && Number.isNaN(value)) continue
+    inputs[name] = assignFieldValue(name, value)
   }
   const filteringText = query.get('filtering')
   const axisText = query.get('pid_axis')

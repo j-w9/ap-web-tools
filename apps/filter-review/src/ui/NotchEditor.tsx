@@ -1,19 +1,25 @@
 import { CheckChips, Chip, ChipLabel } from '@apwt/tool-shell'
-import type { NotchParams } from '../analysis/filter-params.js'
-import { notchParamNames } from '../analysis/filter-params.js'
-import { NumberField } from './NumberField.js'
+import {
+  bitmaskBits,
+  bitmaskFromBits,
+  notchInputName,
+  pageNumber,
+  type FilterParamName,
+  type PageValues
+} from '../analysis/page-values.js'
+import { TextNumberField } from './NumberField.js'
 
-/** `_MODE` values and what they track. */
+/** `_MODE` values and what they track (the drop-down options upstream builds from `params.json`). */
 const MODES = [
-  { value: 0, label: 'Fixed frequency' },
-  { value: 1, label: 'Throttle' },
-  { value: 2, label: 'RPM sensor' },
-  { value: 3, label: 'ESC telemetry' },
-  { value: 4, label: 'Dynamic FFT' },
-  { value: 5, label: 'Second RPM sensor' }
+  { value: '0', label: 'Fixed frequency' },
+  { value: '1', label: 'Throttle' },
+  { value: '2', label: 'RPM sensor' },
+  { value: '3', label: 'ESC telemetry' },
+  { value: '4', label: 'Dynamic FFT' },
+  { value: '5', label: 'Second RPM sensor' }
 ] as const
 
-/** `_OPTS` bits. */
+/** `_OPTS` bits offered by `params.json`. */
 const OPTION_BITS = [
   { bit: 0, label: 'Double notch' },
   { bit: 1, label: 'Multi-source' },
@@ -41,118 +47,123 @@ type BitKey = `${number}`
 
 const bitKey = (bit: number): BitKey => `${bit}`
 
-function bitsToSet(value: number, count: number): ReadonlySet<BitKey> {
+/** Ticked bits, as upstream sets its checkboxes from the input value. */
+function bitsToSet(value: number, bits: readonly number[]): ReadonlySet<BitKey> {
   const out = new Set<BitKey>()
-  for (let b = 0; b < count; b++) if ((value & (1 << b)) !== 0) out.add(bitKey(b))
+  for (const b of bits) if ((value & (1 << b)) !== 0) out.add(bitKey(b))
   return out
-}
-
-function setToBits(set: ReadonlySet<BitKey>, previous: number, count: number): number {
-  let value = previous
-  for (let b = 0; b < count; b++) {
-    if (set.has(bitKey(b))) value |= 1 << b
-    else value &= ~(1 << b)
-  }
-  return value >>> 0
 }
 
 export interface NotchEditorProps {
   index: number
-  params: NotchParams
-  onChange: (params: NotchParams) => void
-  /** 16 harmonics on newer firmware, 8 before. */
-  harmonicCount: number
+  values: PageValues
+  onChange: (name: FilterParamName, value: string | number) => void
+  /** Whether `_HMNCS` is 32-bit (16 harmonics shown) rather than 8-bit. */
+  sixteenHarmonics: boolean
   /** Modes with tracking data in the log. */
   availableModes: ReadonlySet<number>
   disabled: boolean
 }
 
-/** Every parameter of one harmonic notch. */
-export function NotchEditor({ index, params, onChange, harmonicCount, availableModes, disabled }: NotchEditorProps) {
-  const names = notchParamNames(index)
-  const set = <K extends keyof NotchParams>(key: K, value: NotchParams[K]) => onChange({ ...params, [key]: value })
-  const off = disabled || params.enable <= 0
-  const knownMode = MODES.some((m) => m.value === params.mode)
+/** Every parameter of one harmonic notch, holding the input strings upstream's page holds. */
+export function NotchEditor({ index, values, onChange, sixteenHarmonics, availableModes, disabled }: NotchEditorProps) {
+  const name = (key: Parameters<typeof notchInputName>[1]): FilterParamName => notchInputName(index, key)
+  const enable = name('enable')
+  const mode = name('mode')
+  const harmonics = name('harmonics')
+  const options = name('options')
+  // Upstream filter_param_read disables the group unless parseFloat(_ENABLE) > 0
+  const off = disabled || !(parseFloat(values[enable]) > 0)
+  const harmonicBits = Array.from({ length: sixteenHarmonics ? 16 : 8 }, (_, b) => b)
+  const optionBits = OPTION_BITS.map((o) => o.bit)
+
+  const numberField = (key: 'freq' | 'bandwidth' | 'attenuation' | 'ref' | 'minRatio', label: string, step: number) => (
+    <TextNumberField
+      label={label}
+      title={name(key)}
+      value={values[name(key)]}
+      step={step}
+      disabled={off}
+      onChange={(v) => onChange(name(key), v)}
+    />
+  )
 
   return (
     <>
       <div className="apwt-chips">
         <Chip
           type="checkbox"
-          checked={params.enable > 0}
+          checked={values[enable] === '1'}
           disabled={disabled}
-          onChange={(on) => set('enable', on ? 1 : 0)}
-          title={names.enable}
+          onChange={(on) => onChange(enable, on ? 1 : 0)}
+          title={enable}
         >
           Enabled
         </Chip>
       </div>
-      <label className="apwt-field" title={names.mode}>
+      <label className="apwt-field" title={mode}>
         <span>Tracking</span>
-        <select value={params.mode} disabled={off} onChange={(e) => set('mode', Number(e.target.value))}>
-          {!knownMode && <option value={params.mode}>Unknown ({params.mode})</option>}
+        <select value={values[mode]} disabled={off} onChange={(e) => onChange(mode, e.target.value)}>
+          {values[mode] === '' && <option value="" />}
           {MODES.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
-              {m.value !== 0 && !availableModes.has(m.value) ? ' (no data)' : ''}
+              {m.value !== '0' && !availableModes.has(Number(m.value)) ? ' (no data)' : ''}
             </option>
           ))}
         </select>
       </label>
-      <NumberField
-        label="Frequency (Hz)"
-        title={names.freq}
-        value={params.freq}
-        step={0.1}
-        disabled={off}
-        onChange={(v) => set('freq', v)}
-      />
-      <NumberField
-        label="Bandwidth (Hz)"
-        title={names.bandwidth}
-        value={params.bandwidth}
-        step={0.1}
-        disabled={off}
-        onChange={(v) => set('bandwidth', v)}
-      />
-      <NumberField
-        label="Attenuation (dB)"
-        title={names.attenuation}
-        value={params.attenuation}
-        step={0.1}
-        disabled={off}
-        onChange={(v) => set('attenuation', v)}
-      />
-      <NumberField
-        label={referenceLabel(params.mode)}
-        title={names.ref}
-        value={params.ref}
-        step={0.01}
-        disabled={off}
-        onChange={(v) => set('ref', v)}
-      />
-      <NumberField
-        label="Min frequency ratio"
-        title={names.minRatio}
-        value={params.minRatio}
-        step={0.01}
-        disabled={off}
-        onChange={(v) => set('minRatio', v)}
-      />
-      <div className="fr-subgroup" title={names.harmonics}>
+      {numberField('freq', 'Frequency (Hz)', 0.1)}
+      {numberField('bandwidth', 'Bandwidth (Hz)', 0.1)}
+      {numberField('attenuation', 'Attenuation (dB)', 0.1)}
+      {numberField('ref', referenceLabel(parseFloat(values[mode])), 0.01)}
+      {numberField('minRatio', 'Min frequency ratio', 0.01)}
+      <div className="fr-subgroup" title={harmonics}>
         <ChipLabel>Harmonics</ChipLabel>
         <CheckChips
-          options={Array.from({ length: harmonicCount }, (_, b) => ({ value: bitKey(b), label: String(b + 1), disabled: off }))}
-          value={bitsToSet(params.harmonics, harmonicCount)}
-          onChange={(s) => set('harmonics', setToBits(s, params.harmonics, harmonicCount))}
+          options={harmonicBits.map((b) => ({ value: bitKey(b), label: String(b + 1), disabled: off }))}
+          value={bitsToSet(pageNumber(values, harmonics, sixteenHarmonics), harmonicBits)}
+          onChange={(s) =>
+            onChange(
+              harmonics,
+              bitmaskFromBits(
+                [...s].map((k) => Number(k)),
+                bitmaskBits(harmonics, sixteenHarmonics) ?? 32
+              )
+            )
+          }
+        />
+        <TextNumberField
+          label="Value"
+          title={harmonics}
+          value={values[harmonics]}
+          step={1}
+          disabled={off}
+          onChange={(v) => onChange(harmonics, v)}
         />
       </div>
-      <div className="fr-subgroup" title={names.options}>
+      <div className="fr-subgroup" title={options}>
         <ChipLabel>Options</ChipLabel>
         <CheckChips
           options={OPTION_BITS.map((o) => ({ value: bitKey(o.bit), label: o.label, disabled: off }))}
-          value={bitsToSet(params.options, OPTION_BITS.length)}
-          onChange={(s) => set('options', setToBits(s, params.options, OPTION_BITS.length))}
+          value={bitsToSet(pageNumber(values, options, sixteenHarmonics), optionBits)}
+          onChange={(s) =>
+            onChange(
+              options,
+              bitmaskFromBits(
+                [...s].map((k) => Number(k)),
+                32
+              )
+            )
+          }
+        />
+        <TextNumberField
+          label="Value"
+          title={options}
+          value={values[options]}
+          step={1}
+          disabled={off}
+          onChange={(v) => onChange(options, v)}
         />
       </div>
     </>

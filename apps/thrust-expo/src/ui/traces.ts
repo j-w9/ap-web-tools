@@ -8,9 +8,9 @@ import {
   type HoverEstimate,
   type Linearisation,
   type SpinMarkerKey,
-  type SpinParams,
-  type ThrustData
+  type SpinParams
 } from '../analysis/linearisation.js'
+import type { TableRow } from '../analysis/thrust-table.js'
 
 const PLOT_MARGIN = { b: 50, l: 50, r: 150, t: 20 }
 const AXIS_FRAME = { type: 'linear', zeroline: false, showline: true, mirror: true } as const
@@ -25,13 +25,14 @@ const MARKER_COLORS: Readonly<Record<SpinMarkerKey, string>> = {
 
 // ---------- Thrust against ESC signal ----------
 
-export function pwmTraces(data: ThrustData): Partial<Data>[] {
-  return [{ x: data.pwm, y: data.thrust, name: 'Measured Thrust', mode: 'lines' }]
+/** Measured thrust against ESC signal, plotting the cells' raw values as upstream does. */
+export function pwmTraces(rows: readonly TableRow[]): Partial<Data>[] {
+  return [{ x: rows.map((r) => r.pwm ?? null), y: rows.map((r) => r.thrust ?? null), name: 'Measured Thrust', mode: 'lines' }]
 }
 
-/** PWM axis over the output range, with the spin points marked once there is data. */
-export function pwmLayout(spin: SpinParams, hasData: boolean): Partial<Layout> {
-  const markers = hasData ? spinMarkers(spin, 'pwm') : []
+/** PWM axis over the output range, with the spin points marked. */
+export function pwmLayout(spin: SpinParams): Partial<Layout> {
+  const markers = spinMarkers(spin, 'pwm')
   const shapes: Partial<Shape>[] = markers.map((m) => ({
     type: 'line',
     x0: m.x,

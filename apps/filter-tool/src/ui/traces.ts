@@ -3,8 +3,9 @@
  * frequency axis (upstream `load()` plot setup and the trace updates in `calculate_*`).
  */
 import { arrayScale } from '@apwt/signal'
-import { defaultColor, type Data, type Layout } from '@apwt/plot'
-import type { Bode } from '../analysis/bode.js'
+import type { Layout, PlotData } from '@apwt/plot'
+import { defaultColor } from '@apwt/plot/colors'
+import type { Bode, GyroBode, GyroComponentKey, PidBode } from '../analysis/bode.js'
 import type { BodeSettings } from '../analysis/settings.js'
 
 /** One response to plot. */
@@ -22,7 +23,7 @@ export function bodeTraces(
   series: readonly BodeSeries[],
   s: BodeSettings,
   legend: boolean
-): Partial<Data>[] {
+): Partial<PlotData>[] {
   const rpm = s.frequencyUnit === 'RPM'
   const x = rpm ? arrayScale(freqHz, 60.0) : freqHz
   const meta = legend ? '%{meta}<br>' : ''
@@ -30,7 +31,7 @@ export function bodeTraces(
   const ampTemplate = `<extra></extra>${meta}${freqHover}<br>%{y:.2f} ${s.magnitude === 'dB' ? 'dB' : ''}`
   const phaseTemplate = `<extra></extra>${meta}${freqHover}<br>%{y:.2f} deg`
 
-  return series.flatMap((item, i): Partial<Data>[] => {
+  return series.flatMap((item, i): Partial<PlotData>[] => {
     const common = {
       mode: 'lines' as const,
       line: { color: defaultColor(i) },
@@ -71,4 +72,39 @@ export function bodeLayout(s: BodeSettings, magnitudeName: 'Magnitude' | 'Gain',
     margin: { b: 50, l: 60, r: 30, t: 20 },
     grid: { rows: 2, columns: 1, pattern: 'independent' }
   }
+}
+
+/** A plot's traces and layout. */
+export interface BodePlot {
+  readonly data: Partial<PlotData>[]
+  readonly layout: Partial<Layout>
+}
+
+const COMPONENT_NAMES: Readonly<Record<GyroComponentKey, string>> = {
+  INS_HNTCH: 'Notch 1',
+  INS_HNTC2: 'Notch 2',
+  lowPass: 'Gyro low pass'
+}
+
+/** The gyro filter plot (upstream `calculate_filter`): components only when more than one filter is enabled. */
+export function gyroPlot(gyro: GyroBode, s: BodeSettings): BodePlot {
+  const legend = s.showComponents && gyro.enabledCount > 1
+  const series: BodeSeries[] = [
+    { name: 'Combined', bode: gyro.total, visible: true },
+    ...gyro.components.map((c) => ({ name: COMPONENT_NAMES[c.key], bode: c.bode, visible: legend && c.enabled }))
+  ]
+  return { data: bodeTraces(gyro.freq, series, s, legend), layout: bodeLayout(s, 'Magnitude', legend) }
+}
+
+/** The rate PID plot (upstream `calculate_pid`). */
+export function pidPlot(pid: PidBode, s: BodeSettings): BodePlot {
+  const legend = s.showComponents
+  const series: BodeSeries[] = [
+    { name: 'Combined', bode: pid.total, visible: true },
+    { name: 'Gyro filters', bode: pid.gyro, visible: legend },
+    { name: 'Proportional', bode: pid.p, visible: legend },
+    { name: 'Integral', bode: pid.i, visible: legend },
+    { name: 'Derivative', bode: pid.d, visible: legend }
+  ]
+  return { data: bodeTraces(pid.freq, series, s, legend), layout: bodeLayout(s, 'Gain', legend) }
 }

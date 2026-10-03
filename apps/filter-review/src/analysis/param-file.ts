@@ -1,99 +1,100 @@
-import { paramLine, parseParamFile } from '@apwt/ardupilot'
-import { NOTCH_PARAM_SUFFIXES, notchParamNames, unsignedBitmask, type FilterParams, type NotchParams } from './filter-params.js'
+import { paramLine } from '@apwt/ardupilot'
+import {
+  FILTER_PARAM_NAMES,
+  assignedValue,
+  isFilterParamName,
+  sanitizeNumberInput,
+  selectOptions,
+  type FilterParamName,
+  type PageValues
+} from './page-values.js'
 
-/** Value of a bitmask as the page shows it: narrow (8-bit) masks are signed, as logged. */
-export function signedBitmask(value: number, bits: number): number {
-  if (bits >= 32) return value
-  const masked = value & (0xffffffff >>> (32 - bits))
-  return (masked & (1 << (bits - 1))) !== 0 ? masked - (1 << bits) : masked
-}
-
-/** Choices upstream offers for the notch parameters it shows as drop-downs. */
-const SELECT_VALUES: Partial<Record<keyof NotchParams, readonly number[]>> = {
-  enable: [0, 1],
-  mode: [0, 1, 2, 3, 4, 5]
-}
-
-/** Notch fields upstream renders as number inputs, in page order (the rest are drop-downs). */
-const INPUT_FIELDS = (Object.keys(NOTCH_PARAM_SUFFIXES) as (keyof NotchParams)[]).filter((k) => !(k in SELECT_VALUES))
-const SELECT_FIELDS = (Object.keys(NOTCH_PARAM_SUFFIXES) as (keyof NotchParams)[]).filter((k) => k in SELECT_VALUES)
-
-/** One `INS_*` parameter as upstream reads it from the page: name and the field's value. */
+/** One `INS_*` input as upstream finds it on the page: id (= name) and its value string. */
 export interface PageParam {
-  readonly name: string
-  readonly value: number
+  readonly name: FilterParamName
+  readonly value: string
 }
 
 /**
- * The `INS_*` parameters in the order upstream finds them on the page: the number inputs
- * (low-pass, then each notch's numeric fields), then the drop-downs (each notch's enable and
- * mode). A drop-down whose value is not one of its options reads as empty, i.e. 0.
+ * The `INS_*` inputs in the order upstream's `getElementsByTagName` finds them: the number
+ * inputs in page order (low-pass, then each notch's numeric fields), then the drop-downs
+ * (each notch's enable and mode). `SCHED_LOOP_RATE` is not an `INS_` input and is left out.
  */
-export function pageParams(params: FilterParams, sixteenHarmonics: boolean): PageParam[] {
-  const harmonicBits = sixteenHarmonics ? 32 : 8
-  const field = (notch: NotchParams, key: keyof NotchParams): number => {
-    if (key === 'harmonics') return signedBitmask(notch.harmonics, harmonicBits)
-    const options = SELECT_VALUES[key]
-    if (options !== undefined && !options.includes(notch[key])) return 0
-    return notch[key]
-  }
-  const out: PageParam[] = [{ name: 'INS_GYRO_FILTER', value: params.gyroFilter }]
-  for (const keys of [INPUT_FIELDS, SELECT_FIELDS]) {
-    params.notches.forEach((notch, i) => {
-      const names = notchParamNames(i)
-      for (const key of keys) out.push({ name: names[key], value: field(notch, key) })
-    })
-  }
-  return out
+export function pageParams(values: PageValues): PageParam[] {
+  const ins = FILTER_PARAM_NAMES.filter((n) => n.startsWith('INS_'))
+  const inputs = ins.filter((n) => selectOptions(n) === undefined)
+  const selects = ins.filter((n) => selectOptions(n) !== undefined)
+  return [...inputs, ...selects].map((name) => ({ name, value: values[name] }))
 }
 
 /**
- * Text of the `.param` file upstream's "Save Parameters" downloads. Lines stay in page order
- * (not the natural name order of `paramFileText`), as upstream writes them.
+ * Text of the `filter.param` file upstream's "Save Parameters" downloads (`save_parameters`):
+ * lines in page order, each value through `param_to_string`, which reads an empty input as 0.
  */
-export function filterParamFileText(params: FilterParams, sixteenHarmonics: boolean): string {
-  return pageParams(params, sixteenHarmonics)
-    .map((p) => paramLine(p.name, p.value))
+export function filterParamFileText(values: PageValues): string {
+  return pageParams(values)
+    .map((p) => paramLine(p.name, Number(p.value)))
     .join('')
 }
 
-/** Result of reading a parameter file into the filter settings. */
+/** Other page inputs a parameter file can write, because upstream looks names up by element id. */
+export type OtherPageInput = 'TimeStart' | 'TimeEnd' | 'FFTWindow_size' | 'FFTWindow_per_batch'
+
+const OTHER_INPUTS: ReadonlySet<string> = new Set<OtherPageInput>([
+  'TimeStart',
+  'TimeEnd',
+  'FFTWindow_size',
+  'FFTWindow_per_batch'
+])
+
+/** File inputs on the upstream page; assigning them a non-empty value throws. */
+const FILE_INPUTS: ReadonlySet<string> = new Set(['fileItem', 'LoadParamsbase'])
+
+/** An input value written by a parameter file line. */
+export type ParamFileAssignment =
+  | { readonly kind: 'param'; readonly name: FilterParamName; readonly value: string }
+  | { readonly kind: 'other'; readonly name: OtherPageInput; readonly value: string }
+
+/** Result of reading a parameter file. */
 export interface ParamFileResult {
-  readonly params: FilterParams
-  /** Names that were recognised and applied. */
-  readonly applied: readonly string[]
+  /** Input values written, in file order. */
+  readonly assignments: readonly ParamFileAssignment[]
+  /**
+   * Set when upstream would have thrown part way through (a line naming one of the page's
+   * file inputs). Lines before it were applied; upstream then skips the recalculation.
+   */
+  readonly error?: string
 }
 
 /**
- * Apply a `.param` / `.parm` file to the filter settings (upstream `load_parameters`): lines are
- * read by the shared `parseParamFile`, and recognised names overwrite their field in file order.
+ * Read a `.param` / `.parm` file the way upstream `load_parameters` does. Each line (not
+ * trimmed) is split on runs of whitespace, `,` and `=`; a line with at least two parts sets the
+ * page element whose id is the first part to the second part. An indented line therefore has
+ * an empty name and is ignored. Values go through the input's own rules: a number input keeps
+ * only a valid number string (else empty, read as NaN), a drop-down only one of its options.
  *
- * Deviation: upstream does not trim lines, so an indented line was ignored; it is read here.
+ * Names are page element ids, not only parameters: `TimeStart`, `TimeEnd`, `FFTWindow_size`
+ * and `FFTWindow_per_batch` are written too. Other ids (checkboxes, buttons, plots) take the
+ * value without effect.
  */
-export function applyParamFile(text: string, params: FilterParams, sixteenHarmonics: boolean): ParamFileResult {
-  const next: FilterParams = {
-    gyroFilter: params.gyroFilter,
-    loopRate: params.loopRate,
-    notches: [{ ...params.notches[0] }, { ...params.notches[1] }]
-  }
-  const lookup = new Map<string, (value: number) => void>([
-    ['INS_GYRO_FILTER', (v) => (next.gyroFilter = v)],
-    ['SCHED_LOOP_RATE', (v) => (next.loopRate = v)]
-  ])
-  next.notches.forEach((notch, i) => {
-    const names = notchParamNames(i)
-    for (const key of Object.keys(names) as (keyof NotchParams)[]) {
-      lookup.set(names[key], (v) => {
-        notch[key] = key === 'harmonics' ? unsignedBitmask(v, sixteenHarmonics ? 32 : 8) : v
-      })
+export function applyParamFile(text: string): ParamFileResult {
+  const assignments: ParamFileAssignment[] = []
+  const lines = text.split('\n')
+  for (const line of lines) {
+    const v = line.split(/[\s,=\t]+/)
+    if (v.length < 2) continue
+    const name = v[0]!
+    const value = v[1]!
+    if (isFilterParamName(name)) {
+      assignments.push({ kind: 'param', name, value: assignedValue(name, value) })
+    } else if (OTHER_INPUTS.has(name)) {
+      assignments.push({ kind: 'other', name: name as OtherPageInput, value: sanitizeNumberInput(value) })
+    } else if (FILE_INPUTS.has(name) && value !== '') {
+      return {
+        assignments,
+        error: `Parameter file loading stopped at "${line}": ${name} is a file input and cannot be set (InvalidStateError)`
+      }
     }
-  })
-  const applied: string[] = []
-  for (const { name, value } of parseParamFile(text).entries) {
-    const set = lookup.get(name)
-    if (set === undefined) continue
-    set(value)
-    applied.push(name)
   }
-  return { params: next, applied }
+  return { assignments }
 }

@@ -41,6 +41,7 @@ export interface UpstreamPageState {
   fftPlotCoh: { data: { x: number[]; y: number[]; visible: boolean }[] }
   flightData: { data: { x?: ArrayLike<number>; y?: ArrayLike<number> }[]; layout: { xaxis: { range?: number[] } } }
   dataSet: Record<string, unknown> & { FFT: { bins: number[]; center: number[]; average_sample_rate: number } }
+  useAttitudeChecked: boolean
 }
 
 export interface UpstreamAnalyticTune {
@@ -85,6 +86,8 @@ export interface UpstreamAnalyticTune {
   setupPlots(): void
   /** Run upstream `save_parameters` and return the saved file's name and text. */
   saveParameters(): { name: string; text: string }
+  /** Run upstream `load_parameters` on a file with this text. */
+  loadParameters(text: string): Promise<void>
   loadLog(buffer: ArrayBuffer): void
   calculate(): void
   redraw(): void
@@ -145,8 +148,12 @@ function parameter_set_value(name, value) {
   const param = document.getElementById(name)
   if (param == null) return false
   param.value = value
+  // ParameterMetadata.js also sets every check box beside the input as a bitmask bit; the only
+  // one is UseAttitude, in the Control Loop fieldset, whose missing bit number gives 1 << NaN.
+  if (__controlLoopIds.includes(name)) document.getElementById('UseAttitude').checked = (value & (1 << parseFloat(undefined))) != 0
   return true
 }
+function parameter_set_disable(name, disable) {}
 function set_bitmask_size(name, size) {}
 function plot_default_color(i) { return '#000000' }
 function link_plot_axis_range(link) {}
@@ -171,6 +178,7 @@ function link_plot_reset(link) {}
   setAirspeed: (a, e) => { aspeed = a; eas2tas = e },
   setupPlots: () => setup_plots(),
   saveParameters: () => { save_parameters(); return __saved() },
+  loadParameters: (text) => load_parameters({ text: async () => text }),
   loadLog: (buffer) => load_log(buffer),
   calculate: () => calculate_freq_resp(),
   redraw: () => redraw_freq_resp(),
@@ -178,7 +186,8 @@ function link_plot_reset(link) {}
     calc: calc_freq_resp, pred: pred_freq_resp, sidSets: sid_sets, vehicleType: vehicle_type,
     pageAxis: page_axis, sidAxis: sid_axis, aspeed, eas2tas, useAngMessage: use_ANG_message,
     fftPlot: fft_plot, fftPlotPhase: fft_plot_Phase, fftPlotCoh: fft_plot_Coh, flightData: flight_data,
-    dataSet: data_set
+    dataSet: data_set,
+    useAttitudeChecked: document.getElementById('UseAttitude').checked
   })
 })`
   return sourceCache
@@ -195,8 +204,34 @@ export function findMetadata(tree: Record<string, unknown>, name: string): Recor
   return undefined
 }
 
-/** Minimal element: value is stored as a string, as the DOM does. */
+/** HTML "valid floating-point number" grammar, which a number input's value must match. */
+function isValidFloatingPointNumber(text: string): boolean {
+  let i = 0
+  if (text[i] === '-') i++
+  const digits = () => {
+    const start = i
+    while (i < text.length && text[i]! >= '0' && text[i]! <= '9') i++
+    return i > start
+  }
+  const intPart = digits()
+  if (text[i] === '.') {
+    i++
+    if (!digits()) return false
+  } else if (!intPart) return false
+  if (text[i] === 'e' || text[i] === 'E') {
+    i++
+    if (text[i] === '-' || text[i] === '+') i++
+    if (!digits()) return false
+  }
+  return i === text.length
+}
+
+/** How an element stores a value: as typed, sanitised as a number input, chosen from options, or a file input. */
+type StubKind = { kind: 'text' } | { kind: 'number' } | { kind: 'select'; options: readonly string[] } | { kind: 'file' }
+
+/** Minimal element: value is stored as a string, as the DOM does, with the DOM's value sanitisation. */
 class StubElement {
+  stub: StubKind = { kind: 'text' }
   private text = ''
   checked = false
   disabled = false
@@ -208,7 +243,22 @@ class StubElement {
     return this.text
   }
   set value(v: unknown) {
-    this.text = String(v)
+    const text = String(v)
+    switch (this.stub.kind) {
+      case 'text':
+        this.text = text
+        break
+      case 'number':
+        this.text = isValidFloatingPointNumber(text) ? text : ''
+        break
+      case 'select':
+        this.text = this.stub.options.includes(text) ? text : ''
+        break
+      case 'file':
+        if (text !== '') throw new Error('InvalidStateError: a file input may only be set to the empty string')
+        this.text = ''
+        break
+    }
   }
   appendChild(child: unknown): unknown {
     this.children.push(child)
@@ -230,11 +280,22 @@ type UpstreamApi = Omit<UpstreamAnalyticTune, 'setForm' | 'getForm' | 'setChecke
 /** Load a fresh upstream AnalyticTune page into its own vm context. `parser` is the upstream DataflashParser class. */
 export function loadAnalyticTuneUpstream(parser?: unknown): UpstreamAnalyticTune {
   const defaults = upstreamFormDefaults()
+  const html = upstreamHtml()
+  const metadata = JSON.parse(upstreamParamFile()) as Record<string, unknown>
+  const isDropDown = (id: string) => findMetadata(metadata, id)?.Values !== undefined && id !== 'SCHED_LOOP_RATE'
+  const fileIds = new Set(
+    [...html.matchAll(/<input\b[^>]*\btype=['"]file['"][^>]*>/g)].map((m) => /\bid="([^"]*)"/.exec(m[0])?.[1])
+  )
+  const numberIds = new Set(defaults.numbers)
   const elements = new Map<string, StubElement>()
   for (const id of defaults.ids) {
     const e = new StubElement()
     e.value = defaults.values.get(id) ?? ''
     e.checked = defaults.checked.has(id)
+    const values = findMetadata(metadata, id)?.Values
+    if (isDropDown(id) && typeof values === 'object' && values !== null) e.stub = { kind: 'select', options: Object.keys(values) }
+    else if (numberIds.has(id)) e.stub = { kind: 'number' }
+    else if (fileIds.has(id)) e.stub = { kind: 'file' }
     elements.set(id, e)
   }
   const element = (id: string): StubElement => {
@@ -243,13 +304,14 @@ export function loadAnalyticTuneUpstream(parser?: unknown): UpstreamAnalyticTune
     return e
   }
   // The "params" form: upstream's metadata loader turns enumerated parameters into drop-downs.
-  const html = upstreamHtml()
   const formHtml = html.slice(html.indexOf('<form id="params"'), html.indexOf('</form>'))
   const formIds = [...formHtml.matchAll(/<input\b[^>]*\bid="([^"]*)"/g)].map((m) => m[1]!)
-  const metadata = JSON.parse(upstreamParamFile()) as Record<string, unknown>
-  const isDropDown = (id: string) => findMetadata(metadata, id)?.Values !== undefined && id !== 'SCHED_LOOP_RATE'
   const formElements = (tag: string) =>
-    formIds.filter((id) => (tag === 'select') === isDropDown(id)).map((id) => Object.assign(element(id), { id }))
+    formIds
+      .filter((id) => tag === '*' || (tag === 'select') === isDropDown(id))
+      .map((id) => Object.assign(element(id), { id, htmlFor: null }))
+  const controlLoopHtml = html.slice(html.indexOf('<legend>Control Loop</legend>'), html.indexOf('<legend>Gain scale</legend>'))
+  const controlLoopIds = [...controlLoopHtml.matchAll(/<input\b[^>]*\bid="([^"]*)"/g)].map((m) => m[1]!)
   let saved = { name: '', text: '' }
   const context = createContext({
     document: {
@@ -275,7 +337,8 @@ export function loadAnalyticTuneUpstream(parser?: unknown): UpstreamAnalyticTune
     saveAs: (blob: { text: string }, name: string) => {
       saved = { name, text: blob.text }
     },
-    __saved: () => saved
+    __saved: () => saved,
+    __controlLoopIds: controlLoopIds
   })
   const api = runInContext(upstreamSource(), context, { filename: 'upstream-analytic-tune.js' }) as UpstreamApi
   return {

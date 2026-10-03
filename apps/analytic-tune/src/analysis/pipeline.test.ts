@@ -7,7 +7,7 @@ import { loadTuneLog, type LoadedTuneLog } from './load.js'
 import { DEFAULT_INPUTS, INPUT_NAMES, tuneTarget, withInputs, type Inputs, type TuneVehicle } from './params.js'
 import { predictResponses } from './predict.js'
 import { tuneAxisForSid } from './sid.js'
-import { loadTimeHistory } from './time-history.js'
+import { INITIAL_AIRSPEED_SCALING, airspeedScalingFor, loadTimeHistory } from './time-history.js'
 import { expectBitEqual, expectComplexBitEqual } from './test-utils/compare.js'
 import { buildSidLog, toArrayBuffer, type SyntheticLogOptions } from './test-utils/synthetic.js'
 import { loadAnalyticTuneUpstream, loadUpstreamParser, type Pair, type UpstreamAnalyticTune } from './test-utils/upstream.js'
@@ -145,6 +145,20 @@ const SCENARIOS: readonly Scenario[] = [
     }
   },
   {
+    // Attitude logged at a quarter of the rate: upstream slices it with its own indices and
+    // analyses it as if it were at the RATE sample rate, so its windows run past its end.
+    name: 'copter with slow ATT',
+    log: {
+      vehicle: 'copter',
+      params: COPTER_PARAMS,
+      attEvery: 4,
+      runs: [
+        { axis: 1, start: 5, length: 22 },
+        { axis: 7, start: 30, length: 20 }
+      ]
+    }
+  },
+  {
     name: 'quadplane with ANG',
     log: {
       vehicle: 'quadplane',
@@ -215,7 +229,7 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
       expect(run.endTime).toBe(s.sidSets.tend[i])
     })
     for (const name of INPUT_NAMES) expect(inputs[name], name).toBe(parseFloat(up.getForm(name)))
-    expectBitEqual(loaded.flight.time, Array.from(s.flightData.data[0]!.x!), 'SIDD time')
+    expectBitEqual(loaded.flight?.time ?? [], Array.from(s.flightData.data[0]!.x!), 'SIDD time')
     expect(s.flightData.layout.xaxis.range).toEqual([loaded.runs[0]!.startTime, loaded.runs[0]!.endTime])
   })
 
@@ -242,7 +256,8 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
     const identified = identifyResponses(history, target.axis, windowSize)
     expect(identified.sampleRate).toBe(s.dataSet.FFT.average_sample_rate)
     expect(identified.windowCount).toBe(s.dataSet.FFT.center.length)
-    expect(history.airspeed).toEqual({ aspeed: s.aspeed, eas2tas: s.eas2tas })
+    const airspeed = airspeedScalingFor(history, INITIAL_AIRSPEED_SCALING)
+    expect(airspeed).toEqual({ aspeed: s.aspeed, eas2tas: s.eas2tas })
 
     const measured = measuredResponses(identified, useAttitude, inputs.SCHED_LOOP_RATE)
     const c = s.calc
@@ -257,7 +272,7 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
     const predicted = predictResponses(measured.bareAircraft.H, identified.sampleRate, windowSize, {
       target,
       inputs,
-      airspeed: history.airspeed
+      airspeed
     })
     const p = s.pred
     expectComplexBitEqual(predicted.rate, p.ratectrl_H!, 'pred rate', true)
@@ -270,11 +285,14 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
     expectComplexBitEqual(predicted.systemBrokenLoop, p.sysbl_H!, 'pred sys bl', true)
 
     // Every plotted trace, for each loop and scale.
+    // Upstream forces the un-wrapped phase option off when drawing, so it changes nothing.
     const scales = [
-      { gain: 'dB', unit: 'Hz' },
-      { gain: 'linear', unit: 'rad/s' }
+      { gain: 'dB', unit: 'Hz', unwrap: false },
+      { gain: 'linear', unit: 'rad/s', unwrap: true }
     ] as const
     for (const scale of scales) {
+      up.setChecked('PID_ScaleUnWrap', scale.unwrap)
+      up.setChecked('PID_ScaleWrap', !scale.unwrap)
       up.setChecked('PID_ScaleLog', scale.gain === 'dB')
       up.setChecked('PID_ScaleLinear', scale.gain === 'linear')
       up.setChecked('PID_freq_Scale_Hz', scale.unit === 'Hz')
@@ -291,11 +309,11 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
         const [cohCalc, cohPred] = after.fftPlotCoh.data
         compareTrace(x, magCalc!.x, `${label} x`)
         compareTrace(gainOf(cmp.calculated.H, scale.gain), magCalc!.y, `${label} calc gain`)
-        compareTrace(phaseOf(cmp.calculated.H, 'wrapped'), phCalc!.y, `${label} calc phase`)
+        compareTrace(phaseOf(cmp.calculated.H), phCalc!.y, `${label} calc phase`)
         compareTrace(cmp.calculated.coherence, cohCalc!.y, `${label} calc coh`)
         expect(cmp.calculated.visible, `${label} calc visible`).toBe(magCalc!.visible)
         compareTrace(gainOf(cmp.predicted.H, scale.gain), magPred!.y, `${label} pred gain`)
-        compareTrace(phaseOf(cmp.predicted.H, 'wrapped'), phPred!.y, `${label} pred phase`)
+        compareTrace(phaseOf(cmp.predicted.H), phPred!.y, `${label} pred phase`)
         if (cmp.predicted.visible) compareTrace(cmp.predicted.coherence, cohPred!.y, `${label} pred coh`)
         expect(cmp.predicted.visible, `${label} pred visible`).toBe(magPred!.visible)
       }

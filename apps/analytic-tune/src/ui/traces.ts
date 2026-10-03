@@ -76,7 +76,7 @@ export interface ComparisonPlots {
   readonly coherence: Partial<Data>[]
 }
 
-type Settings = Pick<DisplaySettings, 'gain' | 'phase' | 'frequencyUnit'>
+type Settings = Pick<DisplaySettings, 'gain' | 'frequencyUnit'>
 
 const SERIES = [
   { key: 'calculated', name: 'Calculated' },
@@ -104,7 +104,7 @@ export function comparisonTraces(comparison: LoopComparison | null, freqHz: Floa
     })
   return {
     magnitude: build((r) => gainOf(r.H, s.gain), gainHover(s.gain, 'y')),
-    phase: build((r) => phaseOf(r.H, s.phase), '%{y:.2f} deg'),
+    phase: build((r) => phaseOf(r.H), '%{y:.2f} deg'),
     coherence: build((r) => r.coherence, '%{y:.2f}')
   }
 }

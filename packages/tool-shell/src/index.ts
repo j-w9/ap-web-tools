@@ -24,6 +24,7 @@ export { downloadText, downloadBytes } from './download.js'
 export {
   OPEN_IN_DESTINATIONS,
   openInDestinations,
+  canOpenIn,
   sendLogTo,
   onIncomingLog,
   type OpenInDestination,

@@ -35,8 +35,8 @@ export function rateTraces(stats: StreamStats, format: LogFormat, unit: RateUnit
   return stats.rates.map((r) => ({
     type: format === 'bin' ? 'scattergl' : 'scatter',
     mode: 'lines',
-    x: r.time,
-    y: r.rate,
+    x: [...r.time],
+    y: [...r.rate],
     name: r.name,
     hovertemplate: rateHover(unit, r.name)
   }))
@@ -48,8 +48,8 @@ export function totalTraces(stats: StreamStats, unit: RateUnit): Partial<Data>[]
     {
       type: 'scattergl',
       mode: 'lines',
-      x: stats.total?.time ?? [],
-      y: stats.total?.rate ?? [],
+      x: [...(stats.total?.time ?? [])],
+      y: [...(stats.total?.rate ?? [])],
       name: 'Total',
       hovertemplate: rateHover(unit, 'Total')
     }

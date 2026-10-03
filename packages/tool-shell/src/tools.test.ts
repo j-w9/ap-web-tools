@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { OPEN_IN_DESTINATIONS, canOpenIn } from './open-in.js'
 import { TOOLS, TOOL_IDS, acceptsLog, toolById, toolHref } from './tools.js'
 
 describe('tool registry', () => {
@@ -20,5 +21,31 @@ describe('tool registry', () => {
     expect(acceptsLog(pid, ['GPS'])).toBe(false)
     expect(acceptsLog(pid, null)).toBe(true)
     expect(acceptsLog(toolById('dfu-loader'), ['RATE'])).toBe(false)
+  })
+})
+
+describe('open in', () => {
+  it('lists upstream OpenIn.js destinations with the same message rules', () => {
+    const byName = new Map(OPEN_IN_DESTINATIONS.map((d) => [d.name, d]))
+    // Upstream destinations: UAV Log Viewer (always), Hardware Report (PARM), Filter Review
+    // (GYR or ISBD), MAGFit (MAG), PID Review (any rate/PID message).
+    expect(byName.get('UAV Log Viewer')?.accepts([])).toBe(true)
+    expect(byName.get('UAV Log Viewer')?.path).toBe('https://plotbeta.ardupilot.org/#')
+    expect(byName.get('Hardware Report')?.accepts(['PARM'])).toBe(true)
+    expect(byName.get('Hardware Report')?.accepts(['GYR'])).toBe(false)
+    expect(byName.get('Filter Review')?.accepts(['ISBD'])).toBe(true)
+    expect(byName.get('Filter Review')?.accepts(['PARM'])).toBe(false)
+    expect(byName.get('MAGFit')?.accepts(['MAG'])).toBe(true)
+    for (const m of ['RATE', 'PIDR', 'PIDP', 'PIDY', 'PIQR', 'PIQP', 'PIQY', 'PIDS', 'PIDA']) {
+      expect(byName.get('PID Review')?.accepts([m])).toBe(true)
+    }
+    expect(byName.get('PID Review')?.accepts(['GYR'])).toBe(false)
+  })
+
+  it('enables the hand-off only for .bin files, as upstream setup_open_in', () => {
+    expect(canOpenIn('flight.bin')).toBe(true)
+    expect(canOpenIn('FLIGHT.BIN')).toBe(true)
+    expect(canOpenIn('flight.log')).toBe(false)
+    expect(canOpenIn('flight.tlog')).toBe(false)
   })
 })

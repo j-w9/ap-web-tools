@@ -1,6 +1,6 @@
 /**
- * The editable test stand table (upstream uses Tabulator): rows of cell text, the paste
- * parser, and conversion of valid rows into `ThrustData`.
+ * The editable test stand table (upstream uses Tabulator with range selection): cell values,
+ * editing, range paste, copy and clear, and conversion of usable rows into `ThrustData`.
  */
 import type { ThrustData } from './linearisation.js'
 
@@ -15,8 +15,15 @@ export const COLUMN_TITLES: Readonly<Record<Column, string>> = {
   current: 'Current (A)'
 }
 
-/** One table row as the text in each cell. */
-export type TableRow = Readonly<Record<Column, string>>
+/**
+ * What a cell holds, as in upstream's Tabulator data: text typed into the cell editor, a number
+ * (pasted values go through `parseFloat`, so `NaN` is possible; the example data is numeric), or
+ * `undefined` once a range has been cleared with Delete or Backspace.
+ */
+export type CellValue = string | number | undefined
+
+/** One table row. */
+export type TableRow = Readonly<Record<Column, CellValue>>
 
 export const EMPTY_ROW: TableRow = { pwm: '', thrust: '', voltage: '', current: '' }
 
@@ -25,83 +32,188 @@ export function emptyRows(count = 10): TableRow[] {
   return Array.from({ length: count }, () => EMPTY_ROW)
 }
 
-/**
- * Numeric value of a cell, or null when it is not a number.
- *
- * Deviation: upstream keeps a row when `row.pwm && row.thrust && !isNaN(...)`, so a numeric 0
- * (pasted or from the example) was dropped while a typed "0" was kept. Here any finite
- * number, including 0, counts.
- */
-export function cellValue(text: string): number | null {
-  const trimmed = text.trim()
-  if (trimmed === '') return null
-  const value = Number(trimmed)
-  return Number.isFinite(value) ? value : null
+/** JavaScript truthiness of a cell value. */
+function truthy(value: CellValue): boolean {
+  if (typeof value === 'number') return value !== 0 && !Number.isNaN(value)
+  return value !== undefined && value !== ''
 }
 
-/** Rows with a valid ESC signal and thrust, as columns in table order. */
+/** JavaScript's global `isNaN`, which converts its argument with `Number` first. */
+function looseIsNaN(value: CellValue): boolean {
+  return Number.isNaN(Number(value))
+}
+
+/**
+ * Whether upstream uses a row: `row.pwm && row.thrust && !isNaN(row.pwm) && !isNaN(row.thrust)`.
+ * Upstream bug reproduced: a numeric 0 (pasted or from the example) is falsy and drops the row,
+ * while a typed "0" is kept (docs/upstream-bugs.md).
+ */
+export function isUsableRow(row: TableRow): boolean {
+  return truthy(row.pwm) && truthy(row.thrust) && !looseIsNaN(row.pwm) && !looseIsNaN(row.thrust)
+}
+
+/** Upstream `parseFloat(value)` of a cell (`parseFloat` converts a number to text first). */
+export function cellFloat(value: CellValue): number {
+  return Number.parseFloat(String(value))
+}
+
+/** Usable rows, unparsed (upstream plots their raw `pwm` and `thrust` values against PWM). */
+export function usableRows(rows: readonly TableRow[]): TableRow[] {
+  return rows.filter(isUsableRow)
+}
+
+/** Usable rows as `parseFloat`-ed columns in table order (upstream `updateThrustExpoPlot`). */
 export function thrustData(rows: readonly TableRow[]): ThrustData {
-  const pwm: number[] = []
-  const thrust: number[] = []
-  for (const row of rows) {
-    const p = cellValue(row.pwm)
-    const t = cellValue(row.thrust)
-    if (p === null || t === null) continue
-    pwm.push(p)
-    thrust.push(t)
+  const usable = usableRows(rows)
+  return {
+    pwm: Float64Array.from(usable, (r) => cellFloat(r.pwm)),
+    thrust: Float64Array.from(usable, (r) => cellFloat(r.thrust))
   }
-  return { pwm: Float64Array.from(pwm), thrust: Float64Array.from(thrust) }
-}
-
-/** Set one cell. Editing the last row appends an empty one so there is always room to type. */
-export function editCell(rows: readonly TableRow[], row: number, column: Column, text: string): TableRow[] {
-  const next = rows.map((r, i) => (i === row ? { ...r, [column]: text } : r))
-  if (row === rows.length - 1) next.push(EMPTY_ROW)
-  return next
-}
-
-/** Text that came from a spreadsheet range rather than a single value. */
-export function isRangePaste(text: string): boolean {
-  return /[\t\n]/.test(text.trim())
 }
 
 /**
- * Paste tab-separated rows (as copied from a spreadsheet) with their top-left cell at
- * `row`/`column` (upstream `clipboardPasteParser` with `clipboardPasteAction: "range"`).
- * Values are read with `parseFloat`; columns past the last are dropped. Rows are added so
- * at least one empty row follows the paste.
+ * Tabulator's `numeric` validator, which every column uses: empty, or not `isNaN`.
+ * An edit that fails it is not committed (the editor stays open).
  */
-export function applyPaste(rows: readonly TableRow[], row: number, column: Column, text: string): TableRow[] {
-  const startCol = COLUMNS.indexOf(column)
-  const pasted = text
+export function isValidCellText(text: string): boolean {
+  return text === '' || !looseIsNaN(text)
+}
+
+/** The table with the same row count plus, when `addRow`, one more empty row at the bottom. */
+function withRow(rows: TableRow[], addRow: boolean): TableRow[] {
+  if (addRow) rows.push(EMPTY_ROW)
+  return rows
+}
+
+/** Outcome of committing a cell edit. */
+export type EditResult =
+  /** Fails the numeric validator: upstream keeps the editor open and nothing changes. */
+  | { readonly kind: 'invalid' }
+  /** Same as the stored value: the edit is cancelled, so nothing is replotted. */
+  | { readonly kind: 'unchanged' }
+  | { readonly kind: 'changed'; readonly rows: TableRow[] }
+
+/**
+ * Commit a cell edit (Tabulator's input editor and upstream's `cellEdited` handler). The cell is
+ * written when the text differs from the stored value (`!==`, so typing "5" over a pasted 5 does
+ * write the text "5"); a write to the last row appends an empty row.
+ */
+export function editCell(rows: readonly TableRow[], row: number, column: Column, text: string): EditResult {
+  if (!isValidCellText(text)) return { kind: 'invalid' }
+  const current = rows[row]
+  if (current === undefined || current[column] === text) return { kind: 'unchanged' }
+  const next = rows.map((r, i) => (i === row ? { ...r, [column]: text } : r))
+  return { kind: 'changed', rows: withRow(next, row === rows.length - 1) }
+}
+
+/** A rectangular selection of cells, inclusive, in row index and column index (0 = ESC signal). */
+export interface CellRange {
+  readonly top: number
+  readonly bottom: number
+  readonly left: number
+  readonly right: number
+}
+
+/** Range spanning two corner cells in any order. */
+export function rangeBetween(a: { row: number; col: number }, b: { row: number; col: number }): CellRange {
+  return {
+    top: Math.min(a.row, b.row),
+    bottom: Math.max(a.row, b.row),
+    left: Math.min(a.col, b.col),
+    right: Math.max(a.col, b.col)
+  }
+}
+
+export function inRange(range: CellRange, row: number, col: number): boolean {
+  return row >= range.top && row <= range.bottom && col >= range.left && col <= range.right
+}
+
+/**
+ * Paste spreadsheet text into the table (upstream `clipboardPasteParser` with Tabulator's
+ * `range` paste action):
+ *
+ * - The text is trimmed, split into lines on `\n` and cells on tabs; each value is read with
+ *   `parseFloat` (so unreadable values become `NaN`, shown as "NaN"); columns past the last are
+ *   dropped. Pasted values start at the range's left column.
+ * - Rows are added until one row follows the pasted block (counted from the range's top).
+ * - With a single selected cell every pasted line is written; with a larger range the lines fill
+ *   exactly the range's rows, repeating from the first when there are fewer (Tabulator's range
+ *   action). Only the pasted fields of each row change.
+ */
+export function applyPaste(rows: readonly TableRow[], range: CellRange, text: string): TableRow[] {
+  const parsed = text
     .trim()
     .split('\n')
-    .map((line) => line.split('\t'))
-  const next = [...rows]
-  while (next.length < row + pasted.length + 1) next.push(EMPTY_ROW)
-  pasted.forEach((values, r) => {
-    const current = next[row + r] ?? EMPTY_ROW
-    const updated: Record<Column, string> = { ...current }
-    values.forEach((value, c) => {
-      const field = COLUMNS[startCol + c]
-      if (field === undefined) return
-      const number = parseFloat(value)
-      // Upstream stores NaN, which the table shows as "NaN" and the analysis skips; an empty cell reads better.
-      updated[field] = Number.isNaN(number) ? '' : String(number)
+    .map((line) => {
+      const values: Partial<Record<Column, number>> = {}
+      line.split('\t').forEach((value, i) => {
+        const field = COLUMNS[range.left + i]
+        if (field !== undefined) values[field] = Number.parseFloat(value)
+      })
+      return values
     })
-    next[row + r] = updated
-  })
+
+  const next = [...rows]
+  while (next.length < range.top + parsed.length + 1) next.push(EMPTY_ROW)
+
+  const singleCell = range.top === range.bottom && range.left === range.right
+  const height = singleCell ? parsed.length : range.bottom - range.top + 1
+  const end = Math.min(range.top + height, next.length)
+  for (let r = range.top; r < end; r++) {
+    const update = parsed[(r - range.top) % parsed.length]
+    next[r] = { ...next[r]!, ...update }
+  }
   return next
 }
 
-/** Rows from numeric samples. */
+/**
+ * Delete or Backspace on a range (`selectableRangeClearCells`): every cell becomes `undefined`.
+ * Returns `null` when no cell changed (nothing to replot). Clearing a cell counts as an edit, so
+ * a change in the last row appends an empty row, as upstream's `cellEdited` handler does.
+ */
+export function clearRange(rows: readonly TableRow[], range: CellRange): TableRow[] | null {
+  let changed = false
+  let lastRowChanged = false
+  const next: TableRow[] = []
+  for (const [r, row] of rows.entries()) {
+    if (r < range.top || r > range.bottom) {
+      next.push(row)
+      continue
+    }
+    const updated: Record<Column, CellValue> = { ...row }
+    for (const [i, c] of COLUMNS.entries()) {
+      if (i < range.left || i > range.right || updated[c] === undefined) continue
+      changed = true
+      if (r === rows.length - 1) lastRowChanged = true
+      updated[c] = undefined
+    }
+    next.push(updated)
+  }
+  return changed ? withRow(next, lastRowChanged) : null
+}
+
+/** Cell text as the table shows it and the clipboard copies it. */
+export function cellText(value: CellValue): string {
+  return value === undefined ? '' : String(value)
+}
+
+/** Copy a range as tab-separated lines without headers (`clipboardCopyRowRange: "range"`). */
+export function copyRange(rows: readonly TableRow[], range: CellRange): string {
+  const lines: string[] = []
+  for (let r = range.top; r <= Math.min(range.bottom, rows.length - 1); r++) {
+    const row = rows[r]!
+    lines.push(
+      COLUMNS.slice(range.left, range.right + 1)
+        .map((c) => cellText(row[c]))
+        .join('\t')
+    )
+  }
+  return lines.join('\n')
+}
+
+/** Rows from numeric samples, stored as numbers like upstream's `setData`. */
 export function rowsFromSamples(samples: readonly Readonly<Record<Column, number>>[]): TableRow[] {
-  return samples.map((s) => ({
-    pwm: String(s.pwm),
-    thrust: String(s.thrust),
-    voltage: String(s.voltage),
-    current: String(s.current)
-  }))
+  return samples.map((s) => ({ pwm: s.pwm, thrust: s.thrust, voltage: s.voltage, current: s.current }))
 }
 
 /**

@@ -1,8 +1,8 @@
 import { DataflashLog } from '@apwt/dataflash'
 import { defaultTimeRange, readFlightData, type DefaultTimeRange, type FlightData } from './flight-data.js'
-import { hasSixteenHarmonics, readFilterParams, type FilterParams } from './filter-params.js'
+import { hasSixteenHarmonics, unsignedBitmask } from './filter-params.js'
 import { readFilterVersion, type FilterVersion } from './filter-version.js'
-import type { GyroData, GyroLogType, GyroSensor } from './gyro-data.js'
+import type { GyroData, GyroSensor } from './gyro-data.js'
 import { readGyroSensors } from './gyro-sensors.js'
 import { loadFromBatch, type GyroLoadContext } from './load-batch.js'
 import { loadFromRaw } from './load-raw.js'
@@ -10,22 +10,14 @@ import type { LoggedNotch } from './tracking/logged.js'
 import type { TrackingContext } from './tracking/target.js'
 import { createLoggedNotches, createTrackingTargets, type TrackingTargets } from './tracking/targets.js'
 
-/** Options for {@link loadFilterReviewLog}. */
-export interface LoadOptions {
-  /** Which gyro source to use when the log has both; upstream defaults to raw. */
-  readonly logType?: GyroLogType
-}
-
 /** Everything Filter Review needs from a log. */
 export interface FilterReviewLog {
   readonly gyro: GyroData & { readonly startTime: number; readonly endTime: number }
-  /** Whether batch and raw gyro data are present (the log type can only be chosen if both are). */
+  /** Whether batch and raw gyro data are present. */
   readonly available: { readonly batch: boolean; readonly raw: boolean }
   readonly sensors: readonly GyroSensor[]
   readonly numGyro: number
   readonly filterVersion: FilterVersion
-  /** Filter parameters from the log; edit a copy and rebuild the filters to experiment. */
-  readonly filterParams: FilterParams
   /** Whether `_HMNCS` is a 32-bit (16 harmonic) bitmask rather than 8-bit. */
   readonly sixteenHarmonics: boolean
   readonly targets: TrackingTargets
@@ -34,8 +26,10 @@ export interface FilterReviewLog {
   readonly timeRange: DefaultTimeRange
   /** IMU to show by default: the EKF3 primary when it has data, else the lowest IMU with data. */
   readonly primaryGyro: number
-  /** True when `primaryGyro` came from `EK3_PRIMARY` (upstream labels it "Primary"). */
+  /** True when `primaryGyro` came from `EK3_PRIMARY` and it has data (only it is shown by default). */
   readonly primaryFromEkf: boolean
+  /** `EK3_PRIMARY` when EKF3 is in use, whether or not that IMU has data (upstream labels it "Primary"). */
+  readonly ekfPrimary: number | undefined
   readonly havePre: boolean
   readonly havePost: boolean
   /** Non-fatal problems (upstream alerts and console messages). */
@@ -52,7 +46,7 @@ export function trackingContext(log: FilterReviewLog, filterVersion: FilterVersi
  * analysis part of upstream `load()`). Throws an `Error` with a user-facing message when the
  * log cannot be used.
  */
-export function loadFilterReviewLog(input: ArrayBuffer | Uint8Array | DataflashLog, options: LoadOptions = {}): FilterReviewLog {
+export function loadFilterReviewLog(input: ArrayBuffer | Uint8Array | DataflashLog): FilterReviewLog {
   const log = input instanceof DataflashLog ? input : DataflashLog.parse(input)
   const warnings: string[] = []
   const warn = (message: string): void => {
@@ -68,7 +62,9 @@ export function loadFilterReviewLog(input: ArrayBuffer | Uint8Array | DataflashL
   const haveBatch = log.has('ISBH') && log.has('ISBD')
   const haveRaw = log.has('GYR')
   if (!haveBatch && !haveRaw) throw new Error('No batch data or raw IMU found in log')
-  const useBatch = haveBatch && haveRaw ? options.logType === 'batch' : haveBatch
+  // Upstream bug: `reset()` ticks the "Raw sensor" radio at the start of every load, before
+  // `load()` reads the "Batch" radio, so a log with both kinds of data always uses the raw data.
+  const useBatch = haveBatch && !haveRaw
 
   const ctx: GyroLoadContext = { numGyro, gyroRate, warn }
   const gyro = useBatch ? loadFromBatch(log, ctx) : loadFromRaw(log, ctx)
@@ -84,11 +80,12 @@ export function loadFilterReviewLog(input: ArrayBuffer | Uint8Array | DataflashL
 
   const targets = createTrackingTargets(log)
   const loggedNotches = createLoggedNotches(log)
-  const filterParams = readFilterParams(log)
-
-  // Use original harmonics value for logged notches
+  // Use original harmonics value for logged notches: `_HMNCS` from the log, or the `reset()`
+  // default of 3, read through the bitmask width of this log
+  const sixteenHarmonics = hasSixteenHarmonics(log)
   loggedNotches.forEach((logged, i) => {
-    logged.harmonics = filterParams.notches[i]!.harmonics
+    const name = i === 0 ? 'INS_HNTCH_HMNCS' : 'INS_HNTC2_HMNCS'
+    logged.harmonics = unsignedBitmask(log.param(name) ?? 3, sixteenHarmonics ? 32 : 8)
   })
 
   const flight = readFlightData(log)
@@ -121,14 +118,14 @@ export function loadFilterReviewLog(input: ArrayBuffer | Uint8Array | DataflashL
     sensors,
     numGyro,
     filterVersion: version.version,
-    filterParams,
-    sixteenHarmonics: hasSixteenHarmonics(log),
+    sixteenHarmonics,
     targets,
     loggedNotches,
     flight,
     timeRange: defaultTimeRange(startTime, endTime, flight.throttle),
     primaryGyro: primary ?? firstGyro ?? 0,
     primaryFromEkf: primaryFromEkf && primary !== null,
+    ekfPrimary: primaryFromEkf ? ek3Primary : undefined,
     havePre,
     havePost,
     warnings

@@ -20,23 +20,31 @@ import {
   ToolPage,
   toolById,
   toolHref,
+  useLatest,
   useLoading,
   useLogFile,
   type LogFact
 } from '@apwt/tool-shell'
-import { analyseGyro, instanceTransfer, sensorFftInfo, type GyroAnalysis } from './analysis/analyse.js'
+import { instanceTransfer, sensorFftInfo } from './analysis/analyse.js'
 import { GYRO_AXES, type GyroAxis } from './analysis/fft/batch-fft.js'
 import { buildFilters } from './analysis/filters/filter-set.js'
-import { defaultFilterParams, type FilterParams } from './analysis/filter-params.js'
-import { filterToolUrl } from './analysis/filter-tool-link.js'
+import { filterToolUrl, filterToolValues } from './analysis/filter-tool-link.js'
 import type { FilterVersion } from './analysis/filter-version.js'
-import type { GyroLogType } from './analysis/gyro-data.js'
 import { gyroInfoText } from './analysis/gyro-sensors.js'
-import { loadFilterReviewLog, trackingContext, type FilterReviewLog } from './analysis/load.js'
+import { trackingContext, type FilterReviewLog } from './analysis/load.js'
+import {
+  defaultPageValues,
+  filterParamsFromPage,
+  withPageValue,
+  type FilterParamName,
+  type PageValues
+} from './analysis/page-values.js'
 import { applyParamFile, filterParamFileText } from './analysis/param-file.js'
 import type { AliasMode } from './analysis/plots/alias.js'
 import { bodeResponse } from './analysis/plots/bode.js'
 import { loggedNotchLines, notchMarkers, notchTrackingLines } from './analysis/plots/notch-lines.js'
+import type { Selections } from './analysis/selections.js'
+import { calculate, loadIntoPage, windowSizeAfter, type AnalysisResult } from './analysis/session.js'
 import type { TimeRange } from './analysis/time-index.js'
 import {
   AliasChips,
@@ -62,7 +70,6 @@ import {
   spectrumTraces,
   type AnalysedInstance,
   type NotchLineSet,
-  type SpectrumKind,
   type SpectrumTraceKey
 } from './ui/traces.js'
 
@@ -70,31 +77,6 @@ type PlotName = 'fft' | 'bode' | 'spec'
 type PhaseMode = 'unwrap' | 'wrap'
 
 const NOTCH_TOGGLES = ['notch1', 'notch2'] as const
-
-/** Trace and plot selections that follow a newly loaded log (upstream `load()` defaults). */
-interface Selections {
-  shown: ReadonlySet<SpectrumTraceKey>
-  bodeGyro: number
-  specGyro: number
-  specKind: SpectrumKind
-}
-
-function defaultSelections(log: FilterReviewLog): Selections {
-  const shown = new Set<SpectrumTraceKey>()
-  const primary = log.primaryGyro
-  for (const g of log.gyro.instances) {
-    if (g === null) continue
-    // Only the EKF primary is shown by default when there is one
-    const show = !log.primaryFromEkf || g.sensorNum === primary
-    if (!show) continue
-    for (const axis of GYRO_AXES) {
-      shown.add(spectrumTraceKey(g.sensorNum, g.postFilter ? 'post' : 'pre', axis))
-      // Show the estimate by default when there is no logged post-filter data
-      if (log.havePre && !log.havePost) shown.add(spectrumTraceKey(g.sensorNum, 'est', axis))
-    }
-  }
-  return { shown, bodeGyro: primary, specGyro: primary, specKind: log.havePre ? 'pre' : 'post' }
-}
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -106,14 +88,14 @@ export function App() {
   // ----- Log and analysis -----
   const [parsed, setParsed] = useState<{ log: DataflashLog; name: string | null } | null>(null)
   const [loaded, setLoaded] = useState<FilterReviewLog | null>(null)
-  const [analysis, setAnalysis] = useState<GyroAnalysis | null>(null)
+  const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [logType, setLogType] = useState<GyroLogType>('raw')
-  const [fft, setFft] = useState<FftSettings>({ windowSize: 1024, windowsPerBatch: 1 })
+  // Page inputs kept as the strings upstream's inputs hold; they carry over to the next log
+  const [fft, setFft] = useState<FftSettings>({ windowSize: '1024', windowsPerBatch: '1' })
+  const [values, setValues] = useState<PageValues>(defaultPageValues)
   const [timeRange, setTimeRange] = useState<[number, number]>([0, 0])
 
   // ----- Filter settings -----
-  const [params, setParams] = useState<FilterParams>(defaultFilterParams)
   const [filterVersion, setFilterVersion] = useState<FilterVersion>(1)
   const [paramMessage, setParamMessage] = useState<string | null>(null)
 
@@ -132,34 +114,9 @@ export function App() {
     [amplitudeKind]
   )
   const frequency = useMemo(() => fftFrequencyScale(frequencySettings), [frequencySettings])
+  const analysis = result?.analysis ?? null
 
-  /** Load gyro data with the chosen source and run the FFTs; errors are shown in the page. */
-  const loadAndAnalyse = useCallback((log: DataflashLog, type: GyroLogType, settings: FftSettings, keepSettings: boolean) => {
-    try {
-      const next = loadFilterReviewLog(log, { logType: type })
-      setLoaded(next)
-      setLogType(next.gyro.type)
-      setTimeRange([next.timeRange.start, next.timeRange.end])
-      if (!keepSettings) {
-        setParams(next.filterParams)
-        setFilterVersion(next.filterVersion)
-        setParamMessage(null)
-      }
-      setSelections(defaultSelections(next))
-      setError(null)
-      try {
-        setAnalysis(analyseGyro(next.gyro, next.targets.all, settings))
-      } catch (e) {
-        setAnalysis(null)
-        setError(errorMessage(e))
-      }
-    } catch (e) {
-      setLoaded(null)
-      setAnalysis(null)
-      setError(errorMessage(e))
-    }
-  }, [])
-
+  const inputs = useLatest({ values, ...fft })
   const { file, openFile } = useLogFile(async (buffer, name) => {
     await run(() => {
       let log: DataflashLog
@@ -171,30 +128,39 @@ export function App() {
       }
       setParsed({ log, name })
       document.title = name ? `Filter Review: ${name}` : 'Filter Review'
-      loadAndAnalyse(log, logType, fft, false)
+      try {
+        const page = loadIntoPage(inputs.current, log)
+        setLoaded(page.log)
+        setResult(page.result)
+        setValues(page.inputs.values)
+        setFft({ windowSize: page.inputs.windowSize, windowsPerBatch: page.inputs.windowsPerBatch })
+        setTimeRange([page.timeRange[0], page.timeRange[1]])
+        setSelections(page.selections)
+        setFilterVersion(page.log.filterVersion)
+        setParamMessage(null)
+        setError(null)
+      } catch (e) {
+        setLoaded(null)
+        setResult(null)
+        setError(errorMessage(e))
+      }
     }, 'Reading log')
   })
 
-  const changeLogType = (type: GyroLogType) => {
-    setLogType(type)
-    if (parsed) void run(() => loadAndAnalyse(parsed.log, type, fft, true), 'Loading gyro data')
-  }
-
+  /** Changing an FFT input recalculates (upstream clears the FFTs and waits for Calculate). */
   const changeFft = (settings: FftSettings) => {
     setFft(settings)
     if (!loaded) return
     void run(() => {
-      try {
-        setAnalysis(analyseGyro(loaded.gyro, loaded.targets.all, settings))
-        setError(null)
-      } catch (e) {
-        setAnalysis(null)
-        setError(errorMessage(e))
-      }
+      const next = calculate(loaded, settings)
+      setResult(next)
+      setFft({ ...settings, windowSize: windowSizeAfter(next, settings.windowSize) })
     }, 'Calculating FFT')
   }
 
   // ----- Filter simulation; deferred so typing in the rail stays responsive -----
+  const sixteenHarmonics = loaded?.sixteenHarmonics ?? true
+  const params = useMemo(() => filterParamsFromPage(values, sixteenHarmonics), [values, sixteenHarmonics])
   const filterInput = useDeferredValue(useMemo(() => ({ params, version: filterVersion }), [params, filterVersion]))
   const filters = useMemo(
     () => (loaded ? buildFilters(filterInput.params, loaded.targets.all, filterInput.version) : null),
@@ -212,7 +178,7 @@ export function App() {
 
   // ----- Gyro choices -----
   const gyroLabel = useCallback(
-    (sensor: number) => `Gyro ${sensor + 1}${loaded?.primaryFromEkf && loaded.primaryGyro === sensor ? ' (primary)' : ''}`,
+    (sensor: number) => `Gyro ${sensor + 1}${loaded?.ekfPrimary === sensor ? ' (primary)' : ''}`,
     [loaded]
   )
   const sensors = useMemo(() => [...new Set(instances.map((i) => i.analysis.instance.sensorNum))].sort(), [instances])
@@ -230,19 +196,25 @@ export function App() {
     }
     return out
   }, [instances])
-  const fftData = useMemo(
-    () =>
-      spectrumTraces(instances, {
-        amplitude,
-        frequency,
-        alias,
-        loopRate: filterInput.params.loopRate,
-        range,
-        shown: selections.shown,
-        quantizationNoise: loaded?.gyro.quantizationNoise ?? 0
-      }),
-    [instances, amplitude, frequency, alias, filterInput, range, selections.shown, loaded]
-  )
+  // Upstream throws (and stops drawing) when aliasing meets an unusable loop rate; shown here
+  const [fftData, plotError] = useMemo((): [ReturnType<typeof spectrumTraces>, string | null] => {
+    try {
+      return [
+        spectrumTraces(instances, {
+          amplitude,
+          frequency,
+          alias,
+          loopRate: filterInput.params.loopRate,
+          range,
+          shown: selections.shown,
+          quantizationNoise: loaded?.gyro.quantizationNoise ?? 0
+        }),
+        null
+      ]
+    } catch (e) {
+      return [[], errorMessage(e)]
+    }
+  }, [instances, amplitude, frequency, alias, filterInput, range, selections.shown, loaded])
   const fftLayout = useMemo(() => {
     const markers =
       filters && context
@@ -310,16 +282,23 @@ export function App() {
       }
     })
   }, [filters, context, loaded, specNotches])
-  const specData = useMemo(
-    () =>
-      spectrogramTraces(specSelection, notchLines, specNotches.has('logged'), {
+  const specData = useMemo(() => {
+    try {
+      return spectrogramTraces(specSelection, notchLines, specNotches.has('logged'), {
         amplitude,
         frequency,
         alias,
         loopRate: filterInput.params.loopRate
-      }),
-    [specSelection, notchLines, specNotches, amplitude, frequency, alias, filterInput]
-  )
+      })
+    } catch {
+      return spectrogramTraces(null, notchLines, specNotches.has('logged'), {
+        amplitude,
+        frequency,
+        alias: 'none',
+        loopRate: filterInput.params.loopRate
+      })
+    }
+  }, [specSelection, notchLines, specNotches, amplitude, frequency, alias, filterInput])
   const specLayout = useMemo(() => spectrogramLayout(frequency, loaded ? range : null), [frequency, loaded, range])
 
   // ----- Flight data -----
@@ -359,17 +338,35 @@ export function App() {
   }, [plots])
 
   // ----- Parameters -----
-  const sixteenHarmonics = loaded?.sixteenHarmonics ?? true
-  const saveParams = () => downloadText('filter.param', filterParamFileText(params, sixteenHarmonics))
+  const changeValue = (name: FilterParamName, value: string | number) => setValues((v) => withPageValue(v, name, value))
+  const saveParams = () => downloadText('filter.param', filterParamFileText(values))
   const loadParams = (paramFile: File) => {
     void paramFile.text().then((text) => {
-      const result = applyParamFile(text, params, sixteenHarmonics)
-      setParams(result.params)
-      setParamMessage(
-        result.applied.length > 0
-          ? `Applied ${result.applied.length} parameters from ${paramFile.name}.`
-          : `No filter parameters found in ${paramFile.name}.`
-      )
+      const { assignments, error: stop } = applyParamFile(text)
+      let next = values
+      for (const a of assignments) {
+        if (a.kind === 'param') {
+          next = { ...next, [a.name]: a.value }
+          continue
+        }
+        // Inputs looked up by id like the parameters; window sizes take effect at the next calculation
+        switch (a.name) {
+          case 'TimeStart':
+            setTimeRange((r) => [parseFloat(a.value), r[1]])
+            break
+          case 'TimeEnd':
+            setTimeRange((r) => [r[0], parseFloat(a.value)])
+            break
+          case 'FFTWindow_size':
+            setFft((f) => ({ ...f, windowSize: a.value }))
+            break
+          case 'FFTWindow_per_batch':
+            setFft((f) => ({ ...f, windowsPerBatch: a.value }))
+            break
+        }
+      }
+      setValues(next)
+      setParamMessage(stop ?? `Applied ${assignments.length} lines from ${paramFile.name}.`)
     })
   }
   const availableModes = useMemo(() => {
@@ -381,30 +378,24 @@ export function App() {
     return out
   }, [loaded, filterVersion])
 
-  const filterToolHref = useMemo(() => {
-    if (!loaded) return null
-    const gyro = loaded.gyro.instances.find((g) => g !== null && g.sensorNum === selections.bodeGyro)
-    const t = loaded.targets
-    const escRpm = t.esc.mean(range)
-    return filterToolUrl(toolHref(toolById('filter-tool'), 'tool'), params, sixteenHarmonics, {
-      gyroSampleRate: gyro?.gyroRate,
-      throttle: t.throttle.mean(range),
-      rpm1: t.rpm1.mean(range),
-      escRpm,
-      numMotors: t.esc.numMotors,
-      rpm2: t.rpm2.mean(range)
-    })
-  }, [loaded, selections.bodeGyro, range, params, sixteenHarmonics])
+  const filterToolHref = useMemo(
+    () =>
+      loaded
+        ? filterToolUrl(toolHref(toolById('filter-tool'), 'tool'), values, filterToolValues(loaded, selections.bodeGyro, range))
+        : null,
+    [loaded, selections.bodeGyro, range, values]
+  )
 
   // ----- Warnings (upstream alerts) -----
   const warnings = useMemo(() => {
     const all = [
       ...(loaded?.warnings ?? []),
+      ...(result?.error ? [result.error] : []),
       ...(analysis?.warning ? [analysis.warning] : []),
       ...(filters?.notches.flatMap((n) => n.warnings) ?? [])
     ]
     return [...new Set(all)]
-  }, [loaded, analysis, filters])
+  }, [loaded, result, analysis, filters])
 
   // ----- Facts -----
   const fftInfo = useMemo(() => (analysis ? sensorFftInfo(analysis) : []), [analysis])
@@ -454,8 +445,7 @@ export function App() {
           facts={facts}
           onFile={openFile}
           available={loaded?.available ?? null}
-          logType={logType}
-          onLogTypeChange={changeLogType}
+          logType={loaded?.gyro.type ?? null}
           fft={fft}
           onFftChange={changeFft}
           timeRange={timeRange}
@@ -463,9 +453,9 @@ export function App() {
           onTimeRangeChange={setTimeRange}
           filterVersion={filterVersion}
           onFilterVersionChange={setFilterVersion}
-          params={params}
-          onParamsChange={setParams}
-          harmonicCount={sixteenHarmonics ? 16 : 8}
+          values={values}
+          onValueChange={changeValue}
+          sixteenHarmonics={sixteenHarmonics}
           availableModes={availableModes}
           onSaveParams={saveParams}
           onLoadParams={loadParams}
@@ -474,7 +464,7 @@ export function App() {
         />
       }
     >
-      <ErrorBanner message={error} />
+      <ErrorBanner message={error ?? plotError} />
       {warnings.length > 0 && (
         <ul className="fr-warnings" role="status">
           {warnings.map((w) => (

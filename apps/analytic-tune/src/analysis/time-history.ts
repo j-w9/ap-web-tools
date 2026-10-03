@@ -30,14 +30,24 @@ export interface AirspeedScaling {
   readonly eas2tas: number
 }
 
-/** Unity scaling for multirotors. */
-export const NO_AIRSPEED_SCALING: AirspeedScaling = { aspeed: 1, eas2tas: 1 }
+/** Upstream's initial page globals `aspeed = 1.0`, `eas2tas = 1.0`. */
+export const INITIAL_AIRSPEED_SCALING: AirspeedScaling = { aspeed: 1, eas2tas: 1 }
 
 export interface TimeHistory {
   readonly signals: Readonly<Record<SignalKey, Float64Array>>
   /** Average sample rate of the window (Hz). */
   readonly sampleRate: number
-  readonly airspeed: AirspeedScaling
+  /** Mean airspeed scaling of the window on fixed wing; null for multirotors, which do not set it. */
+  readonly airspeed: AirspeedScaling | null
+}
+
+/**
+ * The airspeed scaling a prediction uses. Upstream keeps `aspeed` and `eas2tas` in page globals
+ * that only the fixed-wing loader sets, so a multirotor analysis uses whatever the last
+ * fixed-wing analysis left there (in this or an earlier log), or 1 if there was none.
+ */
+export function airspeedScalingFor(history: TimeHistory, previous: AirspeedScaling): AirspeedScaling {
+  return history.airspeed ?? previous
 }
 
 /** Upstream's degrees to radians factor. */
@@ -137,7 +147,7 @@ function multirotorHistory(
       ...derivedSignals(pilotInput, actInput, att)
     },
     sampleRate,
-    airspeed: NO_AIRSPEED_SCALING
+    airspeed: null
   }
 }
 
@@ -177,12 +187,7 @@ function fixedWingHistory(log: DataflashLog, axis: FixedWingAxis, startTime: num
   }
 }
 
-/**
- * Time histories of the target's axis between `startTime` and `endTime` (s).
- *
- * Deviation: upstream keeps the fixed-wing airspeed scaling in globals, so a multirotor analysed
- * after a fixed-wing log reuses it; here multirotors always use unity scaling.
- */
+/** Time histories of the target's axis between `startTime` and `endTime` (s). */
 export function loadTimeHistory(
   log: DataflashLog,
   attitudeMessage: 'ANG' | 'ATT',

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ExternalLink } from 'lucide-react'
-import { openInDestinations, sendLogTo } from './open-in.js'
+import { canOpenIn, openInDestinations, sendLogTo } from './open-in.js'
 
 export interface OpenInButtonProps {
   /** The currently loaded log file, or null when nothing is loaded. */
@@ -14,6 +14,8 @@ export function OpenInButton({ file, messageTypes }: OpenInButtonProps) {
   const [open, setOpen] = useState(false)
   const wrapper = useRef<HTMLDivElement>(null)
   const destinations = useMemo(() => openInDestinations(), [])
+  // Upstream `setup_open_in` enables the button only for a file whose name ends in ".bin".
+  const canOpen = file != null && canOpenIn(file.name)
 
   useEffect(() => {
     if (!open) return
@@ -34,17 +36,17 @@ export function OpenInButton({ file, messageTypes }: OpenInButtonProps) {
       <button
         type="button"
         className="apwt-btn"
-        disabled={file == null}
+        disabled={!canOpen}
         aria-expanded={open}
         aria-haspopup="menu"
-        title={file == null ? 'Open a log first' : undefined}
+        title={file == null ? 'Open a log first' : canOpen ? undefined : 'Only .bin logs can be opened in other tools'}
         onClick={() => setOpen((o) => !o)}
       >
         <ExternalLink />
         Open in
         <ChevronDown />
       </button>
-      {open && file && (
+      {open && file && canOpen && (
         <div className="apwt-popover" role="menu">
           {destinations.map((d) => (
             <button

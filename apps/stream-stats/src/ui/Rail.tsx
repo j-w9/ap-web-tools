@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { ControlGroup, LogInput, RadioChips, RailCard, type LogFact } from '@apwt/tool-shell'
 import { ACCEPTED_EXTENSIONS } from '../analysis/load.js'
 import type { RateUnit } from '../analysis/stats.js'
@@ -12,14 +13,27 @@ export interface RailProps {
   onFile: (file: File) => void
   unit: RateUnit
   onUnitChange: (unit: RateUnit) => void
-  /** Window size as typed, so a half-typed value is not overwritten. */
-  windowText: string
-  onWindowTextChange: (text: string) => void
-  windowValid: boolean
+  /** Initial window size text. */
+  defaultWindowText: string
+  /**
+   * Called with the input's value on its native `change` event (Enter, blur or the spinner), as
+   * upstream's `onchange="replot()"`, so half-typed values such as `0.` are never used.
+   */
+  onWindowCommit: (text: string) => void
 }
 
 /** The control rail: log input, rate unit and averaging window (upstream "Setup"). */
 export function Rail(p: RailProps) {
+  const windowInput = useRef<HTMLInputElement>(null)
+  const { onWindowCommit } = p
+  useEffect(() => {
+    const input = windowInput.current
+    if (input === null) return
+    const commit = () => onWindowCommit(input.value)
+    input.addEventListener('change', commit)
+    return () => input.removeEventListener('change', commit)
+  }, [onWindowCommit])
+
   return (
     <RailCard>
       <ControlGroup label="Log">
@@ -42,17 +56,10 @@ export function Rail(p: RailProps) {
       <ControlGroup label="Window">
         <label className="apwt-field">
           <span>Window size (s)</span>
-          <input
-            type="number"
-            min={0.1}
-            step={1}
-            value={p.windowText}
-            aria-invalid={!p.windowValid}
-            onChange={(e) => p.onWindowTextChange(e.target.value)}
-          />
+          <input ref={windowInput} type="number" min={0.1} step={1} defaultValue={p.defaultWindowText} />
         </label>
         <p className="apwt-section__help" style={{ fontSize: 13 }}>
-          {p.windowValid ? 'Rates are averaged over windows of this length.' : 'Enter a window size above zero.'}
+          Rates are averaged over windows of this length.
         </p>
       </ControlGroup>
     </RailCard>

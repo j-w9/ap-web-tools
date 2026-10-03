@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { complexAbs, complexConj, complexDiv, complexMul } from './complex.js'
 import {
   RealFft,
+  fftWindowSizeInc,
   fromInterleaved,
   isPowerOfTwo,
   realLength,
@@ -12,7 +13,7 @@ import {
   toInterleaved
 } from './fft.js'
 import { hanning, windowCorrectionFactors } from './window.js'
-import { fromPair, loadUpstream, randomArray, rng, toPair, upstreamFft } from './test-utils/upstream.js'
+import { type WindowSizeInput, fromPair, loadUpstream, randomArray, rng, toPair, upstreamFft } from './test-utils/upstream.js'
 
 const up = loadUpstream()
 
@@ -48,6 +49,29 @@ describe('power-of-two helpers', () => {
     expect(stepWindowSize(1024, 'down')).toBe(512)
     expect(stepWindowSize(1000, 'up')).toBe(1024)
     expect(stepWindowSize(1000, 'down')).toBe(512)
+  })
+
+  it('fftWindowSizeInc matches upstream fft_window_size_inc over a sequence of committed values', () => {
+    // A stub <input> carrying upstream's `data-last` attribute.
+    const attrs = new Map<string, string>()
+    const input: WindowSizeInput = {
+      value: '512',
+      defaultValue: '512',
+      hasAttribute: (n) => attrs.has(n),
+      getAttribute: (n) => attrs.get(n) ?? null,
+      setAttribute: (n, v) => void attrs.set(n, v)
+    }
+    let last = 512
+    // Spinner steps (+-1 from the last value), typed values (incl. non powers of two, 1023/1025
+    // next to a power of two, empty -> NaN) and steps from a typed value.
+    const entered = ['513', '1025', '1023', '300', '301', '299', '1023', '1024', '1025', '', '1', '2', '1', '0', '7', '8']
+    for (const text of entered) {
+      input.value = text
+      up.fft_window_size_inc({ target: input })
+      const mine = fftWindowSizeInc(last, parseFloat(text))
+      expect(mine).toBe(parseFloat(input.value))
+      last = mine
+    }
   })
 })
 
@@ -120,10 +144,21 @@ describe('runFft', () => {
     expect(res.max.x[0]).toBe(Math.max(...firstWindow))
   })
 
-  it('returns zero windows when the data is shorter than one window', () => {
-    const res = runFft({ x: [1, 2, 3] }, ['x'], { windowSize, windowSpacing, window, fft: new RealFft(windowSize) })
+  it('returns zero windows, or throws, for short data exactly as upstream', () => {
+    const fft = new RealFft(windowSize)
+    // Within one spacing of a full window: floor(...) + 1 is 0, so zero windows in both.
+    const x = randomArray(next, windowSize - 1)
+    const res = runFft({ x }, ['x'], { windowSize, windowSpacing, window, fft })
+    const theirs = up.run_fft({ x }, ['x'], windowSize, windowSpacing, Array.from(window), upstreamFft(windowSize))
     expect(res.center.length).toBe(0)
+    expect(theirs.center).toEqual([])
     expect(res.spectra.x).toEqual([])
+    // Shorter still: the count is negative and both throw a RangeError (invalid array length).
+    const short = [1, 2, 3]
+    expect(() => up.run_fft({ x: short }, ['x'], windowSize, windowSpacing, Array.from(window), upstreamFft(windowSize))).toThrow(
+      'Invalid array length'
+    )
+    expect(() => runFft({ x: short }, ['x'], { windowSize, windowSpacing, window, fft })).toThrow(RangeError)
   })
 
   it('throws for missing keys and mismatched fft size', () => {

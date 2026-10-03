@@ -7,13 +7,14 @@ import {
   type PlotRelayoutEvent,
   type PlotlyHTMLElement
 } from '@apwt/plot'
-import { fftAmplitudeScale, fftFrequencyScale, type AmplitudeKind } from '@apwt/signal'
+import { fftAmplitudeScale, fftFrequencyScale, fftWindowSizeInc, type AmplitudeKind } from '@apwt/signal'
 import { ErrorBanner, OpenInButton, Section, ToolPage, useLoading, useLogFile, type LogFact } from '@apwt/tool-shell'
-import { computeAxisFft } from './analysis/batch-fft.js'
-import { availableKeys, type LoadedLog, type PidAxisData, type PidAxisFft } from './analysis/data.js'
-import { FULL_PID_ONLY_KEYS, type FftKey } from './analysis/keys.js'
-import { loadLog } from './analysis/load.js'
-import { stepResponses } from './analysis/step-response.js'
+import { WINDOW_NOT_POWER_OF_TWO, computeAxisFft, parseWindowSize } from './analysis/batch-fft.js'
+import type { LoadedLog, PidAxisData, PidAxisFft } from './analysis/data.js'
+import type { FftKey } from './analysis/keys.js'
+import { LoadError, loadLog } from './analysis/load.js'
+import { DEFAULT_SHOWN_KEYS, DEFAULT_SPECTROGRAM_KEY, enabledKeys, selectionsForAxis, validSets } from './analysis/selection.js'
+import { carryOverStaleMeans, stepResponses, type SetStepResponse } from './analysis/step-response.js'
 import { specLabel, type SpecKey } from './analysis/vehicle.js'
 import type { VehicleType } from '@apwt/dataflash'
 import { ParamSetTable } from './ui/ParamSetTable.js'
@@ -33,10 +34,33 @@ import {
   timeOutputTraces
 } from './ui/traces.js'
 
-const DEFAULT_SHOWN: readonly FftKey[] = ['Tar', 'Act', 'Out']
 const STEP_LAYOUT = stepLayout()
 type PlotName = 'inputs' | 'outputs' | 'fft' | 'step' | 'spec'
 type FftByAxis = ReadonlyMap<SpecKey, PidAxisFft | null>
+type Range = [number, number]
+
+/** Upstream FFT window size input default. */
+const DEFAULT_WINDOW = '512'
+
+/**
+ * What the plots currently show, captured when upstream redraws: on load, Calculate, a scale
+ * change or a controller change. Upstream's `redraw()` reads the analysis time inputs at that
+ * moment, so an edited range reaches the plots at the next redraw even without Calculate.
+ */
+interface Drawn {
+  key: SpecKey
+  range: Range
+  /** Spectrogram time range: also refreshed when the spectrogram signal changes. */
+  spectrogramRange: Range
+  /** Step plot contents, including means carried over by upstream's stale-mean quirk. */
+  steps: (SetStepResponse | null)[] | null
+}
+
+/** Setup of the selected controller (upstream `add_param_sets`): Tests table state and selections. */
+interface AxisSetup {
+  key: SpecKey
+  valid: readonly boolean[]
+}
 
 const VEHICLE_NAMES: Readonly<Record<VehicleType, string>> = {
   copter: 'Copter',
@@ -47,27 +71,34 @@ const VEHICLE_NAMES: Readonly<Record<VehicleType, string>> = {
   blimp: 'Blimp'
 }
 
+const rangeOf = (log: LoadedLog): Range => [Math.floor(log.startTime), Math.ceil(log.endTime)]
+
 export function App() {
   const { run } = useLoading()
 
   // ----- Loaded log and analysis inputs -----
   const [log, setLog] = useState<LoadedLog | null>(null)
+  const [failedTypes, setFailedTypes] = useState<readonly string[] | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedKey, setSelectedKey] = useState<SpecKey | null>(null)
-  const [windowSize, setWindowSize] = useState(512)
-  /** Editable analysis window; applied to the plots on Recalculate. */
-  const [timeRange, setTimeRange] = useState<[number, number]>([0, 0])
-  const [applied, setApplied] = useState<{ range: [number, number]; fft: FftByAxis } | null>(null)
-  const [dirty, setDirty] = useState(false)
+  /** Window size input text and the last committed value (upstream `data-last`). */
+  const [windowText, setWindowText] = useState(DEFAULT_WINDOW)
+  const [windowLast, setWindowLast] = useState(parseFloat(DEFAULT_WINDOW))
+  /** Analysis time inputs (upstream `TimeStart`/`TimeEnd`, read with parseFloat). */
+  const [timeRange, setTimeRange] = useState<Range>([0, 0])
+  /** FFT results; null before a calculation and after the window size changes (upstream `clear_calculation`). */
+  const [fft, setFft] = useState<FftByAxis | null>(null)
+  const [calculateEnabled, setCalculateEnabled] = useState(false)
+  const [drawn, setDrawn] = useState<Drawn | null>(null)
+  const [setup, setSetup] = useState<AxisSetup | null>(null)
 
   // ----- Display settings -----
   const [amplitudeKind, setAmplitudeKind] = useState<AmplitudeKind>('dB')
   const [frequencySettings, setFrequencySettings] = useState<FrequencyScaleSettings>({ log: false, rpm: false })
-  const [chosenKeys, setShownKeys] = useState<ReadonlySet<FftKey>>(new Set(DEFAULT_SHOWN))
-  /** Per-controller test visibility the user has chosen; unset controllers show every valid test. */
-  const [chosenSets, setChosenSets] = useState<ReadonlyMap<SpecKey, readonly boolean[]>>(new Map())
-  const [chosenSpectrogramKey, setSpectrogramKey] = useState<FftKey>('Out')
+  const [chosenKeys, setShownKeys] = useState<ReadonlySet<FftKey>>(new Set(DEFAULT_SHOWN_KEYS))
+  const [shownSets, setShownSets] = useState<readonly boolean[]>([])
+  const [chosenSpectrogramKey, setSpectrogramKey] = useState<FftKey>(DEFAULT_SPECTROGRAM_KEY)
 
   const amplitude = useMemo(
     () => fftAmplitudeScale({ dB: amplitudeKind === 'dB', psd: amplitudeKind === 'PSD' }),
@@ -76,82 +107,132 @@ export function App() {
   const frequency = useMemo(() => fftFrequencyScale(frequencySettings), [frequencySettings])
 
   const axis: PidAxisData | null = useMemo(() => log?.axes.find((a) => a.spec.key === selectedKey) ?? null, [log, selectedKey])
-  const axisFft = (selectedKey !== null && applied?.fft.get(selectedKey)) || null
-  const keysWithData = useMemo(() => (axis ? availableKeys(axis) : new Set<FftKey>()), [axis])
-  const enabledKeys = useMemo(() => {
-    const full = axis ? axis.spec.source.message !== 'RATE' : false
-    return new Set([...keysWithData].filter((k) => full || !FULL_PID_ONLY_KEYS.includes(k)))
-  }, [axis, keysWithData])
+  const axisFft = (selectedKey !== null && fft?.get(selectedKey)) || null
+  const enabled = useMemo(() => (axis ? enabledKeys(axis).keys : new Set<FftKey>()), [axis])
 
-  // Effective selections: the user's choices, limited to what the current controller has.
-  const shownKeys = useMemo(() => new Set([...chosenKeys].filter((k) => enabledKeys.has(k))), [chosenKeys, enabledKeys])
-  const spectrogramKey: FftKey = enabledKeys.has(chosenSpectrogramKey) ? chosenSpectrogramKey : 'Out'
-  const shownSets = useMemo(
-    () =>
-      (selectedKey !== null ? chosenSets.get(selectedKey) : undefined) ??
-      axis?.sets.map((_, i) => axisFft?.sets[i] != null) ??
-      [],
-    [chosenSets, selectedKey, axis, axisFft]
-  )
-  const setShownSets = (sets: readonly boolean[]) => {
-    if (selectedKey !== null) setChosenSets((m) => new Map(m).set(selectedKey, sets))
+  // Effective selections, limited to what the current controller has.
+  const shownKeys = useMemo(() => new Set([...chosenKeys].filter((k) => enabled.has(k))), [chosenKeys, enabled])
+  const spectrogramKey: FftKey = enabled.has(chosenSpectrogramKey) ? chosenSpectrogramKey : DEFAULT_SPECTROGRAM_KEY
+
+  // ----- Upstream's redraw: capture the time inputs and recompute the step responses -----
+  const redraw = (target: LoadedLog, key: SpecKey, allFft: FftByAxis | null, range: Range, previous: Drawn | null): Drawn => {
+    const data = target.axes.find((a) => a.spec.key === key)
+    const keyFft = allFft?.get(key) ?? null
+    const prevSteps = previous?.key === key ? previous.steps : null
+    // With no FFT upstream returns before redraw_step, leaving the step plot as it was.
+    const steps =
+      data && keyFft ? carryOverStaleMeans(prevSteps, stepResponses(data.sets, keyFft.axis, range), data.sets) : prevSteps
+    return { key, range, spectrogramRange: range, steps }
   }
 
-  // ----- Calculation -----
-  const calculate = useCallback((target: LoadedLog, size: number, range: [number, number]) => {
-    const fft = new Map(target.axes.map((a) => [a.spec.key, computeAxisFft(a.sets, size)] as const))
-    setApplied({ range, fft })
-    setDirty(false)
-  }, [])
+  /** Upstream `setup_axis`: Tests table and selections for the controller, then a fresh redraw. */
+  const setupAxis = (
+    target: LoadedLog,
+    key: SpecKey,
+    allFft: FftByAxis | null,
+    range: Range,
+    shown: ReadonlySet<FftKey>,
+    spectrogram: FftKey
+  ) => {
+    const data = target.axes.find((a) => a.spec.key === key)
+    if (!data) return
+    const valid = validSets(data, allFft?.get(key) ?? null)
+    const next = selectionsForAxis(data, shown, spectrogram)
+    setSetup({ key, valid })
+    setShownSets(valid)
+    setShownKeys(next.shown)
+    setSpectrogramKey(next.spectrogram)
+    setDrawn(redraw(target, key, allFft, range, null))
+  }
+
+  /** Upstream `calculate()`: batch FFT of every controller, or the window size alert. */
+  const calculate = (target: LoadedLog): FftByAxis | null => {
+    setCalculateEnabled(false)
+    const size = parseWindowSize(windowText)
+    if (size === null) {
+      setError(WINDOW_NOT_POWER_OF_TWO)
+      return null
+    }
+    return new Map(target.axes.map((a) => [a.spec.key, computeAxisFft(a.sets, size)] as const))
+  }
 
   const { file, openFile } = useLogFile(async (buffer, name) => {
     await run(() => {
       try {
-        const loaded = loadLog(buffer)
-        const range: [number, number] = [Math.floor(loaded.startTime), Math.ceil(loaded.endTime)]
         setError(null)
+        const loaded = loadLog(buffer)
+        const range = rangeOf(loaded)
+        const first = loaded.axes[0]!.spec.key
         setLog(loaded)
+        setFailedTypes(null)
         setFileName(name)
         setTimeRange(range)
-        const first = loaded.axes[0]
-        setSelectedKey(first ? first.spec.key : null)
-        setShownKeys(new Set(DEFAULT_SHOWN))
-        setChosenSets(new Map())
-        document.title = name ? `PID Review: ${name}` : 'PID Review'
-        calculate(loaded, windowSize, range)
+        setSelectedKey(first)
+        document.title = name ? `PID Review: ${name}` : 'ArduPilot PID Review'
+        let result: FftByAxis | null = null
+        try {
+          result = calculate(loaded)
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e))
+        }
+        setFft(result)
+        setupAxis(loaded, first, result, range, new Set(DEFAULT_SHOWN_KEYS), DEFAULT_SPECTROGRAM_KEY)
       } catch (e) {
+        setLog(null)
+        setFft(null)
+        setDrawn(null)
+        setSetup(null)
+        setFailedTypes(e instanceof LoadError ? e.messageTypes : null)
         setError(e instanceof Error ? e.message : String(e))
       }
     }, 'Reading log')
   })
 
-  const steps = useMemo(
-    () => (axis && axisFft && applied ? stepResponses(axis.sets, axisFft.axis, applied.range) : null),
-    [axis, axisFft, applied]
-  )
+  const onCalculate = () => {
+    if (!log || selectedKey === null) return
+    void run(() => {
+      try {
+        setError(null)
+        const result = calculate(log)
+        if (result === null) return
+        setFft(result)
+        setDrawn((d) => redraw(log, selectedKey, result, timeRange, d))
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      }
+    }, 'Calculating')
+  }
+
+  /** Scale changes call upstream `redraw()`, which picks up the current time inputs. */
+  const redrawNow = () => {
+    if (log && selectedKey !== null) setDrawn((d) => redraw(log, selectedKey, fft, timeRange, d))
+  }
 
   // ----- Plot data -----
-  const appliedRange = applied?.range ?? null
+  const shownDrawn = drawn !== null && drawn.key === selectedKey ? drawn : null
+  const drawnRange = shownDrawn?.range ?? null
   const flightTraces = useMemo(() => flightDataTraces(log?.flight ?? null), [log])
   const flightLayout = useMemo(() => flightDataLayout(log ? timeRange : null), [log, timeRange])
   const inputTraces = useMemo(() => timeInputTraces(axis), [axis])
   const outputTraces = useMemo(() => timeOutputTraces(axis), [axis])
   const inputLayout = useMemo(
-    () => timeDomainLayout(axis?.spec.units ?? 'deg / s', appliedRange, axis, log),
-    [axis, appliedRange, log]
+    () => timeDomainLayout(axis?.spec.units ?? 'deg / s', drawnRange, axis, log),
+    [axis, drawnRange, log]
   )
-  const outputLayout = useMemo(() => timeDomainLayout('Output', appliedRange, axis, log), [axis, appliedRange, log])
+  const outputLayout = useMemo(() => timeDomainLayout('Output', drawnRange, axis, log), [axis, drawnRange, log])
   const fftTraces = useMemo(
-    () => (applied ? spectrumTraces(axisFft, { amplitude, frequency, range: applied.range, shownKeys, shownSets }) : []),
-    [applied, axisFft, amplitude, frequency, shownKeys, shownSets]
+    () => (drawnRange ? spectrumTraces(axisFft, { amplitude, frequency, range: drawnRange, shownKeys, shownSets }) : []),
+    [drawnRange, axisFft, amplitude, frequency, shownKeys, shownSets]
   )
   const fftLayout = useMemo(() => spectrumLayout(amplitude, frequency), [amplitude, frequency])
+  const steps = axisFft ? (shownDrawn?.steps ?? null) : null
   const stepData = useMemo(() => stepTraces(steps, shownSets), [steps, shownSets])
   const specTrace = useMemo(
     () => spectrogramTrace(axisFft, spectrogramKey, amplitude, frequency),
     [axisFft, spectrogramKey, amplitude, frequency]
   )
-  const specLayout = useMemo(() => spectrogramLayout(frequency, appliedRange), [frequency, appliedRange])
+  const specRange = shownDrawn?.spectrogramRange ?? null
+  const specLayout = useMemo(() => spectrogramLayout(frequency, specRange), [frequency, specRange])
 
   // ----- Plot linking: zooming one time or frequency axis zooms its partners -----
   const [plots, setPlots] = useState<Partial<Record<PlotName, PlotlyHTMLElement>>>({})
@@ -182,8 +263,8 @@ export function App() {
       if (!log) return
       const r = relayoutRange(event)
       if (r === undefined) return
-      setTimeRange(r === 'autorange' ? [Math.floor(log.startTime), Math.ceil(log.endTime)] : [Math.floor(r[0]), Math.ceil(r[1])])
-      setDirty(true)
+      setTimeRange(r === 'autorange' ? rangeOf(log) : [Math.floor(r[0]), Math.ceil(r[1])])
+      setCalculateEnabled(true)
     },
     [log]
   )
@@ -196,7 +277,7 @@ export function App() {
         { label: 'Duration', value: `${(log.endTime - log.startTime).toFixed(0)} s` },
         ...(axisFft
           ? [
-              { label: 'Logging rate', value: `${axisFft.axis.averageSampleRate.toFixed(0)} Hz` },
+              { label: 'Logging rate', value: `${axisFft.axis.averageSampleRate.toFixed(2)} Hz` },
               {
                 label: 'Resolution',
                 value: `${(axisFft.axis.averageSampleRate / axisFft.axis.windowSize).toFixed(2)} Hz`
@@ -206,7 +287,7 @@ export function App() {
       ]
     : null
 
-  const validSets = axis ? axis.sets.map((_, i) => axisFft?.sets[i] != null) : []
+  const tableValid = setup !== null && setup.key === selectedKey ? setup.valid : []
   const empty = <div className="apwt-empty">Open a log to see this plot</div>
 
   return (
@@ -220,35 +301,43 @@ export function App() {
           also works.
         </>
       }
-      actions={<OpenInButton file={file} messageTypes={log?.messageTypes ?? null} />}
+      actions={<OpenInButton file={file} messageTypes={log?.messageTypes ?? failedTypes} />}
       rail={
         <Rail
           facts={facts}
           onFile={openFile}
-          windowSize={windowSize}
-          onWindowSizeChange={(s) => {
-            setWindowSize(s)
-            setDirty(true)
+          windowSize={windowText}
+          onWindowSizeCommit={(raw) => {
+            // Upstream fft_window_size_inc then clear_calculation.
+            const next = fftWindowSizeInc(windowLast, parseFloat(raw))
+            const text = next === parseFloat(raw) ? raw : String(next)
+            setWindowText(text)
+            setWindowLast(parseFloat(text))
+            if (log) {
+              setFft(null)
+              setCalculateEnabled(true)
+            }
           }}
           timeRange={timeRange}
-          timeLimits={log ? [Math.floor(log.startTime), Math.ceil(log.endTime)] : null}
+          timeLimits={log ? rangeOf(log) : null}
           onTimeRangeChange={(r) => {
             setTimeRange(r)
-            setDirty(true)
+            setCalculateEnabled(true)
           }}
           availableKeys={new Set(log?.axes.map((a) => a.spec.key))}
           selectedKey={selectedKey}
-          onSelectKey={setSelectedKey}
-          calculateEnabled={log != null && dirty}
-          onCalculate={() => {
-            if (log) void run(() => calculate(log, windowSize, timeRange), 'Calculating')
+          onSelectKey={(key) => {
+            setSelectedKey(key)
+            if (log) setupAxis(log, key, fft, timeRange, chosenKeys, chosenSpectrogramKey)
           }}
+          calculateEnabled={log != null && calculateEnabled}
+          onCalculate={onCalculate}
         />
       }
     >
       <ErrorBanner message={error} />
 
-      <Section title="Flight data" help="Zoom into part of the flight to set the analysis window, then recalculate.">
+      <Section title="Flight data" help="Zoom into part of the flight to set the analysis window, then calculate.">
         <PlotlyChart
           className="apwt-plot apwt-plot--short"
           data={flightTraces}
@@ -271,14 +360,20 @@ export function App() {
         tools={
           <ScaleChips
             amplitude={amplitudeKind}
-            onAmplitudeChange={setAmplitudeKind}
+            onAmplitudeChange={(kind) => {
+              setAmplitudeKind(kind)
+              redrawNow()
+            }}
             frequency={frequencySettings}
-            onFrequencyChange={setFrequencySettings}
+            onFrequencyChange={(settings) => {
+              setFrequencySettings(settings)
+              redrawNow()
+            }}
           />
         }
       >
-        <SignalChips enabled={enabledKeys} shown={shownKeys} onShownChange={setShownKeys} />
-        {axis && <ParamSetTable paramSets={axis.paramSets} valid={validSets} shown={shownSets} onShownChange={setShownSets} />}
+        <SignalChips enabled={enabled} shown={shownKeys} onShownChange={setShownKeys} />
+        {axis && <ParamSetTable paramSets={axis.paramSets} valid={tableValid} shown={shownSets} onShownChange={setShownSets} />}
         {log ? <PlotlyChart className="apwt-plot" data={fftTraces} layout={fftLayout} onReady={ready('fft')} /> : empty}
       </Section>
 
@@ -292,7 +387,17 @@ export function App() {
       <Section
         title="Spectrogram"
         help="How each signal's frequency content changes through the flight."
-        tools={<SpectrogramChips enabled={enabledKeys} selected={spectrogramKey} onSelect={setSpectrogramKey} />}
+        tools={
+          <SpectrogramChips
+            enabled={enabled}
+            selected={spectrogramKey}
+            onSelect={(key) => {
+              // Upstream redraw_Spectrogram also re-reads the time inputs for its x range.
+              setSpectrogramKey(key)
+              setDrawn((d) => (d ? { ...d, spectrogramRange: timeRange } : d))
+            }}
+          />
+        }
       >
         {log ? <PlotlyChart className="apwt-plot" data={specTrace} layout={specLayout} onReady={ready('spec')} /> : empty}
       </Section>

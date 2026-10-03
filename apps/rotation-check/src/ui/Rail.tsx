@@ -20,7 +20,6 @@ export interface RailProps {
   /** Text shown in the angle boxes: the enum's angles, or what the user typed for a custom rotation. */
   angleText: Readonly<Record<EulerAxis, string>>
   onAngleChange: (axis: EulerAxis, text: string) => void
-  invalidAxes: ReadonlySet<EulerAxis>
 }
 
 /** The control rail: searchable rotation list and the Euler angle boxes. */
@@ -68,7 +67,6 @@ export function Rail(p: RailProps) {
               type="number"
               step="any"
               disabled={!custom}
-              aria-invalid={p.invalidAxes.has(axis)}
               value={p.angleText[axis]}
               onChange={(e) => p.onAngleChange(axis, e.target.value)}
             />

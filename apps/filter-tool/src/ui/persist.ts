@@ -18,7 +18,7 @@ export function initialState(): ToolState {
   const search = window.location.search
   if (search.length > 1) return stateFromQuery(search)
   const stored = readStored()
-  return stored === null ? DEFAULT_STATE : stateFromQuery(stored)
+  return stored === null ? DEFAULT_STATE : stateFromQuery(stored, DEFAULT_STATE, 'stored')
 }
 
 export function saveState(state: ToolState): void {

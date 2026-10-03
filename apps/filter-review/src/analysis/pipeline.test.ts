@@ -9,7 +9,7 @@ import { GYRO_AXES } from './fft/batch-fft.js'
 import { buildFilters } from './filters/filter-set.js'
 import { defaultNotchParams, type FilterParams, type NotchParams } from './filter-params.js'
 import type { FilterVersion } from './filter-version.js'
-import { loadFilterReviewLog, trackingContext, type LoadOptions } from './load.js'
+import { loadFilterReviewLog, trackingContext } from './load.js'
 import { aliasHelper, type AliasMode } from './plots/alias.js'
 import { bodeResponse } from './plots/bode.js'
 import { harmonicStats, loggedNotchLines, notchMarkers, notchTrackingLines } from './plots/notch-lines.js'
@@ -23,7 +23,7 @@ import { loadFilterReviewUpstream, parseWithUpstream, type Pair } from './test-u
 interface Scenario {
   name: string
   build: () => Uint8Array
-  load: LoadOptions
+
   window: { windowSize?: number; windowsPerBatch?: number }
   version: FilterVersion
   filters: { gyroFilter: number; loopRate: number; notches: [Partial<NotchParams>, Partial<NotchParams>] }
@@ -50,7 +50,7 @@ const scenarios: Scenario[] = [
       appendTrackingMessages(log, 8, 40)
       return log.toBytes()
     },
-    load: {},
+
     window: { windowSize: 512 },
     version: 4,
     filters: {
@@ -102,7 +102,7 @@ const scenarios: Scenario[] = [
       appendTrackingMessages(log, 8, 40)
       return log.toBytes()
     },
-    load: {},
+
     window: { windowSize: 1024 },
     version: 2,
     filters: {
@@ -134,7 +134,7 @@ const scenarios: Scenario[] = [
       appendTrackingMessages(log, 8, 40)
       return log.toBytes()
     },
-    load: {},
+
     window: { windowsPerBatch: 3 },
     version: 1,
     filters: {
@@ -190,7 +190,7 @@ interface UpFft {
 describe.each(scenarios)('pipeline matches upstream: $name', (s) => {
   it('agrees on FFTs, transfer functions and every plot trace', async () => {
     const bytes = s.build()
-    const loaded = loadFilterReviewLog(DataflashLog.parse(bytes), s.load)
+    const loaded = loadFilterReviewLog(DataflashLog.parse(bytes))
     const params: FilterParams = {
       gyroFilter: s.filters.gyroFilter,
       loopRate: s.filters.loopRate,
@@ -341,6 +341,22 @@ describe.each(scenarios)('pipeline matches upstream: $name', (s) => {
     expectArrayClose(phases[0], upBode[3]!.y, 'bode phase')
     expectArrayClose(amp.scale([...bode.ampMax, ...Array.from(bode.ampMin).reverse()]), upBode[0]!.y, 'bode amp band')
     expectArrayClose([...phases[1]!, ...Array.from(phases[2]!).reverse()], upBode[1]!.y, 'bode phase band')
+
+    // A range holding a single window: upstream's max and min phase are then the same array,
+    // so "wrap" shifts the band twice (reproduced by wrapPhase sharing repeated inputs)
+    if (v.wrap) {
+      el('TimeStart').value = '0'
+      el('TimeEnd').value = '0'
+      up.run('redraw_post_estimate_and_bode()')
+      const one = bodeResponse(bodeA.bode!.freq, transfers[bodeIndex]!.bode!, bodeA.fft.time, { start: 0, end: 0 })
+      expect(one.phaseMax).toBe(one.phaseMin)
+      const wrapped = wrapPhase([one.phaseMean, one.phaseMax, one.phaseMin])
+      const upOne = up.run('Bode.data') as { x: number[]; y: number[] }[]
+      expectArrayClose(wrapped[0], upOne[3]!.y, 'one-window bode phase')
+      expectArrayClose([...wrapped[1]!, ...Array.from(wrapped[2]!).reverse()], upOne[1]!.y, 'one-window bode phase band')
+      el('TimeStart').value = String(v.range[0])
+      el('TimeEnd').value = String(v.range[1])
+    }
 
     // Spectrogram
     const post = v.specSource === 'post'

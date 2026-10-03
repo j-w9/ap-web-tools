@@ -56,9 +56,22 @@ function unwrap(
 /**
  * Wrap several phase arrays into +-180 deg, all shifted by the amount that wraps the first
  * (upstream FilterReview `phase_scale` with "wrap" selected). Returns new arrays.
+ *
+ * Upstream shifts the arrays in place, so an array passed twice is shifted twice. That happens:
+ * when the time range holds a single FFT window, upstream's phase max and min are the same array
+ * and come out shifted by 720 deg where the mean is shifted by 360. To reproduce it without
+ * mutating the inputs, an input that appears more than once maps to one shared output copy.
  */
 export function wrapPhase(phase: readonly ArrayLike<number>[]): Float64Array[] {
-  const out = phase.map((p) => Float64Array.from(p))
+  const copies = new Map<ArrayLike<number>, Float64Array>()
+  const out = phase.map((p) => {
+    let copy = copies.get(p)
+    if (copy === undefined) {
+      copy = Float64Array.from(p)
+      copies.set(p, copy)
+    }
+    return copy
+  })
   const first = out[0]
   if (first === undefined) return out
   const len = first.length

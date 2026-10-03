@@ -99,26 +99,50 @@ export function stepResponses(
 }
 
 /**
+ * Upstream `redraw_step` clears each set's individual-estimate trace on every redraw but only
+ * overwrites the mean trace when the set has at least one well-excited window. A set that has
+ * data but no such window in the current range therefore keeps the mean drawn by the previous
+ * redraw of the same controller (the traces are rebuilt only when a log is loaded or the
+ * controller changes). Reproduced: `previous` is what the last redraw showed, null after a
+ * rebuild.
+ */
+export function carryOverStaleMeans(
+  previous: readonly (SetStepResponse | null)[] | null,
+  next: readonly (SetStepResponse | null)[],
+  sets: readonly (readonly PidBatch[] | null)[]
+): (SetStepResponse | null)[] {
+  return next.map((step, i) => {
+    if (step) return step
+    const old = previous?.[i]
+    if (!old || !sets[i]) return null
+    return { time: old.time, all: [], mean: old.mean }
+  })
+}
+
+/**
  * Regularisation term added to the input power spectrum: the integral of a Gaussian sized
  * for a 25 Hz cutoff, reflected to a double-sided spectrum, inverted and scaled.
+ *
+ * Upstream quirk, reproduced: `sn` is a plain array of `realLen` ones that the Gaussian loop
+ * writes `lenLpf` entries into. When the 25 Hz cutoff is above half of Nyquist (low logging
+ * rates), `lenLpf > realLen` and the array grows, so the "reflected" half is appended after
+ * the extra entries instead of starting at `realLen`. Only the first `windowSize` entries are
+ * used (`array_add` iterates over the power spectrum's length).
  */
-function noiseEstimate(bins: Float64Array, realLen: number): Float64Array {
-  let lenLpf = bins.findIndex((x) => x > NOISE_CUTOFF_HZ)
+export function noiseEstimate(bins: ArrayLike<number>, realLen: number): Float64Array {
+  let lenLpf = Array.prototype.findIndex.call(bins, (x: number) => x > NOISE_CUTOFF_HZ)
   lenLpf += lenLpf - 2 // double sided; DC and Nyquist are not copied
   const radius = Math.ceil(lenLpf * 0.5)
   const sigma = lenLpf / 6
 
-  const sn = new Float64Array(realLen).fill(1)
+  const sn: number[] = new Array<number>(realLen).fill(1)
   let last = 0
   for (let j = 0; j < lenLpf; j++) {
-    last += Math.exp((-0.5 / sigma ** 2) * (j - radius) ** 2)
-    sn[j] = last
+    sn[j] = last + Math.exp((-0.5 / sigma ** 2) * (j - radius) ** 2)
+    last = sn[j]!
   }
-  for (let j = 0; j < lenLpf; j++) sn[j] = (sn[j] as number) / last
+  for (let j = 0; j < lenLpf; j++) sn[j] = sn[j]! / last
 
-  const full = new Float64Array(realLen + (realLen - 2))
-  full.set(sn)
-  for (let j = 0; j < realLen - 2; j++) full[realLen + j] = sn[realLen - 2 - j] as number
-
+  const full = [...sn, ...sn.slice(1, realLen - 1).reverse()]
   return arrayInverse(arrayScale(arrayOffset(arrayScale(full, -1), 1 + 1e-9), 10))
 }

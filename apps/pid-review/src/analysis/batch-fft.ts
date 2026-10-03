@@ -2,6 +2,19 @@ import { RealFft, arrayOffset, arrayScale, hanning, rfftFreq, runFft, windowCorr
 import type { PidAxisFft, PidBatch, SetFft } from './data.js'
 import { FFT_KEYS, type FftKey } from './keys.js'
 
+/** Upstream `run_batch_fft` alert for a window size that is not a power of two. */
+export const WINDOW_NOT_POWER_OF_TWO = 'Window size must be a power of two'
+
+/**
+ * Window size from the input text as upstream reads it: `parseInt`, then accepted only when
+ * `log2` of it is an integer (so 1 passes here and then fails in the FFT library). Returns null
+ * where upstream alerts `WINDOW_NOT_POWER_OF_TWO`.
+ */
+export function parseWindowSize(raw: string): number | null {
+  const size = parseInt(raw)
+  return Number.isInteger(Math.log2(size)) ? size : null
+}
+
 /** Upstream hard-codes 50 % overlap between windows. */
 const WINDOW_OVERLAP = 0.5
 

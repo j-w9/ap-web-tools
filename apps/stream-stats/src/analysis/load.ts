@@ -25,22 +25,15 @@ export function logFormat(name: string | null): LogFormat | null {
 
 export type LoadedLog = { readonly kind: 'tlog'; readonly tlog: Tlog } | { readonly kind: 'bin'; readonly log: BinLog }
 
-/** Parse a log of the given format. Throws with a readable message if nothing usable is found. */
+/**
+ * Parse a log of the given format. A file without any usable data loads as an empty log (no
+ * components or message types), as upstream shows empty plots for it.
+ */
 export function loadLog(buffer: ArrayBuffer, format: LogFormat): LoadedLog {
   switch (format) {
-    case 'tlog': {
-      const tlog = parseTlog(buffer)
-      if (tlog.components.length === 0) {
-        throw new Error('No valid MAVLink messages found. Check that the file is a MAVLink telemetry log (.tlog).')
-      }
-      return { kind: 'tlog', tlog }
-    }
-    case 'bin': {
-      const log = binStreams(DataflashLog.parse(buffer))
-      if (log.messages.length === 0) {
-        throw new Error('No messages found. Check that the file is an ArduPilot DataFlash log (.bin).')
-      }
-      return { kind: 'bin', log }
-    }
+    case 'tlog':
+      return { kind: 'tlog', tlog: parseTlog(buffer) }
+    case 'bin':
+      return { kind: 'bin', log: binStreams(DataflashLog.parse(buffer)) }
   }
 }

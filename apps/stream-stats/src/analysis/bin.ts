@@ -3,7 +3,7 @@
  *
  * Port of the data gathering in upstream `plot_log` (`StreamStats/StreamStats.js`).
  */
-import type { DataflashLog } from '@apwt/dataflash'
+import { FMT_DEFINITION, type DataflashLog } from '@apwt/dataflash'
 
 /** One message type of a DataFlash log. */
 export interface BinMessageStream {
@@ -24,7 +24,7 @@ export interface BinMessageStream {
 export interface BinLog {
   /** Size of the log file in bytes. */
   readonly byteLength: number
-  /** Message types with at least one record, in format-id order. */
+  /** Every format defined in the log, in format-id order, including types with no records (count 0). */
   readonly messages: readonly BinMessageStream[]
   /** Names of every message type present, for the "Open in" hand-off. */
   readonly messageTypes: readonly string[]
@@ -39,14 +39,29 @@ function timeSeconds(log: DataflashLog, name: string, instance: number | undefin
   return Float64Array.from(column, (t) => t * US_TO_S)
 }
 
-/** Gather per-message statistics and record times from a parsed DataFlash log. */
+/** Bytes of the record header every DataFlash record starts with. */
+const RECORD_HEADER_BYTES = 3
+
+/**
+ * Gather per-message statistics and record times from a parsed DataFlash log. Like upstream's
+ * `stats()`, every format defined in the log is listed (in format-id order), including those
+ * with no records.
+ */
 export function binStreams(log: DataflashLog): BinLog {
+  const stats = log.stats()
+  const byName = new Map<string, { count: number; recordBytes: number; totalBytes: number }>()
+  for (const fmt of log.formats()) {
+    const count = stats.get(fmt.name)?.count ?? 0
+    // Upstream bug reproduced: the parser's built-in FMT definition (used when the log never
+    // defines FMT itself) has no Size, so its sizes are NaN (docs/upstream-bugs.md).
+    const recordBytes = fmt === FMT_DEFINITION ? Number.NaN : (stats.get(fmt.name)?.recordSize ?? fmt.size + RECORD_HEADER_BYTES)
+    byName.set(fmt.name, { count, recordBytes, totalBytes: recordBytes * count })
+  }
   const messages: BinMessageStream[] = []
-  for (const [name, stats] of log.stats()) {
-    if (stats.count === 0) continue
+  for (const [name, s] of byName) {
     const info = log.messageType(name)
     let time: Float64Array | null = null
-    if (info?.fieldNames.includes('TimeUS')) {
+    if (s.count > 0 && info?.fieldNames.includes('TimeUS')) {
       const instances = info.instances
       if (instances === undefined) {
         time = timeSeconds(log, name, undefined)
@@ -60,7 +75,7 @@ export function binStreams(log: DataflashLog): BinLog {
         }
       }
     }
-    messages.push({ name, count: stats.count, recordBytes: stats.recordSize, totalBytes: stats.bytes, time })
+    messages.push({ name, ...s, time })
   }
   return { byteLength: log.byteLength, messages, messageTypes: [...log.messageTypes().keys()] }
 }

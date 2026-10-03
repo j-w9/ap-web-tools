@@ -5,7 +5,10 @@
  *
  * Every complex operation keeps upstream's operand order, so each result has the length upstream
  * gives it. Upstream's hand-written loops run one element past the end of the aircraft response
- * and leave a trailing NaN on a few results; those loops stop at the end here.
+ * and leave a trailing NaN on two results (attitude with feedforward and whole-system broken
+ * loop); those loops stop at the end here. Upstream plots those results against the bin
+ * frequencies, which are one shorter, and Plotly draws only as many points as the shorter array,
+ * so the plotted data is the same.
  */
 import { complexArrayOf, complexDiv, complexMul, type ComplexArray, type ComplexArrayLike } from '@apwt/signal'
 import {
@@ -119,16 +122,33 @@ function plusOne(a: ComplexArrayLike, length: number): ComplexArray {
   return out
 }
 
+/** A rate controller notch selection that names no `FILTn_` group, where upstream's page throws. */
+export class NotchSelectionError extends Error {
+  override readonly name = 'NotchSelectionError'
+}
+
+/**
+ * Upstream builds the element id `FILT<n>` from a positive selection (to show the group, then to
+ * read its frequency) and throws when no such group exists, so the calculation stops.
+ */
+export function checkNotchSelections(inputs: Inputs, target: TuneTarget): void {
+  const rate = controllerParams(target).rate
+  for (const selection of [rate.NTF, rate.NEF]) {
+    const value = inputs[selection]
+    if (value > 0 && filterIndex(value) === null) {
+      throw new NotchSelectionError(`${selection} is ${value}, which names no FILT1 to FILT8 notch.`)
+    }
+  }
+}
+
 /**
  * The `FILTn_` notch a rate controller notch selection refers to, designed at the loop rate,
- * or null when unset or the notch has no frequency.
- *
- * Deviation: upstream fails on a selection that names no `FILTn_` group (not 1 to 8); here it
- * selects no notch.
+ * or null when unset (not positive) or the notch has no frequency.
  */
 function selectedNotch(inputs: Inputs, selection: RateParam, loopRate: number): TransferElement | null {
+  if (!(inputs[selection] > 0)) return null
   const index = filterIndex(inputs[selection])
-  if (index === null) return null
+  if (index === null) throw new NotchSelectionError(`${selection} is ${inputs[selection]}, which names no FILT1 to FILT8 notch.`)
   const freq = inputs[filterParam(index, 'NOTCH_FREQ')]
   if (!(freq > 0.0)) return null
   return designNotchWithQ(loopRate, freq, inputs[filterParam(index, 'NOTCH_Q')], inputs[filterParam(index, 'NOTCH_ATT')])
@@ -173,6 +193,7 @@ export function predictResponses(
   settings: PredictionSettings
 ): PredictedResponses {
   const { target, inputs, airspeed } = settings
+  checkNotchSelections(inputs, target)
   const { aspeed, eas2tas } = airspeed
   const freq = frequencyGrid(sampleRate * 0.5, sampleRate / windowSize)
   const len = aircraft.re.length

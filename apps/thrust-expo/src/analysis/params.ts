@@ -106,32 +106,3 @@ export const INPUTS = {
   MOTOR_COUNT: { default: 4, step: 1, min: 1, max: 12 },
   COPTER_AUW: { default: 0, step: 0.1, min: 0 }
 } as const satisfies Record<InputName, InputSpec>
-
-/** Parameters always written to the parameter file, in upstream order. `MOT_THST_HOVER` follows when estimated. */
-export const SAVED_PARAM_NAMES = [
-  'MOT_SPIN_ARM',
-  'MOT_SPIN_MIN',
-  'MOT_SPIN_MAX',
-  'MOT_PWM_MIN',
-  'MOT_PWM_MAX',
-  'MOT_THST_EXPO'
-] as const satisfies readonly MotorParamName[]
-export type SavedParamName = (typeof SAVED_PARAM_NAMES)[number]
-
-/** Every input at its default value. */
-export function defaultInputs(): Record<InputName, number> {
-  return {
-    MOT_SPIN_ARM: INPUTS.MOT_SPIN_ARM.default,
-    MOT_SPIN_MIN: INPUTS.MOT_SPIN_MIN.default,
-    MOT_SPIN_MAX: INPUTS.MOT_SPIN_MAX.default,
-    MOT_PWM_MIN: INPUTS.MOT_PWM_MIN.default,
-    MOT_PWM_MAX: INPUTS.MOT_PWM_MAX.default,
-    MOT_THST_EXPO: INPUTS.MOT_THST_EXPO.default,
-    MOTOR_COUNT: INPUTS.MOTOR_COUNT.default,
-    COPTER_AUW: INPUTS.COPTER_AUW.default
-  }
-}
-
-export function isInputName(name: string): name is InputName {
-  return (INPUT_NAMES as readonly string[]).includes(name)
-}

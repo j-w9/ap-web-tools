@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   PlotlyChart,
   linkAutorangeReset,
@@ -8,16 +8,10 @@ import {
   type PlotlyHTMLElement
 } from '@apwt/plot'
 import { ErrorBanner, OpenInButton, Section, ToolPage, useLoading, useLogFile, type LogFact } from '@apwt/tool-shell'
-import {
-  CONTROL_LOOP_LABELS,
-  DEFAULT_DISPLAY,
-  controlLoopAvailable,
-  loopComparison,
-  type DisplaySettings
-} from './analysis/display.js'
-import { identifyResponses, measuredResponses, type IdentifiedResponses } from './analysis/freq-resp.js'
-import { loadTuneLog, type LoadedTuneLog } from './analysis/load.js'
-import { loadParamText, saveParamText, urlSettings } from './analysis/param-file.js'
+import { CONTROL_LOOP_LABELS, DEFAULT_DISPLAY, loopComparison, type DisplaySettings } from './analysis/display.js'
+import { identifyResponses, measuredResponses, windowSizeFromText, type IdentifiedResponses } from './analysis/freq-resp.js'
+import { PartialTuneLogError, loadTuneLog, type LoadedTuneLog } from './analysis/load.js'
+import { FIXED_WING_YAW_SAVE_ERROR, loadParamText, saveParamText, urlSettings } from './analysis/param-file.js'
 import {
   DEFAULT_INPUTS,
   tuneTarget,
@@ -30,7 +24,7 @@ import {
 } from './analysis/params.js'
 import { predictResponses } from './analysis/predict.js'
 import { tuneAxisForSid } from './analysis/sid.js'
-import { loadTimeHistory } from './analysis/time-history.js'
+import { INITIAL_AIRSPEED_SCALING, airspeedScalingFor, loadTimeHistory, type AirspeedScaling } from './analysis/time-history.js'
 import { LoopChips, ScaleChips } from './ui/ComparisonControls.js'
 import { ParamPanel, type FileStatus } from './ui/ParamPanel.js'
 import { AnalysisRail } from './ui/Rail.js'
@@ -58,6 +52,8 @@ interface Analysis {
   readonly target: TuneTarget
   /** `SID_AXIS` of the run analysed, which decides which measured responses are meaningful. */
   readonly sidAxis: number
+  /** Airspeed scaling of the prediction (upstream's `aspeed`/`eas2tas` at calculation time). */
+  readonly airspeed: AirspeedScaling
 }
 
 type PlotName = 'magnitude' | 'phase' | 'coherence'
@@ -86,7 +82,8 @@ export function App() {
   const [selectedRun, setSelectedRun] = useState<number | null>(null)
   const [axis, setAxis] = useState<TuneAxis>('Roll')
   const [timeRange, setTimeRange] = useState<[number, number]>([0, 0])
-  const [windowSize, setWindowSize] = useState(1024)
+  // The window size input's committed text; upstream reads it with parseInt when calculating.
+  const [windowSizeText, setWindowSizeText] = useState('1024')
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [dirty, setDirty] = useState(false)
 
@@ -97,20 +94,30 @@ export function App() {
   const setDisplayField = <K extends keyof DisplaySettings>(key: K, value: DisplaySettings[K]) =>
     setDisplay((d) => ({ ...d, [key]: value }))
 
-  const vehicle = log?.vehicle ?? 'copter'
+  // Upstream page globals that outlive a log: vehicle_type (kept when a log has no firmware
+  // banner) and the fixed-wing airspeed scaling aspeed/eas2tas (used by every later prediction).
+  const vehicleRef = useRef<TuneVehicle>('copter')
+  const airspeedRef = useRef<AirspeedScaling>(INITIAL_AIRSPEED_SCALING)
+
+  const vehicle = log?.vehicle ?? vehicleRef.current
   const target = tuneTarget(vehicle, axis)
   const sidAxis = (selectedRun !== null ? log?.runs[selectedRun]?.axis : undefined) ?? 0
 
   const calculate = useCallback(
-    (loaded: LoadedTuneLog, t: TuneTarget | null, sid: number, range: readonly [number, number], size: number) => {
-      if (t === null) {
-        setAnalysis(null)
-        setError(FIXED_WING_YAW)
-        return
-      }
+    (loaded: LoadedTuneLog, t: TuneTarget | null, sid: number, range: readonly [number, number], sizeText: string) => {
       try {
+        // Upstream's order: window size check, FFT set-up, parameter form (which throws for
+        // fixed-wing yaw), then the time histories.
+        const size = windowSizeFromText(sizeText)
+        if (t === null) {
+          setAnalysis(null)
+          setError(FIXED_WING_YAW)
+          return
+        }
         const history = loadTimeHistory(loaded.log, loaded.attitudeMessage, t, range[0], range[1])
-        setAnalysis({ identified: identifyResponses(history, t.axis, size), target: t, sidAxis: sid })
+        const airspeed = airspeedScalingFor(history, airspeedRef.current)
+        airspeedRef.current = airspeed
+        setAnalysis({ identified: identifyResponses(history, t.axis, size), target: t, sidAxis: sid, airspeed })
         setError(null)
         setDirty(false)
       } catch (e) {
@@ -124,24 +131,28 @@ export function App() {
   const { file, openFile } = useLogFile(async (buffer, name) => {
     await run(() => {
       try {
-        const loaded = loadTuneLog(buffer)
+        const loaded = loadTuneLog(buffer, { vehicle: vehicleRef.current })
+        vehicleRef.current = loaded.vehicle
         const first = loaded.runs[0]
         const nextAxis = (first && tuneAxisForSid(first.axis)) ?? axis
-        const range: [number, number] = first ? [first.startTime, first.endTime] : [0, 0]
         setLog(loaded)
         setFileName(name)
         setInputs((current) => withInputs(current, loaded.inputs))
         setSelectedRun(first ? 0 : null)
         setAxis(nextAxis)
-        setTimeRange(range)
         document.title = name ? `Analytic Tune: ${name}` : 'Analytic Tune'
         if (first) {
-          calculate(loaded, tuneTarget(loaded.vehicle, nextAxis), first.axis, range, windowSize)
+          const range: [number, number] = [first.startTime, first.endTime]
+          setTimeRange(range)
+          calculate(loaded, tuneTarget(loaded.vehicle, nextAxis), first.axis, range, windowSizeText)
         } else {
+          // As upstream, the analysis window is left as it was.
           setAnalysis(null)
-          setError('The log has SID data but no complete system identification run.')
+          setError('The log has no system identification runs (SIDD).')
         }
       } catch (e) {
+        // Upstream keeps the parameters it copied before failing part way.
+        if (e instanceof PartialTuneLogError) setInputs((current) => withInputs(current, e.inputs))
         setError(message(e))
       }
     }, 'Reading log')
@@ -155,7 +166,19 @@ export function App() {
     setSelectedRun(index)
     setAxis(nextAxis)
     setTimeRange(range)
-    void run(() => calculate(log, tuneTarget(log.vehicle, nextAxis), r.axis, range, windowSize), 'Calculating')
+    void run(() => calculate(log, tuneTarget(log.vehicle, nextAxis), r.axis, range, windowSizeText), 'Calculating')
+  }
+
+  /**
+   * Upstream recalculates everything, reading the analysis window and FFT size afresh, whenever a
+   * parameter input or the attitude check box changes. Predictions here follow the parameters
+   * live; when the window or FFT size has been edited since the last calculation, this
+   * recalculates as upstream's change handlers do.
+   */
+  const recalculateIfStale = (range: readonly [number, number] = timeRange, sizeText: string = windowSizeText) => {
+    if (log && (dirty || analysis === null)) {
+      void run(() => calculate(log, target, sidAxis, range, sizeText), 'Calculating')
+    }
   }
 
   // ----- Derived responses: parameters and display settings update these live -----
@@ -163,18 +186,25 @@ export function App() {
     () => (analysis ? measuredResponses(analysis.identified, display.useAttitude, inputs.SCHED_LOOP_RATE) : null),
     [analysis, display.useAttitude, inputs.SCHED_LOOP_RATE]
   )
-  const predicted = useMemo(
-    () =>
-      analysis && measured
-        ? predictResponses(measured.bareAircraft.H, analysis.identified.sampleRate, analysis.identified.windowSize, {
-            target: analysis.target,
-            inputs,
-            airspeed: analysis.identified.airspeed
-          })
-        : null,
-    [analysis, measured, inputs]
-  )
-  const loop = controlLoopAvailable(display.loop, vehicle) ? display.loop : 'rate'
+  const prediction = useMemo(() => {
+    if (!analysis || !measured) return null
+    try {
+      return {
+        value: predictResponses(measured.bareAircraft.H, analysis.identified.sampleRate, analysis.identified.windowSize, {
+          target: analysis.target,
+          inputs,
+          airspeed: analysis.airspeed
+        })
+      }
+    } catch (e) {
+      // Upstream's calculation stops with an error for these inputs (for example a notch
+      // selection naming no FILTn group).
+      return { error: message(e) }
+    }
+  }, [analysis, measured, inputs])
+  const predicted = prediction && 'value' in prediction ? prediction.value : null
+  // Upstream only disables the fixed-wing-unavailable loops; a loop already selected stays shown.
+  const loop = display.loop
   const comparison = useMemo(
     () => (analysis && measured && predicted ? loopComparison(loop, analysis.sidAxis, measured, predicted) : null),
     [analysis, measured, predicted, loop]
@@ -187,10 +217,9 @@ export function App() {
     () =>
       comparisonTraces(comparison, measured?.freq ?? null, {
         gain: display.gain,
-        phase: display.phase,
         frequencyUnit: display.frequencyUnit
       }),
-    [comparison, measured, display.gain, display.phase, display.frequencyUnit]
+    [comparison, measured, display.gain, display.frequencyUnit]
   )
   const magLayout = useMemo(() => magnitudeLayout(display), [display])
   const phLayout = useMemo(() => phaseLayout(display), [display])
@@ -229,16 +258,27 @@ export function App() {
   )
 
   // ----- Parameter changes and files -----
-  const onInput = useCallback((name: InputName, value: number) => setInputs((current) => ({ ...current, [name]: value })), [])
+  const onInput = (name: InputName, value: number) => {
+    setInputs((current) => ({ ...current, [name]: value }))
+    recalculateIfStale()
+  }
   const onLoadParams = (paramFile: File) => {
     void paramFile.text().then((text) => {
       const loaded = loadParamText(text)
       setInputs((current) => withInputs(current, loaded.values))
+      const range: [number, number] = [loaded.startTime ?? timeRange[0], loaded.endTime ?? timeRange[1]]
+      const sizeText = loaded.windowSizeText ?? windowSizeText
+      if (loaded.startTime !== undefined || loaded.endTime !== undefined) setTimeRange(range)
+      if (loaded.windowSizeText !== undefined) setWindowSizeText(sizeText)
+      if (loaded.useAttitude !== undefined) setDisplayField('useAttitude', loaded.useAttitude)
       setFileStatus({ kind: 'loaded', name: paramFile.name, count: loaded.values.size, ignored: loaded.ignored })
+      if (loaded.error !== undefined) setError(loaded.error)
+      else recalculateIfStale(range, sizeText)
     })
   }
   const onSaveParams = () => {
     if (target) download(saveParamText(inputs, target), 'filter.param')
+    else setError(FIXED_WING_YAW_SAVE_ERROR)
   }
 
   const identified = analysis?.identified
@@ -285,16 +325,19 @@ export function App() {
               setTimeRange(r)
               setDirty(true)
             }}
-            windowSize={windowSize}
-            onWindowSizeChange={(s) => {
-              setWindowSize(s)
+            windowSizeText={windowSizeText}
+            onWindowSizeCommit={(text) => {
+              setWindowSizeText(text)
               setDirty(true)
             }}
             useAttitude={display.useAttitude}
-            onUseAttitudeChange={(use) => setDisplayField('useAttitude', use)}
+            onUseAttitudeChange={(use) => {
+              setDisplayField('useAttitude', use)
+              recalculateIfStale()
+            }}
             calculateEnabled={log !== null && (dirty || analysis === null)}
             onCalculate={() => {
-              if (log) void run(() => calculate(log, target, sidAxis, timeRange, windowSize), 'Calculating')
+              if (log) void run(() => calculate(log, target, sidAxis, timeRange, windowSizeText), 'Calculating')
             }}
           />
           <ParamPanel
@@ -309,7 +352,7 @@ export function App() {
         </>
       }
     >
-      <ErrorBanner message={error} />
+      <ErrorBanner message={error ?? (prediction && 'error' in prediction ? prediction.error : null)} />
 
       <Section title="System ID runs" help="Each SystemID mode run in the log. Pick one to analyse it.">
         {log && log.runs.length > 0 ? (

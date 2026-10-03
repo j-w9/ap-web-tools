@@ -20,6 +20,10 @@ export interface SyntheticLogOptions {
   readonly params: Readonly<Record<string, number>>
   /** Log attitude in ANG instead of ATT. */
   readonly ang?: boolean
+  /** Log attitude every this many rate samples (default 1, the same rate as RATE). */
+  readonly attEvery?: number
+  /** Firmware banner; null logs none. Defaults to the vehicle's. */
+  readonly banner?: string | null
   readonly seed?: number
 }
 
@@ -38,8 +42,13 @@ export function buildSidLog(options: SyntheticLogOptions): Uint8Array {
   w.defineFormat(0x86, attName, 'Qffffff', 'TimeUS,DesRoll,Roll,DesPitch,Pitch,DesYaw,Yaw')
   w.defineFormat(0x87, 'SIDP', 'Qfffffffffff', 'TimeUS,Aile,Elev,Rudd,rdes,pdes,DRll,Rll,DPit,Pit,aspd,eastas')
 
-  const banner = options.vehicle === 'copter' ? 'ArduCopter V4.6.3 (abcdef12)' : 'ArduPlane V4.6.3 (abcdef12)'
-  w.write('MSG', [1000, banner])
+  const banner =
+    options.banner === undefined
+      ? options.vehicle === 'copter'
+        ? 'ArduCopter V4.6.3 (abcdef12)'
+        : 'ArduPlane V4.6.3 (abcdef12)'
+      : options.banner
+  w.write('MSG', [1000, banner ?? 'Frame: QUAD'])
   let t = 2000
   for (const [name, value] of Object.entries(options.params)) w.write('PARM', [t++, name, value, value, 0])
 
@@ -77,7 +86,7 @@ export function buildSidLog(options: SyntheticLogOptions): Uint8Array {
       angle[a] = angle[a]! + r * dt
     }
     w.write('RATE', [timeUs, des[0]!, rate[0]!, out[0]!, des[1]!, rate[1]!, out[1]!, des[2]!, rate[2]!, out[2]!, 0, 0, 0])
-    if (k % (RATE_HZ / ATT_HZ) === 0) {
+    if (k % ((RATE_HZ / ATT_HZ) * (options.attEvery ?? 1)) === 0) {
       w.write(attName, [
         timeUs + 7,
         angle[0]! + noise(0.1),

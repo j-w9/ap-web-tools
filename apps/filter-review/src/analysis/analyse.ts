@@ -129,3 +129,12 @@ export function sensorFftInfo(analysis: GyroAnalysis): (SensorFftInfo | undefine
   }
   return out
 }
+
+/**
+ * Value upstream `calculate()` writes back into the window size input after a calculation: the
+ * mean window size of the lowest IMU with an FFT. In batch mode this replaces the raw-log window
+ * size, which a later raw log then uses.
+ */
+export function windowSizeWriteBack(analysis: GyroAnalysis): number | undefined {
+  return sensorFftInfo(analysis).find((info) => info !== undefined)?.windowSize
+}

@@ -95,22 +95,33 @@ export function pidGains(inputs: Inputs, axis: PidAxis): PidGains {
 /** Operating-point inputs a tracking mode reads. */
 export type TrackingSource = 'throttle' | 'esc' | 'rpm'
 
-/** Sources read by the enabled notches, so the page only asks for those (upstream `update_hidden_mode`). */
-export function trackingSourcesInUse(inputs: Inputs): ReadonlySet<TrackingSource> {
-  const used = new Set<TrackingSource>()
+/** Upstream `update_hidden_mode`'s table: the `_MODE` values that show each group of inputs. */
+const TRACKING_SOURCE_MODES: readonly (readonly [TrackingSource, readonly number[]])[] = [
+  ['throttle', [1]],
+  ['esc', [3]],
+  ['rpm', [2, 5]]
+]
+
+/**
+ * Whether a notch's settings are editable (upstream `update_hidden`): `_ENABLE > 0`. This is not
+ * quite the filter's own test (`!(enable <= 0)`): an empty (`NaN`) `_ENABLE` greys the settings
+ * out while the notch is still applied, as upstream.
+ */
+export function notchInputsEnabled(inputs: Inputs, prefix: NotchPrefix): boolean {
+  return inputs[notchParam(prefix, 'ENABLE')] > 0
+}
+
+/**
+ * Operating-point inputs the page shows (upstream `update_hidden_mode`): those of each notch with
+ * `_ENABLE > 0`, chosen by `Math.floor(_MODE)`. The maths compares the unrounded mode, so a mode
+ * of 1.5 would show the throttle input while the notch stays fixed, as upstream.
+ */
+export function trackingSourcesShown(inputs: Inputs): ReadonlySet<TrackingSource> {
+  const shown = new Set<TrackingSource>()
   for (const prefix of NOTCH_PREFIXES) {
-    const config = notchConfig(inputs, prefix)
-    if (!config.enabled) continue
-    switch (config.tracking.mode) {
-      case 'throttle':
-      case 'esc':
-      case 'rpm':
-        used.add(config.tracking.mode)
-        break
-      case 'fixed':
-      case 'fft':
-        break
-    }
+    if (!notchInputsEnabled(inputs, prefix)) continue
+    const mode = Math.floor(inputs[notchParam(prefix, 'MODE')])
+    for (const [source, modes] of TRACKING_SOURCE_MODES) if (modes.includes(mode)) shown.add(source)
   }
-  return used
+  return shown
 }

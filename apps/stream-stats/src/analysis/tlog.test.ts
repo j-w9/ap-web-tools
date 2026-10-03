@@ -120,6 +120,7 @@ describe('parseTlog', () => {
       { timeUs: T0, name: 'HEARTBEAT', sequence: 1 }
     ])
     expect(() => parseTlog(bytes)).toThrow(TlogTimeError)
+    expect(() => parseTlog(bytes)).toThrow(/^Time went backwards!$/)
     const upstream = loadUpstream()
     expect(() => upstream.loadTlog(bufferOf(bytes))).toThrow()
     expect(upstream.alerts).toEqual(['Time went backwards!'])

@@ -103,7 +103,6 @@ export function ParamPanel(p: ParamPanelProps) {
           <button
             type="button"
             className="apwt-btn"
-            disabled={target === null}
             onClick={p.onSaveFile}
             title="Save this controller's parameters with the INS_ filters"
           >

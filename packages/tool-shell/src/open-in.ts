@@ -37,6 +37,11 @@ export const OPEN_IN_DESTINATIONS: readonly OpenInDestination[] = [
   }))
 ]
 
+/** Whether a loaded file can be handed on (upstream `setup_open_in`: the name ends in ".bin", any case). */
+export function canOpenIn(fileName: string): boolean {
+  return fileName.toLowerCase().endsWith('.bin')
+}
+
 /** Destinations other than the current tool (identified by the last path segment). */
 export function openInDestinations(): readonly OpenInDestination[] {
   const segments = window.location.pathname.split('/').filter(Boolean)

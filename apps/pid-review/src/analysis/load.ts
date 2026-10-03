@@ -1,67 +1,95 @@
-import { DataflashLog, type NumericColumn, US_TO_S } from '@apwt/dataflash'
+import { getVersionAndBoard } from '@apwt/ardupilot'
+import { DataflashLog, type NumericColumn, US_TO_S, type VehicleType } from '@apwt/dataflash'
 import { splitIntoBatches } from './batches.js'
 import type { FlightData, LoadedLog, PidAxisData, PidBatch } from './data.js'
 import { splitParamSets, type ParamSets } from './param-sets.js'
 import { pidSpecsForVehicle, type PidMessageSpec } from './vehicle.js'
 
-/** Copy `[start, end]` (inclusive) of a column into a scaled Float64Array. */
-function slice(column: NumericColumn, start: number, end: number, scale = 1): Float64Array {
-  const out = new Float64Array(end - start + 1)
-  for (let i = 0; i < out.length; i++) out[i] = (column[start + i] as number) * scale
+/** Upstream `load()` alert for a build type other than Rover, Copter or Plane. */
+export const UNSUPPORTED_VEHICLE = 'Vehicle Type not supported'
+/** Upstream `load()` alert when no controller has usable data. */
+export const NO_PID_DATA = 'No PID or RATE log messages found'
+
+/** A log that parsed but cannot be reviewed; carries the message types for the "Open in" menu. */
+export class LoadError extends Error {
+  constructor(
+    message: string,
+    readonly messageTypes: readonly string[]
+  ) {
+    super(message)
+    this.name = 'LoadError'
+  }
+}
+
+/** Copy `[start, end)` of a column into a Float64Array, multiplied by `scale` when given. */
+function slice(column: NumericColumn, start: number, end: number, scale?: number): Float64Array {
+  const out = new Float64Array(end - start)
+  for (let i = 0; i < out.length; i++) out[i] = scale === undefined ? column[start + i]! : column[start + i]! * scale
   return out
 }
 
-function secondsColumn(log: DataflashLog, message: string): { time: Float64Array; values: Float64Array } | undefined {
+function series(log: DataflashLog, message: string, field: string): { time: Float64Array; values: Float64Array } | undefined {
   const timeUs = log.getNumbers(message, 'TimeUS')
-  if (!timeUs) return undefined
-  return { time: slice(timeUs, 0, timeUs.length - 1, US_TO_S), values: new Float64Array(0) }
+  const values = log.getNumbers(message, field)
+  if (!timeUs || !values) return undefined
+  return { time: slice(timeUs, 0, timeUs.length, US_TO_S), values: slice(values, 0, values.length) }
 }
 
-function series(log: DataflashLog, message: string, field: string): { time: Float64Array; values: Float64Array } | undefined {
-  const base = secondsColumn(log, message)
-  const values = log.getNumbers(message, field)
-  if (!base || !values) return undefined
-  return { time: base.time, values: slice(values, 0, values.length - 1) }
+/** The `get_version_and_board(log).build_type` values PID Review supports (upstream `load()` switch). */
+function vehicleForBuildType(buildType: number | undefined): VehicleType | undefined {
+  switch (buildType) {
+    case 1:
+      return 'rover'
+    case 2:
+      return 'copter'
+    case 3:
+      return 'plane'
+    default:
+      return undefined
+  }
 }
 
 /**
- * Parse a DataFlash log and extract everything PID Review shows. Throws an `Error` with a
- * user-facing message when the vehicle is unsupported or the log has no PID data.
+ * Parse a DataFlash log and extract everything PID Review shows (upstream `load()`). Throws a
+ * `LoadError` with upstream's alert text when the vehicle is unsupported or the log has no PID data.
  */
 export function loadLog(buffer: ArrayBuffer): LoadedLog {
   const log = DataflashLog.parse(buffer)
+  const messageTypes = [...log.messageTypes().keys()]
 
-  const vehicle = log.vehicleType()
-  const specs = vehicle === undefined ? null : pidSpecsForVehicle(vehicle)
-  if (vehicle === undefined || !specs) {
-    throw new Error(
-      vehicle === undefined
-        ? 'Could not tell which vehicle wrote this log: it has no VER build type or firmware banner.'
-        : `PID Review supports Copter, Plane and Rover logs; this log is from ${vehicle}.`
-    )
-  }
+  // Upstream takes the build type from get_version_and_board: VER.BU, else the boot banner.
+  const version = getVersionAndBoard(log)
+  const vehicle = vehicleForBuildType(version.buildType)
+  const specs = pidSpecsForVehicle(vehicle)
+  if (vehicle === undefined || !specs) throw new LoadError(UNSUPPORTED_VEHICLE, messageTypes)
 
   const parmNames = log.getStrings('PARM', 'Name')
   const parmTime = log.getNumbers('PARM', 'TimeUS')
   const parmValues = log.getNumbers('PARM', 'Value')
-  if (!parmNames || !parmTime || !parmValues) throw new Error('No PARM messages found')
+  if (!parmNames || !parmTime || !parmValues) throw new LoadError('No PARM messages found', messageTypes)
   const parm = { names: parmNames, timeUs: parmTime, values: parmValues }
 
   const axes: PidAxisData[] = []
-  let startTime = Infinity
-  let endTime = -Infinity
+  let startTime: number | undefined
+  let endTime: number | undefined
 
   for (const spec of specs) {
     const paramSets = splitParamSets(parm, spec.prefixes)
     if (!paramSets) continue
-    const axis = loadAxis(log, spec, paramSets)
-    if (!axis) continue
-    axes.push(axis)
-    startTime = Math.min(startTime, axis.startTime)
-    endTime = Math.max(endTime, axis.endTime)
+    const timeUs = log.getNumbers(spec.source.message, 'TimeUS')
+    if (!timeUs || timeUs.length === 0) continue
+    const time = slice(timeUs, 0, timeUs.length, US_TO_S)
+    // Upstream widens the overall span in split_into_batches, before it knows whether the
+    // controller has a usable batch, so controllers without one still count here.
+    const first = time[0]!
+    const last = time[time.length - 1]!
+    if (startTime === undefined || first < startTime) startTime = first
+    if (endTime === undefined || last > endTime) endTime = last
+    const axis = loadAxis(log, spec, paramSets, time)
+    if (axis) axes.push(axis)
   }
 
-  if (axes.length === 0) throw new Error('No PID or RATE log messages found')
+  if (axes.length === 0 || startTime === undefined || endTime === undefined) throw new LoadError(NO_PID_DATA, messageTypes)
 
   const flight: FlightData = {}
   const roll = series(log, 'ATT', 'Roll')
@@ -73,33 +101,14 @@ export function loadLog(buffer: ArrayBuffer): LoadedLog {
   if (throttle) flight.throttle = throttle
   if (altitude) flight.altitude = altitude
 
-  return {
-    axes,
-    flight,
-    startTime,
-    endTime,
-    messageTypes: [...log.messageTypes().keys()],
-    vehicle,
-    firmware: firmwareString(log)
-  }
+  return { axes, flight, startTime, endTime, messageTypes, vehicle, firmware: version.fwString ?? null }
 }
 
-/** Firmware banner from VER, else the first MSG that looks like one. */
-function firmwareString(log: DataflashLog): string | null {
-  const fws = log.getStrings('VER', 'FWS')?.[0]
-  if (fws) return fws
-  return log.textMessages().find((m) => /^Ardu\w+ V\d/.test(m)) ?? null
-}
-
-function loadAxis(log: DataflashLog, spec: PidMessageSpec, paramSets: ParamSets): PidAxisData | null {
-  const message = spec.source.message
-  const timeUs = log.getNumbers(message, 'TimeUS')
-  if (!timeUs || timeUs.length === 0) return null
-  const time = slice(timeUs, 0, timeUs.length - 1, US_TO_S)
-
+function loadAxis(log: DataflashLog, spec: PidMessageSpec, paramSets: ParamSets, time: Float64Array): PidAxisData | null {
   const batches = splitIntoBatches(time, paramSets.sets)
   if (batches.length === 0) return null
 
+  const message = spec.source.message
   const column = (field: string): NumericColumn | undefined => log.getNumbers(message, field)
   const required = (field: string): NumericColumn => {
     const c = column(field)
@@ -111,12 +120,12 @@ function loadAxis(log: DataflashLog, spec: PidMessageSpec, paramSets: ParamSets)
   const source = spec.source
 
   for (const b of batches) {
-    const take = (c: NumericColumn, scale = 1) => slice(c, b.start, b.end, scale)
+    const take = (c: NumericColumn, scale?: number) => slice(c, b.start, b.end, scale)
     let batch: PidBatch
     if (source.message === 'RATE') {
       const axis = source.axis
       batch = {
-        time: take(timeUs, US_TO_S),
+        time: time.slice(b.start, b.end),
         sampleRate: b.sampleRate,
         signals: {
           // RATE logs the raw target where PID messages log the filtered one.
@@ -133,11 +142,9 @@ function loadAxis(log: DataflashLog, spec: PidMessageSpec, paramSets: ParamSets)
       const dffColumn = column('DFF')
       const DFF = dffColumn ? take(dffColumn) : undefined
       const Out = new Float64Array(P.length)
-      for (let i = 0; i < Out.length; i++) {
-        Out[i] = (P[i] as number) + (I[i] as number) + (D[i] as number) + (FF[i] as number) + (DFF ? (DFF[i] as number) : 0)
-      }
+      for (let i = 0; i < Out.length; i++) Out[i] = P[i]! + I[i]! + D[i]! + FF[i]! + (DFF ? DFF[i]! : 0)
       batch = {
-        time: take(timeUs, US_TO_S),
+        time: time.slice(b.start, b.end),
         sampleRate: b.sampleRate,
         signals: {
           Tar: take(required('Tar'), spec.unitScale),
@@ -155,11 +162,5 @@ function loadAxis(log: DataflashLog, spec: PidMessageSpec, paramSets: ParamSets)
     ;(sets[b.paramSet] ??= []).push(batch)
   }
 
-  return {
-    spec,
-    paramSets,
-    sets,
-    startTime: time[0] as number,
-    endTime: time[time.length - 1] as number
-  }
+  return { spec, paramSets, sets, startTime: time[0]!, endTime: time[time.length - 1]! }
 }

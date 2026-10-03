@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import { Download, Link, Upload } from 'lucide-react'
 import { ControlGroup, RadioChips, RailCard } from '@apwt/tool-shell'
-import type { TrackingSource } from '../analysis/config.js'
+import { notchInputsEnabled, type TrackingSource } from '../analysis/config.js'
 import {
   NOTCH_FIELDS,
   PID_AXES,
@@ -14,7 +14,6 @@ import {
   type PidAxis,
   type SimInputName
 } from '../analysis/params.js'
-import type { NotchStatus } from '../analysis/summary.js'
 import { ParamField, PlainField } from './Fields.js'
 import { HARMONIC_BIT_LABELS, NOTCH_FIELD_LABELS, NOTCH_STEPS, PID_STEPS, PID_TERM_LABELS, SIM_INPUTS } from './field-specs.js'
 
@@ -28,7 +27,6 @@ export type FileStatus = { readonly kind: 'idle' } | { readonly kind: 'loaded'; 
 export interface RailProps {
   inputs: Inputs
   onInput: (name: InputName, value: number) => void
-  notchStatus: Readonly<Record<NotchPrefix, NotchStatus>>
   trackingSources: ReadonlySet<TrackingSource>
   axis: PidAxis
   onAxis: (axis: PidAxis) => void
@@ -37,26 +35,6 @@ export interface RailProps {
   onSaveFile: () => void
   linkCopied: boolean
   onCopyLink: (() => void) | null
-}
-
-function NotchStatusLine({ prefix, status }: { prefix: NotchPrefix; status: NotchStatus }) {
-  switch (status.kind) {
-    case 'disabled':
-      return <p className="ft-note">Set {prefix}_ENABLE to 1 to add this notch.</p>
-    case 'empty':
-      return (
-        <p className="ft-note ft-note--warn">
-          No notch is active. Pick harmonics in {prefix}_HMNCS and a base frequency below Nyquist.
-        </p>
-      )
-    case 'active':
-      return (
-        <p className="ft-note">
-          {status.notchCount} {status.notchCount === 1 ? 'notch' : 'notches'}, fundamental at {status.fundamentalHz.toFixed(1)}{' '}
-          Hz.
-        </p>
-      )
-  }
 }
 
 /** The control rail: parameter file, gyro filters, both harmonic notches, tracking inputs and the rate PID. */
@@ -78,7 +56,7 @@ export function Rail(p: RailProps) {
   }
 
   const notchGroup = (prefix: NotchPrefix) => {
-    const enabled = p.notchStatus[prefix].kind !== 'disabled'
+    const enabled = notchInputsEnabled(inputs, prefix)
     return (
       <ControlGroup key={prefix} label={NOTCH_TITLES[prefix]}>
         {NOTCH_FIELDS.map((field) => {
@@ -96,7 +74,7 @@ export function Rail(p: RailProps) {
             />
           )
         })}
-        <NotchStatusLine prefix={prefix} status={p.notchStatus[prefix]} />
+        {!enabled && <p className="ft-note">Set {prefix}_ENABLE to 1 to edit this notch.</p>}
       </ControlGroup>
     )
   }

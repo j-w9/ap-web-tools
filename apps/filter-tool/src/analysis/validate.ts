@@ -1,25 +1,16 @@
-import type { Inputs } from './params.js'
+/**
+ * Calculations that can throw where upstream throws. Upstream checks no input ranges: it plots
+ * whatever the maths gives (an empty plot for a sample rate of 0, `NaN` for an empty field) and
+ * only stops when building the frequency grid fails, e.g. `new Array(NaN)` or a negative length
+ * for an empty or negative gyro or loop rate. Its page then shows the generic error alert; the
+ * port shows the error in place of the plot.
+ */
+export type Computed<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string }
 
-/** Highest rates the tool will plot; far above any ArduPilot board, low enough to stay responsive. */
-export const MAX_GYRO_RATE_HZ = 50000
-export const MAX_LOOP_RATE_HZ = 10000
-
-export type RateProblem = string | null
-
-function rateProblem(name: string, value: number, max: number): RateProblem {
-  if (!Number.isFinite(value) || value <= 0) return `${name} must be a positive number of Hz.`
-  if (value > max) return `${name} above ${max} Hz is not supported.`
-  return null
-}
-
-/** Why the gyro filter plot cannot be drawn, or null when it can. */
-export function gyroRateProblem(inputs: Inputs): RateProblem {
-  return rateProblem('Gyro sample rate', inputs.GyroSampleRate, MAX_GYRO_RATE_HZ)
-}
-
-/** Why the PID plot cannot be drawn, or null when it can. */
-export function loopRateProblem(inputs: Inputs, includesGyro: boolean): RateProblem {
-  return (
-    rateProblem('SCHED_LOOP_RATE', inputs.SCHED_LOOP_RATE, MAX_LOOP_RATE_HZ) ?? (includesGyro ? gyroRateProblem(inputs) : null)
-  )
+export function attempt<T>(calculate: () => T): Computed<T> {
+  try {
+    return { ok: true, value: calculate() }
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) }
+  }
 }

@@ -136,6 +136,8 @@ export function arrayMean(a: ArrayLike<number>): number {
  */
 export function arrayFromRange(start: number, end: number, step: number): Float64Array {
   const len = Math.floor((end - start) / step) + 1
+  // Upstream's `new Array(len)` throws for a NaN length; a typed array would silently be empty.
+  if (Number.isNaN(len)) throw new RangeError('Invalid array length')
   const out = new Float64Array(len)
   let value = start
   for (let i = 0; i < len; i++) {
@@ -148,6 +150,8 @@ export function arrayFromRange(start: number, end: number, step: number): Float6
 /**
  * Piecewise-linear interpolation of `values` sampled at ascending `index`, evaluated at each
  * `queryIndex`. Queries are clamped to the end values; `queryIndex` must itself be ascending.
+ * A query that upstream leaves unassigned (`undefined`: a NaN query, an empty or NaN `index`, and
+ * every query after the search has run off the end) is NaN here.
  */
 export function linearInterp(values: ArrayLike<number>, index: ArrayLike<number>, queryIndex: ArrayLike<number>): Float64Array {
   const len = queryIndex.length
@@ -164,6 +168,7 @@ export function linearInterp(values: ArrayLike<number>, index: ArrayLike<number>
       out[i] = values[lastValueIndex]!
       continue
     }
+    out[i] = NaN
     for (; interpolateIndex < lastValueIndex; interpolateIndex++) {
       const next = index[interpolateIndex + 1]!
       if (q < next) {

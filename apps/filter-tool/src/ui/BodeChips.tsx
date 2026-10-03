@@ -7,7 +7,7 @@ export interface BodeChipsProps<S extends BodeSettings> {
   settings: S
   onChange: (settings: S) => void
   componentsLabel: string
-  /** Why the components option is unavailable, if it is. */
+  /** Why the components option currently has no effect, if it has none (it stays settable, as upstream's checkbox). */
   componentsUnavailable?: string | undefined
 }
 
@@ -64,7 +64,6 @@ export function BodeChips<S extends BodeSettings>({
         <Chip
           type="checkbox"
           checked={settings.showComponents}
-          disabled={componentsUnavailable !== undefined}
           title={componentsUnavailable}
           onChange={(showComponents) => onChange({ ...settings, showComponents })}
         >

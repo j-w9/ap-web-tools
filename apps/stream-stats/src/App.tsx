@@ -27,12 +27,6 @@ function withIncluded<T>(excluded: ReadonlySet<T>, value: T, include: boolean): 
   return next
 }
 
-/** The window size typed by the user, or `null` if it is not a positive number. */
-function validWidth(text: string): number | null {
-  const width = Number.parseFloat(text)
-  return Number.isFinite(width) && width > 0 ? width : null
-}
-
 function logFacts(log: LoadedLog, fileName: string | null, byteLength: number): LogFact[] {
   const common: LogFact[] = [
     { label: 'File', value: fileName ?? 'From another tool' },
@@ -61,29 +55,20 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [selection, setSelection] = useState<TlogSelection>(EMPTY_SELECTION)
   const [unit, setUnit] = useState<RateUnit>('bits')
+  /** Window size as committed (upstream reads it with `parseFloat` on the input's change event). */
   const [windowText, setWindowText] = useState('10')
-
-  /** Last valid window size; kept while the user types an invalid one. */
-  const [binWidth, setBinWidth] = useState(10)
-  const windowValid = validWidth(windowText) !== null
-  const changeWindowText = (text: string) => {
-    setWindowText(text)
-    const width = validWidth(text)
-    if (width !== null) setBinWidth(width)
-  }
+  const binWidth = Number.parseFloat(windowText)
 
   const { file, openFile } = useLogFile(async (buffer, name) => {
     await run(() => {
       setLoaded(null)
       setSelection(EMPTY_SELECTION)
       const format = logFormat(name)
-      if (format === null) {
-        setError(`${name ?? 'This file'} is not a .bin or .tlog file. Choose a DataFlash log or a MAVLink telemetry log.`)
-        return
-      }
+      // Upstream resets the page and ignores a file that is neither .bin nor .tlog.
+      setError(null)
+      if (format === null) return
       try {
         const log = loadLog(buffer, format)
-        setError(null)
         setLoaded({ log, fileName: name, byteLength: buffer.byteLength })
         document.title = name ? `Stream Stats: ${name}` : 'Stream Stats'
       } catch (e) {
@@ -102,7 +87,17 @@ export function App() {
         return { kind: 'bin', log: log.log }
     }
   }, [log, selection])
-  const stats = useMemo(() => (source ? streamStats(source, { unit, binWidth }) : null), [source, unit, binWidth])
+  // A window of 0 or an empty one makes upstream throw while binning; the port shows that error
+  // instead of plots.
+  const computed = useMemo(() => {
+    if (source === null) return { stats: null, error: null }
+    try {
+      return { stats: streamStats(source, { unit, binWidth }), error: null }
+    } catch (e) {
+      return { stats: null, error: e instanceof Error ? e.message : String(e) }
+    }
+  }, [source, unit, binWidth])
+  const stats = computed.stats
 
   const layout = useMemo(() => rateLayout(unit), [unit])
   const rates = useMemo(() => (stats && log ? rateTraces(stats, log.kind, unit) : []), [stats, log, unit])
@@ -129,8 +124,6 @@ export function App() {
 
   const facts = loaded ? logFacts(loaded.log, loaded.fileName, loaded.byteLength) : null
   const empty = <div className="apwt-empty">Open a log to see this plot</div>
-  const noStreams = <div className="apwt-empty">No streams are included. Include a component or message above.</div>
-  const hasRates = stats !== null && stats.rates.length > 0
 
   return (
     <ToolPage
@@ -151,13 +144,12 @@ export function App() {
           onFile={openFile}
           unit={unit}
           onUnitChange={setUnit}
-          windowText={windowText}
-          onWindowTextChange={changeWindowText}
-          windowValid={windowValid}
+          defaultWindowText={windowText}
+          onWindowCommit={setWindowText}
         />
       }
     >
-      <ErrorBanner message={error} />
+      <ErrorBanner message={error ?? computed.error} />
 
       {log?.kind === 'tlog' && (
         <Section
@@ -178,23 +170,11 @@ export function App() {
       )}
 
       <Section title="Total rate" help="Combined rate of every included stream, averaged over the window size.">
-        {!stats ? (
-          empty
-        ) : hasRates ? (
-          <PlotlyChart className="apwt-plot" data={total} layout={layout} onReady={ready('total')} />
-        ) : (
-          noStreams
-        )}
+        {!stats ? empty : <PlotlyChart className="apwt-plot" data={total} layout={layout} onReady={ready('total')} />}
       </Section>
 
       <Section title="Message rates" help="Rate of each message stream. Hover a line to see which message it is.">
-        {!stats ? (
-          empty
-        ) : hasRates ? (
-          <PlotlyChart className="apwt-plot" data={rates} layout={layout} onReady={ready('rates')} />
-        ) : (
-          noStreams
-        )}
+        {!stats ? empty : <PlotlyChart className="apwt-plot" data={rates} layout={layout} onReady={ready('rates')} />}
       </Section>
 
       <Section
@@ -206,14 +186,12 @@ export function App() {
         }
       >
         {loaded?.log.kind === 'bin' && unit === 'bits' && (
-          <p className="apwt-section__help">Total size: {loaded.byteLength.toLocaleString()} bytes</p>
+          <p className="apwt-section__help">Total size: {loaded.byteLength} Bytes</p>
         )}
         {!stats ? (
           empty
-        ) : stats.composition.length > 0 ? (
-          <PlotlyChart className="apwt-plot" style={{ height: 720 }} data={composition} layout={COMPOSITION_LAYOUT} />
         ) : (
-          noStreams
+          <PlotlyChart className="apwt-plot" style={{ height: 720 }} data={composition} layout={COMPOSITION_LAYOUT} />
         )}
       </Section>
     </ToolPage>

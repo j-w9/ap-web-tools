@@ -16,8 +16,10 @@ describe('splitIntoBatches', () => {
   it('returns one batch for steady data', () => {
     const b = splitIntoBatches(ramp(200, 0.0025), oneSet)
     expect(b).toHaveLength(1)
+    // Samples [0, 198): upstream reads slice(batch_start, j - 1) with j = 199.
     expect(b[0]).toMatchObject({ paramSet: 0, start: 0, end: 198 })
-    expect(b[0]?.sampleRate).toBeCloseTo(400, 0)
+    // Upstream: 1 / ((t[198] - t[0]) / 199), i.e. 198 intervals divided by a count of 199.
+    expect(b[0]?.sampleRate).toBe(1 / ((198 * 0.0025) / 199))
   })
 
   it('splits at a gap in the data', () => {
@@ -40,11 +42,14 @@ describe('splitIntoBatches', () => {
     expect(b.map((x) => x.paramSet)).toEqual([0, 1])
   })
 
-  it('skips samples before the first set starts', () => {
+  it('skips samples before a set starts without counting them or moving the batch start', () => {
     const sets = [set(0.1, Infinity)]
     const b = splitIntoBatches(ramp(400, 0.0025), sets)
     expect(b).toHaveLength(1)
     expect(b[0]?.start).toBe(0)
     expect(b[0]?.end).toBe(398)
+    // Samples 1..39 (before 0.1 s) are not counted, but the span still starts at sample 0.
+    const counted = 399 - 39
+    expect(b[0]?.sampleRate).toBe(1 / ((398 * 0.0025 - 0) / counted))
   })
 })

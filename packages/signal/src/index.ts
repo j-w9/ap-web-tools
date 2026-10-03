@@ -65,6 +65,7 @@ export {
   rfftFreq,
   isPowerOfTwo,
   stepWindowSize,
+  fftWindowSizeInc,
   runFft,
   toDoubleSided,
   toInterleaved,

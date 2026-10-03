@@ -15,9 +15,9 @@ interface NumberInputProps {
 }
 
 /**
- * A number input that lets the user type freely (empty, "0.", "-") and only reports finite
- * numbers. The draft lives only while the user is typing, so values set from outside (a loaded
- * file) always show.
+ * A number input that reports `parseFloat` of its value, as upstream's `get_form` reads it: an
+ * empty or invalid field is `NaN` and is calculated with (shown empty). The draft lives only
+ * while the user is typing, so values set from outside (a loaded file) always show.
  */
 export function NumberInput({ id, value, step, disabled, title, list, onChange }: NumberInputProps) {
   const [draft, setDraft] = useState<string | null>(null)
@@ -29,11 +29,10 @@ export function NumberInput({ id, value, step, disabled, title, list, onChange }
       disabled={disabled}
       title={title}
       list={list}
-      value={draft ?? String(value)}
+      value={draft ?? (Number.isNaN(value) ? '' : String(value))}
       onChange={(e) => {
         setDraft(e.target.value)
-        const v = parseFloat(e.target.value)
-        if (Number.isFinite(v)) onChange(v)
+        onChange(parseFloat(e.target.value))
       }}
       onBlur={() => setDraft(null)}
     />
@@ -102,10 +101,11 @@ export function ParamField({ name, label, value, step, disabled, onChange, freeV
           </>
         )
       }
+      // Values come through `assignFieldText`, so anything but an option is NaN: no selection, as upstream.
       const known = meta.values.some((o) => o.value === value)
       return field(
-        <select id={id} value={value} disabled={disabled} onChange={(e) => set(Number(e.target.value))}>
-          {!known && <option value={value}>{value}: other</option>}
+        <select id={id} value={known ? value : ''} disabled={disabled} onChange={(e) => set(Number(e.target.value))}>
+          {!known && <option value="" />}
           {meta.values.map((o) => (
             <option key={o.value} value={o.value}>
               {o.value}: {o.label}

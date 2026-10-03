@@ -50,6 +50,22 @@ export function toBode(h: ComplexArray, scale: BodeScale): Bode {
   }
 }
 
+/**
+ * Upstream `evaluate_transfer_functions` checks each group for a sample rate mismatch by comparing
+ * the first filter's rate with itself (`filters[0].sample_rate != sample_rate`). That is only true
+ * for a `NaN` rate, and then calls the undefined `error()`, so the calculation stops with a
+ * ReferenceError. The check runs only for groups of more than one filter (the gyro chain, not the
+ * PID). Reproduced so an empty gyro rate stops the PID plot with post filtering, as upstream.
+ */
+function checkGroupSampleRates(groups: readonly (readonly { readonly sampleRate: number }[])[]): void {
+  for (const group of groups) {
+    const rate = group[0]?.sampleRate
+    if (group.length > 1 && rate !== undefined && Number.isNaN(rate)) {
+      throw new Error('Sample rate miss match (upstream: error is not defined)')
+    }
+  }
+}
+
 // ---------- Gyro filters ----------
 
 /** The gyro filter chain in upstream order: notch 1, notch 2, low-pass. */
@@ -100,6 +116,7 @@ export function gyroBode(inputs: Inputs, scale: BodeScale): GyroBode {
   const list = gyroFilterList(filters)
   const keys: readonly GyroComponentKey[] = [...NOTCH_PREFIXES, 'lowPass']
 
+  checkGroupSampleRates([list])
   const grid = zGrid(freq, sampleRate)
   let total = unityResponse(freq.length)
   const components = list.map((filter, i): GyroComponent => {
@@ -148,6 +165,7 @@ export function pidBode(inputs: Inputs, axis: PidAxis, filtering: PidFiltering, 
   let gyro: Bode | null = null
   if (filtering === 'post') {
     const gyroList = gyroFilterList(gyroFilters(inputs, inputs.GyroSampleRate))
+    checkGroupSampleRates([gyroList])
     gyro = toBode(chainResponse(freq, [gyroList]), scale)
     groups.push(gyroList)
   }

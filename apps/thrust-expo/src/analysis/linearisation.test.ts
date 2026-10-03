@@ -9,7 +9,7 @@ import {
   type OutputRange,
   type ThrustData
 } from './linearisation.js'
-import { EXAMPLE_SAMPLES, rowsFromSamples, thrustData } from './thrust-table.js'
+import { EXAMPLE_SAMPLES, thrustData } from './thrust-table.js'
 import { loadUpstreamPage, type UpstreamRow } from './test-support/upstream.js'
 
 const DEFAULT_RANGE: OutputRange = { spinMin: 0.15, spinMax: 0.95, pwmMin: 1000, pwmMax: 2000 }
@@ -39,7 +39,7 @@ function syntheticRows(seed: number, n: number): UpstreamRow[] {
 }
 
 function toData(rows: UpstreamRow[]): ThrustData {
-  return thrustData(rows.map((r) => ({ pwm: String(r.pwm), thrust: String(r.thrust), voltage: '', current: '' })))
+  return thrustData(rows.map((r) => ({ pwm: r.pwm, thrust: r.thrust, voltage: '', current: '' })))
 }
 
 interface Scenario {
@@ -135,12 +135,12 @@ describe('linearise matches upstream updateThrustExpoPlot', () => {
     expect(linearise(toData([]), DEFAULT_RANGE, { kind: 'fit' })).toBeNull()
   })
 
-  it('honours a fixed expo of 0, which upstream refits (deliberate deviation)', () => {
-    const lin = linearise(toData(exampleRows), DEFAULT_RANGE, { kind: 'fixed', expo: 0 })
-    expect(lin?.result.expo).toBe(0)
-    expect(lin?.setting).toBe('fixed')
-    const nan = linearise(toData(exampleRows), DEFAULT_RANGE, { kind: 'fixed', expo: Number.NaN })
-    expect(nan?.setting).toBe('fit')
+  it('refits for a manual expo of 0 or NaN, as upstream `if (thrustExpo)` does', () => {
+    for (const expo of [0, Number.NaN]) {
+      const lin = expectSame({ rows: exampleRows, range: DEFAULT_RANGE, spinArm: 0.1, expo, auw: 2.5, motors: 4 })
+      expect(lin.setting).toBe('fit')
+      expect(lin.result.expo).not.toBe(0)
+    }
   })
 })
 
@@ -185,13 +185,5 @@ describe('spinMarkers', () => {
       expect(ours.map((m) => m.x)).toEqual(upstream.shapes.map((s) => s.x0))
       expect(ours.map((m) => m.key)).toEqual(upstream.annotations.map((a) => a.text))
     }
-  })
-})
-
-describe('example rows', () => {
-  it('round-trip through table text', () => {
-    const data = thrustData(rowsFromSamples(EXAMPLE_SAMPLES))
-    expect(Array.from(data.pwm)).toEqual(EXAMPLE_SAMPLES.map((s) => s.pwm))
-    expect(Array.from(data.thrust)).toEqual(EXAMPLE_SAMPLES.map((s) => s.thrust))
   })
 })

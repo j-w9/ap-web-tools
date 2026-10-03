@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DataflashLog } from '@apwt/dataflash'
-import { readFilterParams } from './filter-params.js'
+import { defaultPageValues, filterParamsFromPage, pageValuesFromLog } from './page-values.js'
 import type { GyroData } from './gyro-data.js'
 import { readGyroSensors } from './gyro-sensors.js'
 import { loadFilterReviewLog } from './load.js'
@@ -46,11 +46,11 @@ describe('real fixture logs', () => {
   it.each(['copter-sitl.bin', 'copter-files.bin'])('%s filter params and sensors match upstream', async (name) => {
     const bytes = fixture(name)
     const log = DataflashLog.parse(bytes)
-    const params = readFilterParams(log)
+    const params = filterParamsFromPage(pageValuesFromLog(defaultPageValues(), log), true)
     expect(params.gyroFilter).toBe(20)
     expect(params.loopRate).toBe(400)
     expect(params.notches[0].enable).toBe(0)
-    // HNTCH params other than ENABLE are not logged while disabled: page defaults apply
+    // HNTCH params other than ENABLE are not logged while disabled: reset() defaults apply
     expect(params.notches[0].freq).toBe(80)
 
     const up = loadFilterReviewUpstream()
@@ -161,12 +161,11 @@ describe('batch ISBH/ISBD loading', () => {
     expect(() => loadFilterReviewLog(parsed)).toThrow('No valid gyro data found in log')
   })
 
-  it('uses the requested source when both are logged', () => {
+  it('always uses raw data when both are logged (upstream reset() ticks "Raw sensor")', () => {
     const log = new LogAppender(fixture('copter-sitl.bin'))
     appendBatchGyro(log, [0], 10, 2, 512, 1000)
     appendRawGyro(log, [0], 10, 12, 1000)
     const bytes = log.toBytes()
     expect(loadFilterReviewLog(bytes).gyro.type).toBe('raw')
-    expect(loadFilterReviewLog(bytes, { logType: 'batch' }).gyro.type).toBe('batch')
   })
 })

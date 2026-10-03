@@ -53,6 +53,20 @@ export function stepWindowSize(current: number, direction: 'up' | 'down'): numbe
   return 2 ** exponent
 }
 
+/**
+ * Upstream `fft_window_size_inc` (and AnalyticTune's identical `window_size_inc`) without the DOM:
+ * given the last committed window size and the newly committed input value, return the value the
+ * input takes. A change of exactly one is taken to come from the spinner arrows and steps to the
+ * next power of two from `last` (`stepWindowSize`); any other value, typed or NaN, is kept as
+ * entered (upstream does not snap or validate it). Call it on the input's native `change` event
+ * (commit), not on every keystroke, and remember the result as the next `last`.
+ */
+export function fftWindowSizeInc(last: number, entered: number): number {
+  const change = entered - last
+  if (Math.abs(change) !== 1) return entered
+  return stepWindowSize(last, change > 0 ? 'up' : 'down')
+}
+
 /** Fixed-size radix-4 FFT engine; `size` must be a power of two greater than one. */
 export class RealFft {
   readonly size: number
@@ -131,7 +145,9 @@ function recordOf<K extends string, V>(keys: readonly K[], make: (key: K) => V):
  * Windowed batch FFT over the arrays `data[key]` for each key, in steps of `windowSpacing`.
  * Spectra are single-sided and amplitude-normalised (DC and Nyquist by 1/N, other bins by 2/N);
  * window gain correction (`windowCorrectionFactors`) is left to the caller, as upstream.
- * Missing keys throw; fewer samples than one window yields zero windows.
+ * Missing keys throw. The window count is floor((n - windowSize) / windowSpacing) + 1, as upstream:
+ * it can be zero, and when it is negative the allocation throws a RangeError exactly as upstream's
+ * `new Array(num_windows)` does.
  */
 export function runFft<K extends string>(
   data: Readonly<Record<K, ArrayLike<number>>>,
@@ -160,7 +176,9 @@ export function runFft<K extends string>(
   const firstKey = keys[0]
   const numPoints = firstKey === undefined ? 0 : data[firstKey].length
   const realLen = realLength(windowSize)
-  const numWindows = Math.max(0, Math.floor((numPoints - windowSize) / windowSpacing) + 1)
+  // As upstream, a negative count (data shorter than one window by more than one spacing) is an
+  // invalid array length and throws a RangeError; callers check the length first, as upstream does.
+  const numWindows = Math.floor((numPoints - windowSize) / windowSpacing) + 1
 
   const center = new Float64Array(numWindows)
   const spectra = recordOf(keys, () => new Array<ComplexArray>(numWindows))

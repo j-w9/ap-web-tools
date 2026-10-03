@@ -2,7 +2,8 @@
  * Builders turning analysis results into Plotly traces and layouts. Pure functions so the
  * React components stay declarative and the plots are easy to test.
  */
-import { defaultColor, type Data, type Layout, type Shape } from '@apwt/plot'
+import type { Data, Layout, Shape } from '@apwt/plot'
+import { defaultColor } from '@apwt/plot/colors'
 import type { AmplitudeScale, FrequencyScale } from '@apwt/signal'
 import type { FlightData, PidAxisData, PidAxisFft } from '../analysis/data.js'
 import { FFT_KEYS, KEY_LABELS, type FftKey } from '../analysis/keys.js'

@@ -68,6 +68,58 @@ describe('array helpers (hand-computed)', () => {
   })
 })
 
+describe('array helper edge cases match upstream', () => {
+  // Upstream leaves unassigned elements as holes (`undefined`); the typed-array port stores NaN.
+  const asNaN = (a: readonly (number | undefined)[]): number[] => Array.from(a, (v) => v ?? NaN)
+
+  it('linearInterp with NaN queries, NaN index values and an empty index', () => {
+    const cases: [number[], number[], number[]][] = [
+      [
+        [0, 10, 20],
+        [0, 1, 2],
+        [0.5, NaN, 1.5]
+      ],
+      [
+        [0, 10, 20, 30],
+        [0, NaN, 2, 3],
+        [0.5, 1.5, 2.5]
+      ],
+      [[], [], [0, 1]],
+      [[5], [1], [0, 1, 2]],
+      [
+        [0, 10, 20],
+        [0, 1, 2],
+        [1.5, 0.5, 1.75]
+      ]
+    ]
+    for (const [values, index, query] of cases) {
+      expect(Array.from(linearInterp(values, index, query))).toEqual(asNaN(up.linear_interp(values, index, query)))
+    }
+  })
+
+  it('arrayFromRange throws for NaN, negative and infinite lengths, as upstream', () => {
+    for (const [start, end, step] of [
+      [NaN, 1, 0.1],
+      [0, NaN, 0.1],
+      [0, 1, NaN],
+      [0, -5, 1],
+      [0, 1, 0]
+    ] as const) {
+      expect(() => up.array_from_range(start, end, step)).toThrow('Invalid array length')
+      expect(() => arrayFromRange(start, end, step)).toThrow(RangeError)
+    }
+    expect(Array.from(arrayFromRange(0, -0.5, 1))).toEqual(up.array_from_range(0, -0.5, 1))
+  })
+
+  it('arrayAllEqual / arrayAllNaN on numeric edge values', () => {
+    for (const a of [[], [NaN], [0, -0], [NaN, 1], [Infinity, Infinity]]) {
+      expect(arrayAllNaN(a)).toBe(up.array_all_NaN(a))
+      expect(arrayAllEqual(a, 0)).toBe(up.array_all_equal(a, 0))
+      expect(arrayAllEqual(a, Infinity)).toBe(up.array_all_equal(a, Infinity))
+    }
+  })
+})
+
 describe('array helpers match upstream bit-for-bit on random inputs', () => {
   const next = rng(99)
   for (let trial = 0; trial < 5; trial++) {

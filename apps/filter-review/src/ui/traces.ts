@@ -14,32 +14,26 @@ import type { HarmonicMarker, TrackingLine } from '../analysis/plots/notch-lines
 import { spectrogramData } from '../analysis/plots/spectrogram.js'
 import { estimatedPostSpectrum, meanSpectrum } from '../analysis/plots/spectrum.js'
 import type { TimeRange } from '../analysis/time-index.js'
+import {
+  SPECTRUM_KINDS,
+  SPECTRUM_LABELS,
+  spectrumTraceKey,
+  type SpectrumKind,
+  type SpectrumTraceKey
+} from '../analysis/selections.js'
 
 const TIME_LABEL = 'Time (s)'
 const MARGIN = { b: 50, l: 50, r: 50, t: 20 }
 const NO_LEGEND_CLICK = { itemclick: false, itemdoubleclick: false } as const
 const AXIS_FRAME = { zeroline: false, showline: true, mirror: true } as const
 
-/** Which spectrum of a gyro: logged before or after the filters, or estimated from pre-filter data. */
-export type SpectrumKind = 'pre' | 'post' | 'est'
-
-/** The three spectrum kinds, in plot order. */
-export const SPECTRUM_KINDS: readonly SpectrumKind[] = ['pre', 'post', 'est']
-
-/** Display names of the spectrum kinds. */
-export const SPECTRUM_LABELS: Readonly<Record<SpectrumKind, string>> = {
-  pre: 'Pre-filter',
-  post: 'Post-filter',
-  est: 'Estimated post'
-}
-
-/** Identifies one FFT plot line: gyro (0..2), spectrum kind and axis. */
-export type SpectrumTraceKey = `${number}-${SpectrumKind}-${GyroAxis}`
-
-/** Key of the FFT line for a gyro, kind and axis. */
-export function spectrumTraceKey(sensor: number, kind: SpectrumKind, axis: GyroAxis): SpectrumTraceKey {
-  return `${sensor}-${kind}-${axis}`
-}
+export {
+  SPECTRUM_KINDS,
+  SPECTRUM_LABELS,
+  spectrumTraceKey,
+  type SpectrumKind,
+  type SpectrumTraceKey
+} from '../analysis/selections.js'
 
 /** One analysed gyro instance and its simulated filter response. */
 export interface AnalysedInstance {

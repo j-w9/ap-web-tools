@@ -8,7 +8,7 @@ import { createContext, runInContext } from 'node:vm'
 
 export interface UpstreamTrace {
   x: ArrayLike<number>
-  y: ArrayLike<number>
+  y: ArrayLike<number | undefined>
   name: string
 }
 
@@ -35,7 +35,7 @@ interface UpstreamParam {
   save: boolean
 }
 
-export type UpstreamRow = Partial<Record<'pwm' | 'thrust' | 'voltage' | 'current', number | string>>
+export type UpstreamRow = Partial<Record<'pwm' | 'thrust' | 'voltage' | 'current', number | string | undefined>>
 
 interface UpstreamExports {
   params: Record<string, UpstreamParam>
@@ -61,10 +61,10 @@ class FakeInput {
   get value(): string {
     return this.text
   }
-  set value(v: unknown) {
-    const s = String(v)
-    // A number input sanitises anything that is not a valid number to the empty string.
-    this.text = s === '' || Number.isNaN(Number(s)) ? '' : s
+  set value(v: number | string | null) {
+    const s = v === null ? '' : String(v)
+    // A number input sanitises anything that is not an HTML valid floating-point number to "".
+    this.text = /^-?(?:\d+|\d*\.\d+)(?:[eE][-+]?\d+)?$/.test(s) ? s : ''
   }
   addEventListener(type: string, fn: (this: FakeInput, e: Event) => void): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn])
@@ -93,6 +93,13 @@ export interface UpstreamPage {
   setRows(rows: UpstreamRow[]): void
   /** Text of the last saved parameter file. */
   savedText(): Promise<string>
+  /** Rows of the table. */
+  rows(): UpstreamRow[]
+  /**
+   * Run upstream's `clipboardPasteParser` with the range's top-left cell at `row`/`column`
+   * (data column index, 0 = ESC signal); it adds rows to the table and returns the parsed rows.
+   */
+  pasteParser(text: string, row: number, column: number): UpstreamRow[]
 }
 
 /** A fresh upstream page, initialised and reset as on DOMContentLoaded. */
@@ -106,31 +113,42 @@ export function loadUpstreamPage(): UpstreamPage {
     '\n' +
     readFileSync(resolve(root, 'ThrustExpo/ThrustExpo.js'), 'utf8') +
     `
-;thrustTable = __table
 initParamInputs()
 initThrustExpoPlot()
 initThrustErrorPlot()
 initThrustPwmPlot()
+initThrustTable()
 reset()
 ;({ params, thrustExpoPlot, thrustErrorPlot, thrustPwmPlot, updatePlotData, loadExample, reset, saveParamFile, loadParamFile, createSpinMarkers })`
 
   const elements = new Map<string, FakeInput>()
   for (const id of [...INPUT_IDS, 'paramFile']) elements.set(id, new FakeInput(id))
   let tableData: UpstreamRow[] = []
-  const table = {
-    getData: () => tableData,
-    setData: (d: UpstreamRow[]) => {
+  let tableOptions: { clipboardPasteParser(text: string): UpstreamRow[] } | undefined
+  let rangeEdges = { left: 1, top: 0 }
+  // Tabulator stand-in: the data array plus what the paste parser asks of the selected range.
+  class FakeTabulator {
+    constructor(_selector: string, options: { clipboardPasteParser(text: string): UpstreamRow[] }) {
+      tableOptions = options
+    }
+    getData() {
+      return tableData
+    }
+    setData(d: UpstreamRow[]) {
       tableData = d
-    },
-    addRow: (r: UpstreamRow) => {
+    }
+    addRow(r: UpstreamRow) {
       tableData.push(r)
-    },
-    on: () => undefined
+    }
+    on() {}
+    getRanges() {
+      return [{ getLeftEdge: () => rangeEdges.left, getTopEdge: () => rangeEdges.top }]
+    }
   }
   let saved: Blob | undefined
 
   const context = createContext({
-    __table: table,
+    Tabulator: FakeTabulator,
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,
       querySelectorAll: () => INPUT_IDS.map((id) => elements.get(id)),
@@ -163,6 +181,13 @@ reset()
     },
     setRows: (rows) => {
       tableData = rows
+    },
+    rows: () => tableData,
+    pasteParser: (text, row, column) => {
+      if (!tableOptions) throw new Error('table not built')
+      // Tabulator edges count the row-number column as column 0.
+      rangeEdges = { left: column + 1, top: row }
+      return tableOptions.clipboardPasteParser(text)
     },
     savedText: async () => {
       if (!saved) throw new Error('nothing saved')

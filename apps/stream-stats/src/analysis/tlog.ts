@@ -55,10 +55,8 @@ export class TlogTimeError extends Error {
     readonly time: number,
     readonly previousTime: number
   ) {
-    super(
-      `Time went backwards at byte ${offset}: ${time.toFixed(3)} s after ${previousTime.toFixed(3)} s. ` +
-        'The tlog may be corrupt or several logs joined together.'
-    )
+    // Upstream's alert text.
+    super('Time went backwards!')
     this.name = 'TlogTimeError'
   }
 }

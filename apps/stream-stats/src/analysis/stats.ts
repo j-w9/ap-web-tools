@@ -7,7 +7,7 @@
  */
 import type { BinLog } from './bin.js'
 import type { MavlinkVersion } from './mavlink/frame.js'
-import { binSums, seriesRate, totalRate, type BinSums, type RateSeries } from './rates.js'
+import { binCount, emptyTotal, totalCount, type RateSeries } from './rates.js'
 import type { Tlog, TlogComponent } from './tlog.js'
 
 /** What the rates and composition count. */
@@ -42,7 +42,10 @@ export type StreamSource =
 
 export interface StatsSettings {
   readonly unit: RateUnit
-  /** Width of each rate bin, seconds. Must be positive. */
+  /**
+   * Width of each rate bin, seconds, as upstream `parseFloat` reads it. Not validated: a negative
+   * width gives upstream's odd results and 0 or NaN throws a `RangeError`, as upstream does.
+   */
   readonly binWidth: number
 }
 
@@ -76,44 +79,46 @@ function sum(values: ArrayLike<number>): number {
 
 function tlogStats(tlog: Tlog, selection: TlogSelection, { unit, binWidth }: StatsSettings): StreamStats {
   const rates: StreamRate[] = []
-  const binned: BinSums[] = []
+  const total = emptyTotal()
   const composition: CompositionSlice[] = []
   for (const component of tlog.components) {
     if (selection.excludedComponents.has(componentKey(component))) continue
     for (const message of component.messages) {
       const key = messageKey(component, message.name)
       if (selection.excludedMessages.has(key)) continue
-      const sums = binSums(message.time, unit === 'bits' ? message.sizeBits : 1, binWidth)
-      if (sums === null) continue
-      binned.push(sums)
-      rates.push({ key, name: message.name, ...seriesRate(sums, binWidth) })
+      const rate = binCount(message.time, unit === 'bits' ? message.sizeBits : 1, binWidth, total)
+      rates.push({ key, name: message.name, ...rate })
       composition.push({
         label: `(${component.systemId}, ${component.componentId}) ${message.name}`,
         value: unit === 'bits' ? sum(message.sizeBits) : message.sizeBits.length
       })
     }
   }
-  return { rates, total: totalRate(binned, binWidth), composition }
+  return { rates, total: totalCount(total, binWidth), composition }
 }
 
 function binLogStats(log: BinLog, { unit, binWidth }: StatsSettings): StreamStats {
+  // Upstream bug reproduced: in bits mode the pie plots each type's size in bytes, while its
+  // hover text says bits (docs/upstream-bugs.md). Types without records are included at 0.
+  const composition: CompositionSlice[] = log.messages.map((m) => ({
+    label: m.name,
+    value: unit === 'bits' ? m.totalBytes : m.count
+  }))
   const rates: StreamRate[] = []
-  const binned: BinSums[] = []
-  const composition: CompositionSlice[] = []
+  const total = emptyTotal()
   for (const message of log.messages) {
-    // Deviation: upstream plots bytes in the pie while labelling them bits; bits are used here,
-    // consistent with the rate plots.
-    composition.push({ label: message.name, value: unit === 'bits' ? message.totalBytes * 8 : message.count })
-    if (message.time === null) continue
-    const sums = binSums(message.time, unit === 'bits' ? message.recordBytes * 8 : 1, binWidth)
-    if (sums === null) continue
-    binned.push(sums)
-    rates.push({ key: message.name, name: message.name, ...seriesRate(sums, binWidth) })
+    if (message.count === 0 || message.time === null) continue
+    const rate = binCount(message.time, unit === 'bits' ? message.recordBytes * 8 : 1, binWidth, total)
+    rates.push({ key: message.name, name: message.name, ...rate })
   }
-  return { rates, total: totalRate(binned, binWidth), composition }
+  return { rates, total: totalCount(total, binWidth), composition }
 }
 
-/** Rates and composition of a log under the given settings. */
+/**
+ * Rates and composition of a log under the given settings.
+ *
+ * @throws {RangeError} for a window of 0 or NaN when any stream is included (upstream crashes too).
+ */
 export function streamStats(source: StreamSource, settings: StatsSettings): StreamStats {
   switch (source.kind) {
     case 'tlog':

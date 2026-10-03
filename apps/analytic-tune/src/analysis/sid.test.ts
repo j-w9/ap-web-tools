@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectTuneVehicle, findSidRuns, sidAxisLabel, tuneAxisForSid } from './sid.js'
+import { SidRunError, detectTuneVehicle, findSidRuns, sidAxisLabel, tuneAxisForSid } from './sid.js'
 
 describe('findSidRuns', () => {
   const time = [10, 10.1, 10.2, 10.3, 20, 20.1, 20.2, 50, 50.5, 51]
@@ -22,9 +22,9 @@ describe('findSidRuns', () => {
     expect(findSidRuns(t, [1], [0.5])).toEqual([{ axis: 1, startTime: 10, endTime: 11.5 }])
   })
 
-  it('lists only as many runs as SIDS records, and drops records without data', () => {
+  it('lists only as many runs as SIDS records, and fails like upstream for records without data', () => {
     expect(findSidRuns(time, [4], [5])).toHaveLength(1)
-    expect(findSidRuns([1, 1.1], [4, 5], [5, 5])).toEqual([{ axis: 4, startTime: 1, endTime: 1.1 }])
+    expect(() => findSidRuns([1, 1.1], [4, 5], [5, 5])).toThrow(SidRunError)
     expect(findSidRuns([], [4], [5])).toEqual([])
   })
 })
@@ -50,5 +50,10 @@ describe('detectTuneVehicle', () => {
     expect(detectTuneVehicle(['ArduPlane V4.6.0'], 20)).toBe('fixed-wing')
     expect(detectTuneVehicle(['ArduPlane V4.6.0'], undefined)).toBe('quadplane')
     expect(detectTuneVehicle([], 20)).toBe('copter')
+  })
+
+  it('keeps the previous vehicle without a banner, as upstream keeps vehicle_type', () => {
+    expect(detectTuneVehicle(['Frame: QUAD'], 7, 'fixed-wing')).toBe('fixed-wing')
+    expect(detectTuneVehicle(['ArduCopter V4.6.0'], 7, 'fixed-wing')).toBe('copter')
   })
 })

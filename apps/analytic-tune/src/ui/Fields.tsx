@@ -13,9 +13,11 @@ interface NumberInputProps {
 }
 
 /**
- * A number input that lets the user type freely (empty, "0.", "-") and only reports finite
- * numbers. The draft lives only while the user is typing, so values set from outside (a loaded
- * log or file) always show.
+ * A number input that lets the user type freely (empty, "0.", "-"), reporting numbers as they are
+ * typed. Upstream reads its inputs with `parseFloat` when they change, so an input left empty (or
+ * holding text the browser does not accept as a number) computes with NaN: that is reported when
+ * the input loses focus. The draft lives only while the user is typing, so values set from outside
+ * (a loaded log or file) always show.
  */
 export function NumberInput({ id, value, step, disabled, min, onChange }: NumberInputProps) {
   const [draft, setDraft] = useState<string | null>(null)
@@ -26,13 +28,16 @@ export function NumberInput({ id, value, step, disabled, min, onChange }: Number
       step={step}
       min={min}
       disabled={disabled}
-      value={draft ?? String(value)}
+      value={draft ?? (Number.isNaN(value) ? '' : String(value))}
       onChange={(e) => {
         setDraft(e.target.value)
         const v = parseFloat(e.target.value)
         if (Number.isFinite(v)) onChange(v)
       }}
-      onBlur={() => setDraft(null)}
+      onBlur={(e) => {
+        setDraft(null)
+        if (e.target.value === '' && !Number.isNaN(value)) onChange(NaN)
+      }}
     />
   )
 }
@@ -80,10 +85,11 @@ export function ParamField({ name, label, value, step, disabled, onChange, bitLa
 
   switch (meta.kind) {
     case 'values': {
+      // Upstream's drop-down holds only its options; a value it could not take shows empty (NaN).
       const known = meta.values.some((o) => o.value === value)
       return field(
-        <select id={id} value={value} disabled={disabled} onChange={(e) => set(Number(e.target.value))}>
-          {!known && <option value={value}>{value}: other</option>}
+        <select id={id} value={known ? value : ''} disabled={disabled} onChange={(e) => set(Number(e.target.value))}>
+          {!known && <option value="" />}
           {meta.values.map((o) => (
             <option key={o.value} value={o.value}>
               {o.value}: {o.label}

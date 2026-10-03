@@ -8,6 +8,15 @@ import FFT from 'fft.js'
 
 type Pair = [number[], number[]]
 
+/** The parts of an `<input>` element that upstream `fft_window_size_inc` touches. */
+export interface WindowSizeInput {
+  value: string
+  defaultValue: string
+  hasAttribute(name: string): boolean
+  getAttribute(name: string): string | null
+  setAttribute(name: string, value: string): void
+}
+
 export interface Upstream {
   complex_mul(a: Pair, b: Pair): Pair
   complex_div(a: Pair, b: Pair): Pair
@@ -50,6 +59,7 @@ export interface Upstream {
   ): { center: number[] } & Record<string, Pair[] | number[]>
   to_double_sided(x: Pair): Pair
   to_fft_format(target: number[], source: Pair): void
+  fft_window_size_inc(event: { target: WindowSizeInput }): void
   fft_amplitude_scale(
     useDb: boolean,
     usePsd: boolean
@@ -106,6 +116,7 @@ const names = [
   'run_fft',
   'to_double_sided',
   'to_fft_format',
+  'fft_window_size_inc',
   'fft_amplitude_scale',
   'fft_frequency_scale'
 ]

@@ -62,13 +62,19 @@ export interface SidRun {
   readonly endTime: number
 }
 
+/** Thrown where upstream's run table fails: a `SIDS` record with no `SIDD` data segment. */
+export class SidRunError extends Error {
+  override readonly name = 'SidRunError'
+}
+
 /**
  * Split `SIDD` timestamps into runs at gaps over 0.5 s, limiting each run to its `SIDS` record's
  * chirp length plus one second. Runs are paired with `SIDS` records in order; as upstream, only
  * as many runs as there are `SIDS` records are listed.
  *
- * Deviation: upstream fails when there are fewer data segments than `SIDS` records; those
- * records are dropped here.
+ * Upstream's run table (`add_sid_sets`) throws when there are fewer data segments than `SIDS`
+ * records (it formats the missing start time), which stops the log load; this throws
+ * `SidRunError` in the same case.
  */
 export function findSidRuns(siddTime: ArrayLike<number>, sidsAxis: ArrayLike<number>, sidsLength: ArrayLike<number>): SidRun[] {
   if (siddTime.length === 0) return []
@@ -92,8 +98,13 @@ export function findSidRuns(siddTime: ArrayLike<number>, sidsAxis: ArrayLike<num
   tend[j] = siddTime[siddTime.length - 1]!
   clamp(j)
 
+  if (tstart.length < sidsAxis.length) {
+    throw new SidRunError(
+      `The log has ${sidsAxis.length} SIDS records but only ${tstart.length} runs of SIDD data, which upstream cannot list.`
+    )
+  }
   const runs: SidRun[] = []
-  for (let i = 0; i < sidsAxis.length && i < tstart.length; i++) {
+  for (let i = 0; i < sidsAxis.length; i++) {
     runs.push({ axis: sidsAxis[i]!, startTime: tstart[i]!, endTime: tend[i]! })
   }
   return runs
@@ -102,13 +113,20 @@ export function findSidRuns(siddTime: ArrayLike<number>, sidsAxis: ArrayLike<num
 /**
  * Vehicle from the firmware banner: the first `MSG` starting with `ArduPlane` or `ArduCopter`
  * decides. A plane whose first run excites a fixed-wing axis (over 19) is tuned as a fixed wing,
- * otherwise as a quadplane. Copter is the default.
+ * otherwise as a quadplane.
+ *
+ * Upstream keeps `vehicle_type` in a page global that starts as copter and is only changed by a
+ * banner, so a log without one keeps the previous log's vehicle: pass it as `previous`.
  */
-export function detectTuneVehicle(messages: readonly string[], firstSidAxis: number | undefined): TuneVehicle {
+export function detectTuneVehicle(
+  messages: readonly string[],
+  firstSidAxis: number | undefined,
+  previous: TuneVehicle = 'copter'
+): TuneVehicle {
   for (const message of messages) {
     const first = message.split(' ')[0]
     if (first === 'ArduPlane') return firstSidAxis !== undefined && firstSidAxis > 19 ? 'fixed-wing' : 'quadplane'
     if (first === 'ArduCopter') return 'copter'
   }
-  return 'copter'
+  return previous
 }

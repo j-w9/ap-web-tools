@@ -2,92 +2,103 @@
  * Rate binning: split event times into fixed-width bins and sum a weight (1 per message, or
  * the message size in bits) per bin, normalised to a rate per second.
  *
- * Port of upstream `bin_time`, `bin_count` and `total_count` (`StreamStats/StreamStats.js`).
- * Upstream accumulates the total in a sparse array inside `bin_count`; here each series' bin
- * sums are kept and the total is the bin-wise sum of those. With integer weights the result
- * is identical.
+ * Port of upstream `bin_time`, `bin_count` and `total_count` (`StreamStats/StreamStats.js`),
+ * kept step for step so that every window size, including ones upstream mishandles, gives the
+ * same result:
+ *
+ * - The total is accumulated in a sparse array indexed by bin number. A negative window gives
+ *   negative bin numbers, which a JavaScript array stores as plain properties: they are left out
+ *   of the total (and the total is empty if no bin is `0`). See `docs/audit/stream-stats.md`.
+ * - A window of `0` or `NaN` (an empty input) makes the bin range `NaN` or infinite, and
+ *   `new Array(length)` throws a `RangeError` (upstream crashes the same way).
  */
-
-/** Unnormalised bin sums of one series. Bin `i` covers `[(lowBin + i) * width, (lowBin + i + 1) * width)`. */
-export interface BinSums {
-  readonly lowBin: number
-  readonly sums: Float64Array
-}
 
 /** A rate over time: one point per bin, at the bin centre. */
 export interface RateSeries {
   /** Bin centre, seconds. */
-  readonly time: Float64Array
+  readonly time: readonly number[]
   /** Rate in weight units per second (messages/s or bits/s). */
-  readonly rate: Float64Array
+  readonly rate: readonly number[]
 }
 
 /** Per-event weight: the same for every event, or one value per event. */
 export type BinWeight = number | ArrayLike<number>
 
-/** Bin centres for bins `lowBin..lowBin + count - 1` (upstream `bin_time`). */
-export function binCentres(lowBin: number, count: number, width: number): Float64Array {
-  const out = new Float64Array(count)
-  const half = width * 0.5
-  for (let i = 0; i < count; i++) out[i] = (lowBin + i) * width + half
-  return out
+/** Running total over every series binned so far (upstream's `total` object). */
+export interface RateTotal {
+  /** Sparse: weight sum per bin number. Negative bin numbers become plain properties, as upstream. */
+  readonly count: number[]
+  lowBin: number
+  highBin: number
 }
 
-/** Sum `weight` per bin of `width` seconds. Returns `null` for an empty series. */
-export function binSums(time: ArrayLike<number>, weight: BinWeight, width: number): BinSums | null {
-  const len = time.length
-  if (len === 0) return null
-  const bins = new Float64Array(len)
-  let low = Infinity
-  let high = -Infinity
-  for (let i = 0; i < len; i++) {
-    const bin = Math.floor(time[i]! / width)
-    bins[i] = bin
-    low = Math.min(low, bin)
-    high = Math.max(high, bin)
-  }
-  const sums = new Float64Array(high - low + 1)
-  for (let i = 0; i < len; i++) {
-    sums[bins[i]! - low]! += typeof weight === 'number' ? weight : weight[i]!
-  }
-  return { lowBin: low, sums }
+export function emptyTotal(): RateTotal {
+  return { count: [], lowBin: Infinity, highBin: -Infinity }
 }
 
 /**
- * Rate of one series. Upstream scales a single series by `1 / width` but divides the total by
- * `width`; the two are kept apart so results match to the last bit.
+ * Upstream `array_from_range(start, end, 1)`: accumulates `start + 1 + 1 ...`.
+ *
+ * @throws {RangeError} when the range length is not a valid array length (NaN, infinite or negative).
  */
-export function seriesRate(binned: BinSums, width: number): RateSeries {
-  const scale = 1 / width
-  return {
-    time: binCentres(binned.lowBin, binned.sums.length, width),
-    rate: binned.sums.map((s) => s * scale)
+function rangeFrom(start: number, end: number): number[] {
+  const len = Math.floor(end - start) + 1
+  const out = new Array<number>(len)
+  let value = start
+  for (let i = 0; i < len; i++) {
+    out[i] = value
+    value += 1
   }
+  return out
 }
 
-/** Bin-wise sum of several series, covering every bin from the lowest to the highest. */
-export function sumBins(series: readonly BinSums[]): BinSums | null {
-  if (series.length === 0) return null
+/** Bin centres for bins `lowBin..highBin` (upstream `bin_time`: range, then scale, then offset). */
+export function binCentres(lowBin: number, highBin: number, width: number): number[] {
+  const half = width * 0.5
+  return rangeFrom(lowBin, highBin).map((bin) => bin * width + half)
+}
+
+/**
+ * Rate of one series (upstream `bin_count`), also adding its weights to `total`.
+ *
+ * @throws {RangeError} for an empty series or a window of 0 or NaN.
+ */
+export function binCount(time: ArrayLike<number>, weight: BinWeight, width: number, total: RateTotal): RateSeries {
+  const len = time.length
+  const bins = new Array<number>(len)
+  for (let i = 0; i < len; i++) bins[i] = Math.floor(time[i]! / width)
+
   let low = Infinity
   let high = -Infinity
-  for (const s of series) {
-    low = Math.min(low, s.lowBin)
-    high = Math.max(high, s.lowBin + s.sums.length - 1)
+  for (let i = 0; i < len; i++) {
+    low = Math.min(low, bins[i]!)
+    high = Math.max(high, bins[i]!)
   }
-  const sums = new Float64Array(high - low + 1)
-  for (const s of series) {
-    const at = s.lowBin - low
-    for (let i = 0; i < s.sums.length; i++) sums[at + i]! += s.sums[i]!
+  total.lowBin = Math.min(total.lowBin, low)
+  total.highBin = Math.max(total.highBin, high)
+
+  const centres = binCentres(low, high, width)
+
+  const count = new Array<number>(centres.length).fill(0)
+  for (let i = 0; i < len; i++) {
+    const bin = bins[i]!
+    const size = typeof weight === 'number' ? weight : weight[i]!
+    count[bin - low] = (count[bin - low] ?? 0) + size
+    total.count[bin] = (total.count[bin] ?? 0) + size
   }
-  return { lowBin: low, sums }
+
+  // Upstream `array_scale(count, 1 / bin_width)`: multiply by the reciprocal.
+  const scale = 1 / width
+  return { time: centres, rate: count.map((c) => c * scale) }
 }
 
-/** Rate of the total of several series (upstream `total_count`). */
-export function totalRate(series: readonly BinSums[], width: number): RateSeries | null {
-  const total = sumBins(series)
-  if (total === null) return null
-  return {
-    time: binCentres(total.lowBin, total.sums.length, width),
-    rate: total.sums.map((s) => s / width)
-  }
+/** Rate of the total (upstream `total_count`), or `null` when nothing was binned at a bin number >= 0. */
+export function totalCount(total: RateTotal, width: number): RateSeries | null {
+  if (total.count.length === 0) return null
+  const time = binCentres(total.lowBin, total.highBin, width)
+  const count = total.count.slice(total.lowBin, total.highBin + 1)
+  // Upstream divides here, where `bin_count` multiplies by the reciprocal.
+  const rate: number[] = []
+  for (let i = 0; i < count.length; i++) rate.push((count[i] ?? 0) / width)
+  return { time, rate }
 }

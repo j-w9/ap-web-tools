@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import { LogWriter } from '@apwt/dataflash/testing'
-import { identifyResponses, WindowSizeError } from './freq-resp.js'
+import { identifyResponses, windowSizeFromText, WindowSizeError } from './freq-resp.js'
 import { TuneLogError, loadTuneLog } from './load.js'
 import { loadTimeHistory, nearestIndex } from './time-history.js'
 import { buildSidLog } from './test-utils/synthetic.js'
 import { loadAnalyticTuneUpstream } from './test-utils/upstream.js'
 
 describe('loadTuneLog', () => {
-  it('rejects logs without parameters or SID data', () => {
+  it('rejects logs without parameters with upstream message, and loads logs without SID data', () => {
     const w = new LogWriter()
     w.defineFormat(0x80, 'FMT', 'BBnNZ', 'Type,Length,Name,Format,Columns')
     w.defineFormat(0x81, 'MSG', 'QZ', 'TimeUS,Message')
     w.write('MSG', [1, 'ArduCopter V4.6.0'])
     expect(() => loadTuneLog(w.toBytes())).toThrow(TuneLogError)
-    expect(() => loadTuneLog(w.toBytes())).toThrow(/no parameters/)
+    expect(() => loadTuneLog(w.toBytes())).toThrow('No params in log')
 
     w.defineFormat(0x82, 'PARM', 'QNfff', 'TimeUS,Name,Value,Default,Flags')
-    w.write('PARM', [2, 'SCHED_LOOP_RATE', 400, 400, 0])
-    expect(() => loadTuneLog(w.toBytes())).toThrow(/system identification/)
+    w.write('PARM', [2, 'SCHED_LOOP_RATE', 300, 400, 0])
+    const loaded = loadTuneLog(w.toBytes())
+    expect(loaded.runs).toEqual([])
+    expect(loaded.inputs.get('SCHED_LOOP_RATE')).toBe(300)
   })
 
   it('reads runs, vehicle and inputs; a missing INS_GYRO_RATE gives a 1 kHz gyro, as upstream', () => {
@@ -48,8 +50,37 @@ describe('analysis window', () => {
     const history = loadTimeHistory(loaded.log, 'ATT', target, 2, 6)
     expect(() => identifyResponses(history, 'Roll', 1000)).toThrow(WindowSizeError)
     expect(() => identifyResponses(history, 'Roll', 4096)).toThrow(/shorter than one FFT window/)
+    expect(() => identifyResponses(history, 'Roll', 16384)).toThrow(/shorter than one FFT window/)
     expect(identifyResponses(history, 'Roll', 256).windowCount).toBeGreaterThan(5)
   })
+
+  // The input is a number input, so its text is always valid floating-point text or empty.
+  it.each(['1024', '256', '1024.9', '300', '', '0', '-4', '1', '2', '512.0', '4e3', '1e3'])(
+    'reads window size text %j as upstream calculate_freq_resp does',
+    (text) => {
+      const up = loadAnalyticTuneUpstream()
+      up.setForm('FFTWindow_size', text)
+      // Without a log upstream gets past the window size checks and fails reading the log.
+      let upstreamError = ''
+      try {
+        up.calculate()
+      } catch (e) {
+        upstreamError = e instanceof Error ? e.message : String(e)
+      }
+      let mine: number | string
+      try {
+        mine = windowSizeFromText(text)
+      } catch (e) {
+        mine = e instanceof Error ? e.message : String(e)
+      }
+      if (upstreamError.startsWith('upstream alert: ')) expect(mine).toBe(upstreamError.slice('upstream alert: '.length))
+      else if (upstreamError.startsWith('FFT size')) expect(mine).toBe(upstreamError)
+      else {
+        expect(upstreamError).toMatch(/Cannot read properties of undefined/)
+        expect(mine).toBe(parseInt(text))
+      }
+    }
+  )
 
   it('finds the nearest sample as upstream does', () => {
     const up = loadAnalyticTuneUpstream()

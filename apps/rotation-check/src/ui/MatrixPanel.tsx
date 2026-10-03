@@ -1,5 +1,5 @@
 import type { Matrix3 } from '../analysis/matrix3.js'
-import { EULER_AXES, type EulerDeg, type StandardRotation } from '../analysis/rotations.js'
+import { EULER_AXES, type EulerDeg } from '../analysis/rotations.js'
 
 /** Fixed decimals without a distracting "-0.0000" for values that round to zero. */
 function fmt(value: number, digits: number): string {
@@ -43,25 +43,4 @@ export function MatrixTable({ matrix }: { matrix: Matrix3 }) {
 
 export function eulerText(e: EulerDeg): string {
   return EULER_AXES.map((axis) => `${axis} ${fmt(e[axis], 1)}°`).join(', ')
-}
-
-export interface MatchListProps {
-  matches: readonly StandardRotation[]
-  onSelect: (rotation: StandardRotation) => void
-}
-
-/** Standard rotations equal to a custom one, as buttons that select them. */
-export function MatchList({ matches, onSelect }: MatchListProps) {
-  if (matches.length === 0) {
-    return <span>None. Use a custom rotation (CUSTOM_ROT1_ROLL, _PITCH, _YAW).</span>
-  }
-  return (
-    <span className="apwt-readout" style={{ justifyContent: 'flex-end' }}>
-      {matches.map((r) => (
-        <button key={r.value} type="button" className="apwt-btn apwt-btn--ghost" onClick={() => onSelect(r)}>
-          {r.value}: {r.name}
-        </button>
-      ))}
-    </span>
-  )
 }
