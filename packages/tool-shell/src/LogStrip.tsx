@@ -18,6 +18,26 @@ export interface LogInputProps {
   hint?: ReactNode
 }
 
+/** "a .bin file" or "a .bin or .tlog file" from an `accept` attribute. */
+function describeAccept(accept: string) {
+  const types = accept
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t !== '')
+  return (
+    <>
+      a{' '}
+      {types.map((t, i) => (
+        <span key={t}>
+          {i > 0 && (i === types.length - 1 ? ' or ' : ', ')}
+          <code>{t}</code>
+        </span>
+      ))}{' '}
+      file
+    </>
+  )
+}
+
 /**
  * Log input for the rail, modelled on CustomBuild's config drop zone. Before a log is
  * loaded it is a dashed drop target; afterwards it lists facts about the log and stays a
@@ -61,9 +81,7 @@ export function LogInput({ facts, onFile, accept = '.bin', title = 'Open a log',
         {input}
         <UploadCloud />
         <span className="apwt-drop__title">{title}</span>
-        <span className="apwt-drop__hint">
-          Drag and drop or click to choose a <code>{accept}</code> file
-        </span>
+        <span className="apwt-drop__hint">Drag and drop or click to choose {describeAccept(accept)}</span>
         {hint && <span className="apwt-drop__hint">{hint}</span>}
       </label>
     )

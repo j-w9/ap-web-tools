@@ -17,6 +17,12 @@
       "path": "apps/pid-review"
     },
     {
+      "path": "apps/stream-stats"
+    },
+    {
+      "path": "apps/magfit"
+    },
+    {
       "path": "site"
     },
     {

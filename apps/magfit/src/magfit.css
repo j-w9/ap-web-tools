@@ -1,0 +1,103 @@
+/* MAGFit-specific layout on top of the tool-shell tokens. */
+
+.magfit-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g500));
+}
+
+.magfit-warning,
+.magfit-success {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+
+.magfit-warning {
+  color: var(--yellow-text);
+  background: rgba(250, 204, 21, 0.08);
+  border: 1px solid rgba(250, 204, 21, 0.25);
+}
+
+.magfit-success {
+  color: var(--green-text);
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+
+.magfit-pre {
+  white-space: pre-line;
+}
+
+.magfit-warn-text {
+  color: var(--yellow-text);
+}
+
+.magfit-save {
+  margin-top: 10px;
+}
+
+.magfit-compasses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.magfit-compass {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: rgb(var(--s2));
+  border: 1px solid rgb(var(--s4));
+  border-radius: 10px;
+}
+
+.magfit-compass__head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: rgb(var(--g100));
+}
+
+.magfit-compass__options,
+.magfit-compass__cals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.magfit-coverage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: rgb(var(--g300));
+}
+
+.magfit-coverage meter {
+  flex: 1;
+  height: 10px;
+}
+
+.magfit-chip-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgb(var(--g500));
+}
+
+.magfit-chip-saved {
+  padding: 0 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: rgb(var(--s));
+  background: var(--yellow);
+  border-radius: 4px;
+}
+
+.magfit-th-sub {
+  text-transform: none;
+  letter-spacing: 0;
+  color: rgb(var(--g400));
+}

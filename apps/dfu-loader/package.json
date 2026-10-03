@@ -6,7 +6,8 @@
   "type": "module",
   "dependencies": {
     "@apwt/tool-shell": "*",
-    "@arduconfig/firmware-flash": "*"
+    "@arduconfig/firmware-flash": "*",
+    "lucide-react": "^1.51.0"
   },
   "devDependencies": {
     "@types/w3c-web-usb": "^1.0.14"

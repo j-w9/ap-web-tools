@@ -3,6 +3,11 @@
 import 'plotly.js'
 
 declare module 'plotly.js' {
+  // `meta` is a valid trace attribute (referenced in hovertemplates as %{meta}) missing from the typings.
+  interface PlotData {
+    meta: string | number | readonly (string | number)[]
+  }
+
   interface PlotlyHTMLElement {
     removeListener(event: 'plotly_relayout', handler: (event: PlotRelayoutEvent) => void): void
   }

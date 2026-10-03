@@ -82,7 +82,7 @@ export const TOOLS: readonly ToolInfo[] = [
       'Calibrate compasses from a flight log: offsets, iron correction, scale and motor compensation, with an orientation check.',
     category: 'logs',
     stable: true,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'MAGFit',
     opens: messages('MAG')
   },
@@ -132,7 +132,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Message rate analysis for telemetry and DataFlash logs.',
     category: 'logs',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'StreamStats',
     opens: { kind: 'any' }
   },
