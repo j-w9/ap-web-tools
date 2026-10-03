@@ -1,6 +1,6 @@
+import { Chip, ChipLabel, RadioChips } from '@apwt/tool-shell'
 import type { AmplitudeKind } from '@apwt/signal'
 import { FFT_KEYS, KEY_LABELS, type FftKey } from '../analysis/keys.js'
-import { Chip, RadioChips } from './Choice.js'
 
 export interface FrequencyScaleSettings {
   log: boolean
@@ -49,7 +49,7 @@ export interface ScaleChipsProps {
 export function ScaleChips({ amplitude, onAmplitudeChange, frequency, onFrequencyChange }: ScaleChipsProps) {
   return (
     <>
-      <span className="apwt-chip-label">Amplitude</span>
+      <ChipLabel>Amplitude</ChipLabel>
       <RadioChips
         name="amplitude"
         value={amplitude}
@@ -60,7 +60,7 @@ export function ScaleChips({ amplitude, onAmplitudeChange, frequency, onFrequenc
           { value: 'PSD', label: 'PSD' }
         ]}
       />
-      <span className="apwt-chip-label">Frequency</span>
+      <ChipLabel>Frequency</ChipLabel>
       <RadioChips
         name="freq-axis"
         value={frequency.log ? 'log' : 'linear'}

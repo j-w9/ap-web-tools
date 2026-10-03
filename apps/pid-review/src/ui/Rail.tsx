@@ -1,8 +1,7 @@
 import { Calculator } from 'lucide-react'
 import { stepWindowSize } from '@apwt/signal'
-import { ControlGroup, LogInput, RailCard, type LogFact } from '@apwt/tool-shell'
+import { ControlGroup, LogInput, RailCard, type LogFact, Chip } from '@apwt/tool-shell'
 import { ALL_SPEC_KEYS, specLabel, type SpecKey } from '../analysis/vehicle.js'
-import { Chip } from './Choice.js'
 
 export interface RailProps {
   facts: readonly LogFact[] | null

@@ -31,3 +31,4 @@ export {
 export { OpenInButton, type OpenInButtonProps } from './OpenInButton.js'
 export { useLogFile, type LogFileState } from './useLogFile.js'
 export { useLatest } from './useLatest.js'
+export { Chip, RadioChips, CheckChips, ChipLabel, type ChipProps, type RadioChipsProps, type CheckChipsProps } from './Chips.js'

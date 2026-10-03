@@ -12,7 +12,7 @@ export interface ChipProps {
   title?: string | undefined
 }
 
-/** One selectable chip: a styled radio or checkbox. */
+/** One selectable chip: a styled radio or checkbox, highlighted in yellow when checked. */
 export function Chip({ type, name, checked, disabled, onChange, children, swatch, title }: ChipProps) {
   return (
     <label className="apwt-chip" title={title}>
@@ -48,4 +48,40 @@ export function RadioChips<T extends string>({ name, options, value, onChange }:
       ))}
     </div>
   )
+}
+
+export interface CheckChipsProps<T extends string> {
+  options: readonly { value: T; label: ReactNode; disabled?: boolean; title?: string }[]
+  value: ReadonlySet<T>
+  onChange: (value: ReadonlySet<T>) => void
+}
+
+/** A row of independent toggle chips over a set of values. */
+export function CheckChips<T extends string>({ options, value, onChange }: CheckChipsProps<T>) {
+  return (
+    <div className="apwt-chips">
+      {options.map((o) => (
+        <Chip
+          key={o.value}
+          type="checkbox"
+          checked={value.has(o.value)}
+          disabled={o.disabled ?? false}
+          title={o.title}
+          onChange={(on) => {
+            const next = new Set(value)
+            if (on) next.add(o.value)
+            else next.delete(o.value)
+            onChange(next)
+          }}
+        >
+          {o.label}
+        </Chip>
+      ))}
+    </div>
+  )
+}
+
+/** Small label introducing a chip group in a section toolbar. */
+export function ChipLabel({ children }: { children: ReactNode }) {
+  return <span className="apwt-chip-label">{children}</span>
 }
