@@ -8,7 +8,7 @@
  * - MAVLink: every decoded message is posted as `{ MAVLink: message }` on the BroadcastChannel
  *   named `MAVLinkMSG`, which any same-origin document (iframe or other tab) can listen to.
  */
-import type { JsonObject } from '../layout/json.js'
+import type { JsonLike, JsonObject } from '../layout/json.js'
 import type { LegacyMessage } from '../mavlink/legacy-message.js'
 
 /** BroadcastChannel carrying decoded messages. */
@@ -21,7 +21,8 @@ export interface MavlinkBroadcast {
 
 /** Sandbox widget start-up or script edit. */
 export interface ScriptMessage {
-  readonly script: string
+  /** The stored script, normally a string (the sandbox page appends to it with `+`). */
+  readonly script: JsonLike
   readonly options: JsonObject
 }
 

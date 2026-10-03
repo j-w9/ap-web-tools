@@ -1,10 +1,11 @@
 import type { GridStack, GridStackNode } from 'gridstack'
-import type { StoredWidget, WidgetSpec } from '../layout/layout.js'
+import type { StoredWidget } from '../layout/layout.js'
 import type { WidgetHost } from './base.js'
 
 /** Grid operations sub grids and the menu need from the dashboard (upstream globals). */
 export interface GridHost extends WidgetHost {
-  loadWidgets(grid: GridStack, widgets: readonly WidgetSpec[]): void
+  /** Upstream `load_widgets` with stored widgets (an object keyed by index, or an array). */
+  loadWidgets(grid: GridStack, widgets: unknown): void
   getWidgets(grid: GridStack): StoredWidget[]
   clearGrid(grid: GridStack | null): void
   gridSetEdit(grid: GridStack | null, enabled: boolean): void

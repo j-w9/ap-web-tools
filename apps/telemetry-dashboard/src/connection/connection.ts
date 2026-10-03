@@ -8,8 +8,9 @@
  *
  * The controller keeps upstream's state variables (`ws`, `expecting_close`, `been_connected`,
  * `heartBeatTimer`) with their sharing semantics. One controller exists per menu widget, as one
- * `setup_connect` closure did; see `docs/audit/telemetry-dashboard.md` for what that means when the
- * menu is re-created. Sockets, timers and the clock are injected for tests.
+ * `setup_connect` closure did, but all of them share the page's one {@link MavlinkProcessor}
+ * (upstream's global `MAVLink`); see `docs/audit/telemetry-dashboard.md` for what that means when
+ * the menu is re-created. Sockets, timers and the clock are injected for tests.
  */
 import {
   ALL_MESSAGES,
@@ -17,6 +18,7 @@ import {
   MavAutopilot,
   MavlinkParser,
   MavlinkSigning,
+  SIGNING_KEY_LENGTH,
   MavState,
   MavType,
   encodeFrame,
@@ -61,10 +63,59 @@ export type ConnectionColor = 'black' | 'orange' | 'green' | 'red'
 export interface ConnectionView {
   readonly color: ConnectionColor
   /**
-   * True while connecting or connected: the connect button and every setting are disabled and
-   * the disconnect button is enabled (upstream `set_inputs(true)`).
+   * True while connecting or connected: the connect button and every setting are disabled
+   * (upstream `set_inputs(true)`).
    */
   readonly inputsLocked: boolean
+  /** The disconnect button: enabled by `set_inputs(true)` and again when a socket opens. */
+  readonly disconnectEnabled: boolean
+}
+
+/**
+ * The page's MAVLink state, upstream's one `MAVLink20Processor` (`MAVLink` global): the parser and
+ * its partly received frame, the signing key and timestamps, the outgoing sequence number and
+ * source ids. Every connection (one per menu widget) uses it.
+ *
+ * Until a passphrase is given the key is unset and every frame is accepted unchecked. Once set, it
+ * stays set for every later connection (only outgoing signing is switched off without a
+ * passphrase) and unsigned frames are refused; the stream timestamps it has seen are kept when the
+ * key changes. The parser package takes its signing state at construction, so it is created with
+ * a signing state whose key is filled in (and unsigned frames refused) when a passphrase arrives.
+ */
+export interface MavlinkProcessor {
+  readonly parser: MavlinkParser
+  readonly signing: MavlinkSigning
+  /** Whether a key has been set (upstream: `signing.secret_key.length != 0`). */
+  keySet: boolean
+  signOutgoing: boolean
+  sequence: number
+  systemId: number
+  componentId: number
+}
+
+export function createMavlinkProcessor(nowMs: number): MavlinkProcessor {
+  const processor: { keySet: boolean } = { keySet: false }
+  const signing = new MavlinkSigning({
+    secretKey: new Uint8Array(SIGNING_KEY_LENGTH),
+    // Started when the page loaded, as upstream's `MAVLinkSigning`.
+    timestamp: signingTimestamp(nowMs),
+    // Without a key upstream checked nothing; a frame signed with another key is let through too.
+    allowUnsigned: () => !processor.keySet
+  })
+  return Object.assign(processor, {
+    parser: new MavlinkParser({ messages: ALL_MESSAGES, signing }),
+    signing,
+    signOutgoing: false,
+    sequence: 0,
+    systemId: Number.NaN,
+    componentId: Number.NaN
+  })
+}
+
+/** Upstream: `MAVLink.signing.secret_key = sha256(passphrase)`. */
+function setSigningKey(processor: MavlinkProcessor, passphrase: string): void {
+  processor.signing.secretKey.set(signingKeyFromPassphrase(passphrase))
+  processor.keySet = true
 }
 
 /** Settings read from the connection form when upstream read them. */
@@ -89,6 +140,8 @@ export interface ConnectionEvents {
 }
 
 export interface ConnectionOptions {
+  /** The page's MAVLink state, shared with every other connection. */
+  readonly processor: MavlinkProcessor
   readonly createSocket: SocketFactory
   readonly timers: Timers
   readonly now: () => number
@@ -108,25 +161,12 @@ export class ConnectionController {
   private expectingClose = false
   private beenConnected = false
   private heartbeatTimer: number | undefined = undefined
-  private viewState: ConnectionView = { color: 'black', inputsLocked: false }
-
-  /**
-   * Upstream used one `MAVLink20Processor` for the page's lifetime: its signing key, once set by a
-   * passphrase, stays set for later connections (only outgoing signing is switched off), and its
-   * sequence number keeps counting across connections.
-   */
-  private parser = new MavlinkParser({ messages: ALL_MESSAGES })
-  private signing: MavlinkSigning | undefined = undefined
-  private signOutgoing = false
-  /** Signing timestamp, started when the page loaded, as upstream's `MAVLinkSigning` was. */
-  private signingTime: number
-  private sequence = 0
-  private systemId = Number.NaN
-  private componentId = Number.NaN
+  private viewState: ConnectionView = { color: 'black', inputsLocked: false, disconnectEnabled: false }
+  private readonly processor: MavlinkProcessor
 
   constructor(options: ConnectionOptions) {
     this.options = options
-    this.signingTime = signingTimestamp(options.now())
+    this.processor = options.processor
   }
 
   get view(): ConnectionView {
@@ -145,7 +185,7 @@ export class ConnectionController {
 
   /** Upstream `set_inputs`. */
   private setInputs(locked: boolean): void {
-    this.setView({ inputsLocked: locked })
+    this.setView({ inputsLocked: locked, disconnectEnabled: locked })
   }
 
   /** The automatic attempt made on start: the page link's address, else Mission Planner's. */
@@ -189,14 +229,14 @@ export class ConnectionController {
     this.beenConnected = false
 
     const settings = this.options.settings()
-    this.systemId = Number.parseInt(settings.systemId, 10)
-    this.componentId = Number.parseInt(settings.componentId, 10)
+    const processor = this.processor
+    processor.systemId = Number.parseInt(settings.systemId, 10)
+    processor.componentId = Number.parseInt(settings.componentId, 10)
 
-    this.signOutgoing = false
+    processor.signOutgoing = false
     if (passphrase !== null && passphrase.length > 0) {
-      this.signing = new MavlinkSigning({ secretKey: signingKeyFromPassphrase(passphrase), timestamp: this.currentSigningTime() })
-      this.parser = new MavlinkParser({ messages: ALL_MESSAGES, signing: this.signing })
-      this.signOutgoing = true
+      setSigningKey(processor, passphrase)
+      processor.signOutgoing = true
     }
 
     let link: SocketLike
@@ -220,12 +260,8 @@ export class ConnectionController {
     this.expectingClose = false
   }
 
-  private currentSigningTime(): number {
-    return this.signing?.timestamp ?? this.signingTime
-  }
-
   private handleOpen(url: string): void {
-    this.setView({ color: 'green' })
+    this.setView({ color: 'green', disconnectEnabled: true })
     this.options.events.opened(url)
     this.beenConnected = true
     if (this.options.settings().heartbeat) {
@@ -245,7 +281,7 @@ export class ConnectionController {
   }
 
   private handleData(data: ArrayBuffer): void {
-    for (const message of this.parser.push(new Uint8Array(data))) {
+    for (const message of this.processor.parser.push(new Uint8Array(data))) {
       this.options.events.message(toLegacyMessage(message, this.options.now()))
     }
   }
@@ -260,12 +296,12 @@ export class ConnectionController {
       systemStatus: MavState.MAV_STATE_ACTIVE,
       mavlinkVersion: 3
     }
-    const address = { systemId: this.systemId, componentId: this.componentId, sequence: this.sequence }
-    const frame =
-      this.signOutgoing && this.signing !== undefined
-        ? encodeFrame(HEARTBEAT, fields, address, { signing: this.signing })
-        : encodeFrame(HEARTBEAT, fields, address)
-    this.sequence = (this.sequence + 1) % 256
+    const processor = this.processor
+    const address = { systemId: processor.systemId, componentId: processor.componentId, sequence: processor.sequence }
+    const frame = processor.signOutgoing
+      ? encodeFrame(HEARTBEAT, fields, address, { signing: processor.signing })
+      : encodeFrame(HEARTBEAT, fields, address)
+    processor.sequence = (processor.sequence + 1) % 256
     return frame
   }
 
@@ -287,6 +323,12 @@ export function browserSocketFactory(url: string, handlers: SocketHandlers): Soc
   }
   ws.onmessage = (event: MessageEvent<unknown>) => {
     if (event.data instanceof ArrayBuffer) handlers.onMessage(event.data)
+    // A text frame: upstream fed `new Uint8Array(msg.data)` to the parser, a run of zeros as long
+    // as the text's numeric value (none for non-numeric text; a negative value threw).
+    else {
+      const bytes: unknown = Reflect.construct(Uint8Array, [event.data])
+      if (bytes instanceof Uint8Array) handlers.onMessage(new Uint8Array(bytes).buffer)
+    }
   }
   const states: readonly SocketState[] = ['connecting', 'open', 'closing', 'closed']
   return {

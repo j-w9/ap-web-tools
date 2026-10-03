@@ -56,6 +56,11 @@ describe('round trip', () => {
         }
       }
       const fields = decodePayload(descriptor, payload)
+      if (descriptor.name === 'TEST_TYPES') {
+        // Its scalar `char` field cannot be packed by upstream's jspack, so the encoder refuses too.
+        expect(() => encodeFrame(descriptor, fields as never, address)).toThrow(/cannot encode/)
+        continue
+      }
       const frame = encodeFrame(descriptor, fields as never, address)
       const [message] = new MavlinkParser({ messages: ALL_MESSAGES }).push(frame)
       expect(message?.name).toBe(descriptor.name)
@@ -153,7 +158,9 @@ describe('encoding', () => {
       osCustomVersion: new Uint8Array(8),
       vendorId: 5,
       productId: 6,
-      uid: 0xfedc_ba98_7654_3210n
+      uid: 0xfedc_ba98_7654_3210n,
+      // Upstream's jspack throws for an omitted byte array, even an extension.
+      uid2: []
     }
     const [message] = new MavlinkParser({ messages: [AUTOPILOT_VERSION] }).push(encodeFrame(AUTOPILOT_VERSION, fields, address))
     expect(message?.fields.uid).toBe(0xfedc_ba98_7654_3210n)
@@ -165,31 +172,18 @@ describe('encoding', () => {
     expect(status?.fields.text).toBe('Boat ready')
   })
 
-  it('rejects values that do not fit their fields', () => {
-    expect(() => encodeFrame(HEARTBEAT, { ...heartbeat, customMode: -1 }, address)).toThrow(
-      /HEARTBEAT.customMode: -1 is not a uint32_t/
-    )
-    expect(() => encodeFrame(HEARTBEAT, { ...heartbeat, customMode: 1.5 }, address)).toThrow(RangeError)
-    expect(() => encodeFrame(STATUSTEXT, { severity: 6, text: 'x'.repeat(51) }, address)).toThrow(/51 bytes, the field holds 50/)
-    expect(() =>
-      encodeFrame(
-        BATTERY_STATUS,
-        {
-          ...{
-            id: 0,
-            batteryFunction: 0,
-            type: 0,
-            temperature: 0,
-            currentBattery: 0,
-            currentConsumed: 0,
-            energyConsumed: 0,
-            batteryRemaining: 0
-          },
-          voltages: new Array<number>(11).fill(0)
-        },
-        address
+  it('packs out-of-range values as upstream jspack does (see oracle.test.ts) and rejects only what the types forbid', () => {
+    const packed = (customMode: number): number => {
+      const [message] = new MavlinkParser({ messages: [HEARTBEAT] }).push(
+        encodeFrame(HEARTBEAT, { ...heartbeat, customMode }, address)
       )
-    ).toThrow(/11 elements/)
+      return message?.fields.customMode ?? -1
+    }
+    expect([packed(-1), packed(1.9), packed(2 ** 40), packed(Number.NaN)]).toEqual([0, 1, 0xffffffff, 0])
+    const [status] = new MavlinkParser({ messages: [STATUSTEXT] }).push(
+      encodeFrame(STATUSTEXT, { severity: 6, text: 'x'.repeat(51) }, address)
+    )
+    expect(status?.fields.text).toBe('x'.repeat(50))
     expect(() =>
       encodeFrame(
         AUTOPILOT_VERSION,
@@ -213,6 +207,8 @@ describe('encoding', () => {
     ).toThrow(/uint64_t/)
     // @ts-expect-error -- deliberately incomplete, to show the runtime check behind the types
     expect(() => encodeFrame(HEARTBEAT, { type: 1 }, address)).toThrow(/autopilot: missing/)
+    // @ts-expect-error -- a string is not a number
+    expect(() => encodeFrame(HEARTBEAT, { ...heartbeat, customMode: '4' }, address)).toThrow(/expected a number/)
   })
 
   it('numbers frames and wraps the sequence at 256', () => {
@@ -231,7 +227,7 @@ describe('encoding', () => {
       signing: new MavlinkSigning({ secretKey: new Uint8Array(32).fill(1), timestamp: 0 })
     })
     expect(parser.push(frame)[0]?.signature).toEqual({ linkId: 0, timestamp: 100, verified: true })
-    expect(() => new MavlinkSigning({ secretKey: new Uint8Array(31) })).toThrow(RangeError)
+    expect(() => new MavlinkSigning({ secretKey: new Uint8Array(0) })).toThrow(RangeError)
   })
 })
 

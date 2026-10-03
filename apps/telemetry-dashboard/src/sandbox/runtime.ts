@@ -7,8 +7,13 @@
  * assignments (`handle_msg = function (msg) {...}`, `handle_options = ...`) become globals the
  * runtime then calls. Any exception (at load or in a handler) replaces the widget with an error
  * report and stops the script until it is edited or new options arrive.
+ *
+ * Upstream's quirks are kept: a script that returns a primitive (`return 0` before the appended
+ * `return this`) makes every later options message throw at `"handle_options" in user_class`,
+ * which also skips a script sent in the same message, so the widget can no longer be edited; and
+ * an error report that itself fails (a script throwing null) leaves the script running.
  */
-import type { JsonObject } from '../layout/json.js'
+import { inOperatorError, jsString, nullPropertyError, type JsonObject } from '../layout/json.js'
 
 /** The page side the runtime draws on, injectable for tests. */
 export interface SandboxPage<Div> {
@@ -43,6 +48,7 @@ export class SandboxRuntime<Div> {
     return this.userClass !== null && this.userClass !== undefined
   }
 
+  /** Upstream `user_error`; if drawing the report throws, the script stays loaded, as upstream. */
   private fail(error: unknown): void {
     this.page.showError(error, this.userScript ?? '')
     this.userClass = null
@@ -61,6 +67,12 @@ export class SandboxRuntime<Div> {
     }
   }
 
+  /** A BroadcastChannel post: upstream `if (e?.data?.MAVLink) handle_MAVLink(e.data.MAVLink)`. */
+  handleBroadcast(data: unknown): void {
+    const message: unknown = typeof data === 'object' && data !== null ? Reflect.get(data, 'MAVLink') : undefined
+    if (message) this.handleMavlink(message)
+  }
+
   /** A MAVLink message from the BroadcastChannel. */
   handleMavlink(message: unknown): void {
     if (!this.running) return
@@ -76,9 +88,11 @@ export class SandboxRuntime<Div> {
     // A script that failed may have failed on bad options: try it again with the new ones.
     if (!this.running && this.userScript !== null) this.loadUserScript()
     const user = this.userClass
-    // `handle_options` is optional. (Upstream's `in` threw for a primitive return value.)
-    if (!this.running || (typeof user !== 'object' && typeof user !== 'function') || user === null || !('handle_options' in user))
-      return
+    if (user === null || user === undefined) return
+    // `"handle_options" in user_class` threw for a primitive, outside any try (see above).
+    if (typeof user !== 'object' && typeof user !== 'function') throw inOperatorError('handle_options', user)
+    // `handle_options` is optional.
+    if (!('handle_options' in user)) return
     try {
       callMethod(user, 'handle_options', options)
     } catch (error) {
@@ -95,16 +109,27 @@ export class SandboxRuntime<Div> {
     const record = data as Readonly<Record<string, unknown>>
     if ('options' in record) this.handleOptions(record.options as JsonObject)
     if ('script' in record) {
-      this.userScript = String(record.script) + '\n return this'
+      this.userScript = concatString(record.script) + '\n return this'
       this.loadUserScript()
     }
   }
 }
 
-/** Where an error happened in the user script, from its stack (upstream regex and offset). */
+/** `'' + value` (upstream concatenated with `+`): `String(value)`, except that a Symbol throws. */
+export function concatString(value: unknown): string {
+  if (typeof value === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string')
+  return String(value)
+}
+
+/**
+ * Where an error happened in the user script, from `err.stack` (upstream regex and offset; a
+ * thrown value without a stack gives none). Throws, as upstream's `err.stack` did, for a thrown
+ * null or undefined.
+ */
 export function errorLocation(error: unknown): { readonly line: number; readonly column: string } | null {
-  const stack = error instanceof Error ? (error.stack ?? '') : ''
-  const match = /<(?:(?:anonymous)|(?:Function))>:([0-9]*):([0-9]*)/m.exec(stack)
+  if (error === null || error === undefined) throw nullPropertyError(error, 'stack')
+  const stack: unknown = Reflect.get(Object(error), 'stack')
+  const match = /<(?:(?:anonymous)|(?:Function))>:([0-9]*):([0-9]*)/m.exec(jsString(stack))
   if (match === null) return null
   // The Function constructor adds two lines before the body.
   return { line: Number.parseInt(match[1]!, 10) - 2, column: match[2]! }

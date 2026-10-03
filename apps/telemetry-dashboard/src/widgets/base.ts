@@ -7,19 +7,15 @@ import type { GridItemHTMLElement, GridStack } from 'gridstack'
 import tippy, { type Instance, type Props } from 'tippy.js'
 import type { FormDefinition, Webform } from 'formiojs/dist/formio.full.min.js'
 import { Formio } from '../forms/formio-setup.js'
-import { isJsonObject, jsString, type Json, type JsonObject } from '../layout/json.js'
-import type { StoredWidget, WidgetSpec, WidgetType } from '../layout/layout.js'
+import { domString, looseEquals, type JsonLike, type JsonObject } from '../layout/json.js'
+import type { StoredWidget, WidgetType } from '../layout/layout.js'
 import { confirmMessage } from '../ui/dialogs.js'
-
-/** Name and description shown in the palette and the widget popup (`options.about`). */
-export interface About {
-  readonly name: string
-  readonly info?: string
-}
+import { readBaseOptions, type OptionsObject } from './options.js'
 
 /** What widgets need from the dashboard (upstream globals). */
 export interface WidgetHost {
-  addWidget(grid: GridStack, spec: WidgetSpec): Widget | undefined
+  /** Upstream `add_widget(target_grid, obj)` with a stored (or copied) widget object. */
+  addWidget(grid: GridStack, obj: unknown): Widget | undefined
   getWidgetObject(widget: Widget): StoredWidget
   loadEditor(widget: Widget): void
   saveWidget(widget: Widget): void
@@ -58,20 +54,6 @@ function iconButton(icon: string, label: string): HTMLButtonElement {
   return button
 }
 
-function readAbout(present: boolean, value: Json | undefined, type: WidgetType): About {
-  if (!present) return { name: type }
-  if (isJsonObject(value)) {
-    const name = value.name
-    const info = value.info
-    return {
-      name: jsString(name),
-      ...(info === undefined ? {} : { info: jsString(info) })
-    }
-  }
-  // Upstream read `.name` of whatever was stored.
-  return { name: 'undefined' }
-}
-
 /** Buttons in the widget popup. */
 interface TipButtons {
   readonly edit: HTMLButtonElement
@@ -85,10 +67,8 @@ export abstract class Widget {
   readonly type: WidgetType
   readonly el: GridItemHTMLElement
   protected readonly host: WidgetHost
-  /** Stored `options.about`, or the type name. */
-  readonly about: About
-  /** `options.about` exactly as given (saved back unchanged); absent when the options had none. */
-  private readonly storedAbout: { readonly value: Json } | undefined
+  /** `options.about` as stored (saved back unchanged), or `{ name: <type> }`. */
+  readonly about: JsonLike
   editEnabled = false
   /** Unsaved changes, used to prompt the user before leaving the page. */
   changed = false
@@ -100,22 +80,13 @@ export abstract class Widget {
   private readonly buttons: TipButtons
   readonly editTip: Instance
 
-  constructor(type: WidgetType, options: JsonObject, editable: boolean, host: WidgetHost) {
+  constructor(type: WidgetType, options: OptionsObject, editable: boolean, host: WidgetHost) {
     this.type = type
     this.host = host
+    const { about, name: aboutName, formDefinition, formContent } = readBaseOptions(options, type)
     this.el = document.createElement('div')
     widgetsByElement.set(this.el, this)
-
-    const aboutJson = options.about
-    this.about = readAbout(aboutJson !== undefined, aboutJson, type)
-    this.storedAbout = aboutJson === undefined ? undefined : { value: aboutJson }
-
-    let formDefinition: JsonObject = {}
-    let formContent: JsonObject = {}
-    if (isJsonObject(options.form)) {
-      formDefinition = options.form
-      if (isJsonObject(options.form_content)) formContent = options.form_content
-    }
+    this.about = about
 
     this.el.style.display = 'flex'
 
@@ -126,8 +97,9 @@ export abstract class Widget {
     head.className = 'td-tip__head'
     const name = document.createElement('span')
     name.className = 'td-tip__title'
-    // Upstream set this with innerHTML; the name is shown as text.
-    name.textContent = this.about.name
+    // As upstream: the stored name is HTML (a layout's sandbox widgets run their own scripts on
+    // this origin anyway, so this adds no capability).
+    name.innerHTML = domString(aboutName)
     this.buttons = {
       edit: iconButton('fa-pen-to-square', 'Edit widget'),
       save: iconButton('fa-download', 'Download widget'),
@@ -146,7 +118,7 @@ export abstract class Widget {
     this.buttons.copy.onclick = () => {
       const grid = this.el.gridstackNode?.grid
       if (grid === undefined) return
-      const copy = this.host.addWidget(grid, parseStored(this.host.getWidgetObject(this)))
+      const copy = this.host.addWidget(grid, this.host.getWidgetObject(this))
       copy?.init()
     }
     this.buttons.delete.onclick = () => void this.deleteClicked()
@@ -183,7 +155,8 @@ export abstract class Widget {
     this.el.gridstackNode?.grid?.removeWidget(this.el)
   }
 
-  private async createForm(definition: FormDefinition, content: JsonObject): Promise<void> {
+  /** Formio receives the stored definition and content as they are (a string definition is a form URL). */
+  private async createForm(definition: JsonLike, content: JsonLike): Promise<void> {
     const form = await Formio.createForm(this.formDiv, definition)
     this.form = form
     await form.setForm(definition)
@@ -260,14 +233,9 @@ export abstract class Widget {
     return this.form?.form
   }
 
-  /** Options saved with the widget. */
-  getOptions(): JsonObject {
-    const form = this.getFormDefinition()
-    return {
-      ...(form === undefined ? {} : { form }),
-      form_content: this.getFormContent(),
-      about: this.storedAbout === undefined ? { name: this.about.name } : this.storedAbout.value
-    }
+  /** Options saved with the widget (`form` is undefined, so not saved, until the form has loaded). */
+  getOptions(): OptionsObject {
+    return { form: this.getFormDefinition(), form_content: this.getFormContent(), about: this.about }
   }
 
   /** Form changed by the user (or loaded). */
@@ -293,14 +261,9 @@ export abstract class Widget {
   }
 }
 
-/** Re-reads a saved widget as a spec (copy, drop). */
-export function parseStored(widget: StoredWidget): WidgetSpec {
-  return {
-    type: widget.type,
-    x: widget.x === null ? null : Number.parseInt(widget.x, 10),
-    y: widget.y === null ? null : Number.parseInt(widget.y, 10),
-    w: widget.w === null ? null : Number.parseInt(widget.w, 10),
-    h: widget.h === null ? null : Number.parseInt(widget.h, 10),
-    options: widget.options
-  }
+/**
+ * Upstream compared the edited text with `!=` against the stored value, which may not be a string.
+ */
+export function editedTextChanged(stored: JsonLike, text: string): boolean {
+  return !looseEquals(stored, text)
 }

@@ -8,7 +8,8 @@ import {
   browserTimers,
   ConnectionController,
   type ConnectionColor,
-  type ConnectionSettings
+  type ConnectionSettings,
+  type MavlinkProcessor
 } from '../connection/connection.js'
 import type { HashSettings, LinkConnection } from '../layout/link.js'
 import type { LegacyMessage } from '../mavlink/legacy-message.js'
@@ -27,7 +28,8 @@ export interface SettingsMenu {
 export interface MenuHost extends GridHost {
   /** Settings carried in the page's hash when it loaded. */
   readonly hashSettings: HashSettings
-  registerSettingsMenu(icon: HTMLElement, menu: SettingsMenu): void
+  /** The settings icon (upstream id `MenuSettingsIcon`) and popup content (id `settings_tip_div`). */
+  registerSettingsMenu(icon: HTMLElement, panel: HTMLElement, menu: SettingsMenu): void
   /** Makes `params` what "Get link" reads (the most recently set up menu wins, as upstream). */
   setConnectionParams(params: () => LinkConnection): void
   setMainGridEdit(enabled: boolean): void
@@ -43,6 +45,8 @@ export interface MenuHost extends GridHost {
   loadFile(file: File): void
   /** Publishes a decoded message to the widgets. */
   publish(message: LegacyMessage): void
+  /** The page's one MAVLink parser and signing state, shared by every menu's connection. */
+  readonly mavlink: MavlinkProcessor
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -115,8 +119,12 @@ export interface SettingsPanel {
 }
 
 /** Save/load, link and dashboard settings. `markChanged` flags the menu as changed. */
+/** Id upstream gave the settings popup content; `init_grid` looked it up (found only while shown). */
+export const SETTINGS_PANEL_ID = 'settings_tip_div'
+
 export function createSettingsPanel(host: MenuHost, markChanged: () => void): SettingsPanel {
   const { element, body, close } = panel('Settings')
+  element.id = SETTINGS_PANEL_ID
 
   body.append(el('h3', 'td-panel__heading', 'Save and load'))
   const save = button('Save')
@@ -254,6 +262,7 @@ export function createConnectionPanel(host: MenuHost, ui: ConnectionUi): HTMLDiv
   })
 
   const controller = new ConnectionController({
+    processor: host.mavlink,
     createSocket: browserSocketFactory,
     timers: browserTimers,
     now: () => Date.now(),
@@ -262,7 +271,7 @@ export function createConnectionPanel(host: MenuHost, ui: ConnectionUi): HTMLDiv
       view: (view) => {
         ui.setColor(view.color)
         for (const input of [connect, url, heartbeat.input, signing, sysid, compid]) input.disabled = view.inputsLocked
-        disconnect.disabled = !view.inputsLocked
+        disconnect.disabled = !view.disconnectEnabled
       },
       opened: (address) => {
         ui.hide()

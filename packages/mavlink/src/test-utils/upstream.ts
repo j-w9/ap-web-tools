@@ -37,9 +37,40 @@ export interface UpstreamMessage {
   pack(processor: UpstreamProcessor): number[]
 }
 
+/** Upstream `mavlink20.header` of a decoded message. */
+export interface UpstreamHeader {
+  readonly mlen: number
+  readonly seq: number
+  readonly srcSystem: number
+  readonly srcComponent: number
+  readonly msgId: number
+  readonly incompat_flags: number
+  readonly compat_flags: number
+}
+
+/** Upstream `MAVLinkSigning`. */
+export interface UpstreamSigning {
+  secret_key: Uint8Array
+  timestamp: number
+  link_id: number
+  sign_outgoing: boolean
+  allow_unsigned_callback: ((processor: UpstreamProcessor, msgId: number) => boolean) | undefined
+  stream_timestamps: Record<string, number>
+  readonly sig_count: number
+  readonly badsig_count: number
+  readonly goodsig_count: number
+  readonly unsigned_count: number
+  readonly reject_count: number
+}
+
 export interface UpstreamProcessor {
   seq: number
+  readonly signing: UpstreamSigning
+  readonly total_packets_received: number
+  readonly total_bytes_received: number
+  readonly total_receive_errors: number
   decode(frame: Uint8Array): UpstreamMessage
+  parseBuffer(bytes: Uint8Array | null): UpstreamMessage[] | null
 }
 
 export interface UpstreamMapEntry {
@@ -50,7 +81,13 @@ export interface UpstreamMapEntry {
 }
 
 export interface UpstreamMavlink {
-  readonly mavlink20: { readonly map: Readonly<Record<string, UpstreamMapEntry>>; readonly ready: Promise<void> }
+  readonly mavlink20: {
+    readonly map: Readonly<Record<string, UpstreamMapEntry>>
+    readonly ready: Promise<void>
+    readonly messages: Readonly<Record<string, new (...args: unknown[]) => UpstreamMessage>>
+    sha256(input: Uint8Array): Uint8Array
+    create_signature(key: Uint8Array, data: Uint8Array): Uint8Array
+  }
   readonly MAVLink20Processor: new (logger: null, srcSystem: number, srcComponent: number) => UpstreamProcessor
 }
 
@@ -68,4 +105,26 @@ export async function loadUpstream(): Promise<UpstreamMavlink> {
   if (!isUpstream(exported)) throw new Error('upstream mavlink.js did not export mavlink20')
   await exported.mavlink20.ready
   return exported
+}
+
+/**
+ * Upstream's enums as mavgen printed them: each `// NAME` comment in the `// enums` section starts an
+ * enum, followed by `mavlink20.ENTRY = value` lines (including mavgen's `NAME_ENUM_END`).
+ */
+export function loadUpstreamEnums(): Map<string, Map<string, number>> {
+  const lines = readFileSync(UPSTREAM_MAVLINK, 'utf8').split('\n')
+  const enums = new Map<string, Map<string, number>>()
+  let current: Map<string, number> | undefined
+  for (const line of lines.slice(lines.indexOf('// enums') + 1, lines.indexOf('// message IDs'))) {
+    const heading = /^\/\/ ([A-Za-z0-9_]+)$/.exec(line)
+    const entry = /^mavlink20\.([A-Za-z0-9_]+) = (\d+)/.exec(line)
+    if (heading !== null) {
+      current = new Map()
+      enums.set(heading[1]!, current)
+    } else if (entry !== null) {
+      if (current === undefined) throw new Error(`enum entry outside an enum: ${line}`)
+      current.set(entry[1]!, Number(entry[2]))
+    }
+  }
+  return enums
 }

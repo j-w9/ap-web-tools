@@ -27,8 +27,9 @@ export type FieldInput<T> = T extends string
 /**
  * Fields accepted by the encoder for message `N`: extension fields may be omitted (they encode as
  * 0), arrays may be any array-like no longer than the field (missing elements encode as 0), and
- * strings no longer than the field in UTF-8 bytes. For a union of names this is the union of their
- * inputs, so a descriptor of unknown type cannot be encoded without saying which message it is.
+ * strings no longer than the field, of characters U+0000 to U+00FF (one byte each). For a union of
+ * names this is the union of their inputs, so a descriptor of unknown type cannot be encoded
+ * without saying which message it is.
  */
 export type MessageInput<N extends MessageName> = N extends MessageName
   ? {

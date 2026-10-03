@@ -1,10 +1,11 @@
 /**
- * Synchronous SHA-256 (FIPS 180-4), for MAVLink 2 signing on the encode/decode hot path where the
- * asynchronous `crypto.subtle.digest` cannot be used.
+ * Synchronous SHA-256, for MAVLink 2 signing on the encode/decode path where the asynchronous
+ * `crypto.subtle.digest` cannot be used.
  *
- * Adapted from `vendor/arduconfigurator/packages/protocol-mavlink/src/sha256.ts` (ArduConfigurator,
- * same authors, GPL-3.0). Upstream WebTools embeds an equivalent implementation as
- * `mavlink20.sha256`.
+ * Port of `mavlink20.sha256` in upstream `modules/MAVLink/mavlink.js` (pymavlink's JavaScript
+ * generator, "with thanks to https://geraintluff.github.io/sha256/"). Like upstream, the length
+ * block holds only the low 32 bits of the message's bit length, so inputs of 512 MiB or more hash
+ * incorrectly; MAVLink signing hashes at most 306 bytes (see `docs/upstream-bugs.md`).
  */
 
 const K = new Uint32Array([
@@ -17,34 +18,42 @@ const K = new Uint32Array([
   0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 ])
 
-function rotr(x: number, n: number): number {
-  return ((x >>> n) | (x << (32 - n))) >>> 0
+const INITIAL_HASH = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19] as const
+
+function rotr(n: number, x: number): number {
+  return (x >>> n) | (x << (32 - n))
 }
 
-/** SHA-256 digest (32 bytes) of `message`. */
-export function sha256(message: Uint8Array): Uint8Array {
-  const hash = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19])
+const bigSigma0 = (x: number): number => rotr(2, x) ^ rotr(13, x) ^ rotr(22, x)
+const bigSigma1 = (x: number): number => rotr(6, x) ^ rotr(11, x) ^ rotr(25, x)
+const smallSigma0 = (x: number): number => rotr(7, x) ^ rotr(18, x) ^ (x >>> 3)
+const smallSigma1 = (x: number): number => rotr(17, x) ^ rotr(19, x) ^ (x >>> 10)
+const choose = (x: number, y: number, z: number): number => (x & y) ^ (~x & z)
+const majority = (x: number, y: number, z: number): number => (x & y) ^ (x & z) ^ (y & z)
 
-  // Message, 0x80, zero padding, then the 64-bit big-endian bit length, to a multiple of 64 bytes.
-  const length = message.length
-  const paddedLength = (((length + 8) >>> 6) + 1) * 64
-  const padded = new Uint8Array(paddedLength)
-  padded.set(message)
+/** SHA-256 digest (32 bytes) of `input`. */
+export function sha256(input: Uint8Array): Uint8Array {
+  const hash = Uint32Array.from(INITIAL_HASH)
+  const length = input.length
+  const bitLength = length * 8
+
+  // Message, 0x80, zero padding to a multiple of 64 bytes, then the bit length in the last 8 bytes,
+  // of which upstream fills only the low 4 (big-endian, truncated to 32 bits).
+  const padded = new Uint8Array(((length + 9 + 63) >> 6) << 6)
+  padded.set(input)
   padded[length] = 0x80
-  const view = new DataView(padded.buffer)
-  view.setUint32(paddedLength - 8, Math.floor(length / 0x20000000), false)
-  view.setUint32(paddedLength - 4, (length * 8) >>> 0, false)
+  padded.set(
+    [0, 0, 0, 0, (bitLength >>> 24) & 0xff, (bitLength >>> 16) & 0xff, (bitLength >>> 8) & 0xff, bitLength & 0xff],
+    padded.length - 8
+  )
 
   const w = new Uint32Array(64)
-  for (let chunk = 0; chunk < paddedLength; chunk += 64) {
-    for (let i = 0; i < 16; i++) w[i] = view.getUint32(chunk + i * 4, false)
-    for (let i = 16; i < 64; i++) {
-      const w15 = w[i - 15]!
-      const w2 = w[i - 2]!
-      const s0 = rotr(w15, 7) ^ rotr(w15, 18) ^ (w15 >>> 3)
-      const s1 = rotr(w2, 17) ^ rotr(w2, 19) ^ (w2 >>> 10)
-      w[i] = (w[i - 16]! + s0 + w[i - 7]! + s1) >>> 0
+  for (let block = 0; block < padded.length; block += 64) {
+    for (let j = 0; j < 16; j++) {
+      const at = block + 4 * j
+      w[j] = ((padded[at]! << 24) | (padded[at + 1]! << 16) | (padded[at + 2]! << 8) | padded[at + 3]!) >>> 0
     }
+    for (let j = 16; j < 64; j++) w[j] = (smallSigma1(w[j - 2]!) + w[j - 7]! + smallSigma0(w[j - 15]!) + w[j - 16]!) >>> 0
 
     let a = hash[0]!
     let b = hash[1]!
@@ -54,13 +63,9 @@ export function sha256(message: Uint8Array): Uint8Array {
     let f = hash[5]!
     let g = hash[6]!
     let h = hash[7]!
-    for (let i = 0; i < 64; i++) {
-      const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
-      const ch = (e & f) ^ (~e & g)
-      const t1 = (h + s1 + ch + K[i]! + w[i]!) >>> 0
-      const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
-      const maj = (a & b) ^ (a & c) ^ (b & c)
-      const t2 = (s0 + maj) >>> 0
+    for (let j = 0; j < 64; j++) {
+      const t1 = (h + bigSigma1(e) + choose(e, f, g) + K[j]! + w[j]!) >>> 0
+      const t2 = (bigSigma0(a) + majority(a, b, c)) >>> 0
       h = g
       g = f
       f = e
@@ -70,6 +75,7 @@ export function sha256(message: Uint8Array): Uint8Array {
       b = a
       a = (t1 + t2) >>> 0
     }
+    // Uint32Array stores modulo 2^32, as upstream's `(H[i] + x) >>> 0`.
     hash[0] = hash[0]! + a
     hash[1] = hash[1]! + b
     hash[2] = hash[2]! + c
@@ -80,8 +86,13 @@ export function sha256(message: Uint8Array): Uint8Array {
     hash[7] = hash[7]! + h
   }
 
-  const out = new Uint8Array(32)
-  const outView = new DataView(out.buffer)
-  for (let i = 0; i < 8; i++) outView.setUint32(i * 4, hash[i]!, false)
-  return out
+  const output = new Uint8Array(32)
+  for (let i = 0; i < 8; i++) {
+    const word = hash[i]!
+    output[i * 4] = (word >>> 24) & 0xff
+    output[i * 4 + 1] = (word >>> 16) & 0xff
+    output[i * 4 + 2] = (word >>> 8) & 0xff
+    output[i * 4 + 3] = word & 0xff
+  }
+  return output
 }

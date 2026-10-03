@@ -4,9 +4,9 @@
  */
 import { GridStack } from 'gridstack'
 import tippy, { followCursor, type Instance } from 'tippy.js'
-import { isJsonObject, type JsonObject } from '../layout/json.js'
-import { parseWidget, type WidgetPlacement } from '../layout/layout.js'
-import { widgetOf } from '../widgets/base.js'
+import { domString, hasKey, jsString, prop } from '../layout/json.js'
+import type { WidgetPlacement } from '../layout/loader.js'
+import { widgetOf, type Widget } from '../widgets/base.js'
 import type { Dashboard } from './dashboard.js'
 import attitudeUrl from '../assets/SandBoxWidgets/Attitude.json?url'
 import graphUrl from '../assets/SandBoxWidgets/Graph.json?url'
@@ -30,6 +30,17 @@ export const PALETTE_FILES: readonly { readonly url: string; readonly pos: Widge
 const COLUMNS = 6
 const ROWS = 5
 
+/** A palette widget's tip: `about.name` as a heading (`innerText`), then `about.info` if present. */
+function aboutTip(widget: Widget): HTMLDivElement {
+  const about = widget.about
+  const content = document.createElement('div')
+  const heading = document.createElement('h6')
+  heading.innerText = domString(prop(about, 'name'))
+  content.append(heading)
+  if (hasKey(about, 'info')) content.append(document.createTextNode(jsString(prop(about, 'info'))))
+  return content
+}
+
 export function installPalette(dashboard: Dashboard): void {
   const tipDiv = document.createElement('div')
   tipDiv.className = 'td-palette'
@@ -48,9 +59,9 @@ export function installPalette(dashboard: Dashboard): void {
     )
     palette = grid
     grid.batchUpdate(true)
-    dashboard.addWidget(grid, { type: 'WidgetSubGrid', x: 0, y: 0, w: 1, h: 1, options: {} })
-    dashboard.addWidget(grid, { type: 'WidgetSandBox', x: 0, y: 1, w: 1, h: 1, options: {} })
-    dashboard.addWidget(grid, { type: 'WidgetCustomHTML', x: 1, y: 5, w: 1, h: 1, options: {} })
+    dashboard.addWidget(grid, { type: 'WidgetSubGrid', x: 0, y: 0, w: 1, h: 1 })
+    dashboard.addWidget(grid, { type: 'WidgetSandBox', x: 0, y: 1, w: 1, h: 1 })
+    dashboard.addWidget(grid, { type: 'WidgetCustomHTML', x: 1, y: 5, w: 1, h: 1 })
 
     // Upstream bug reproduced: a file that fails to load (or parse) never settles, so the
     // palette is never initialised (see docs/upstream-bugs.md).
@@ -60,8 +71,10 @@ export function installPalette(dashboard: Dashboard): void {
           void fetch(file.url)
             .then((res) => res.json() as Promise<unknown>)
             .then((obj) => {
-              const widget: JsonObject = isJsonObject(obj) && isJsonObject(obj.widget) ? obj.widget : {}
-              dashboard.addWidget(grid, { ...parseWidget(widget), ...file.pos })
+              // `Object.assign(obj.widget, file.pos)`, which throws for a missing widget.
+              const widget = prop(obj, 'widget')
+              if (widget === null || widget === undefined) throw new TypeError('Cannot convert undefined or null to object')
+              dashboard.addWidget(grid, Object.assign(widget, file.pos))
               resolve()
             })
         })
@@ -75,14 +88,8 @@ export function installPalette(dashboard: Dashboard): void {
       })
       for (const widget of widgets) widget.init()
       // A tip on each widget with its name and description.
-      for (const widget of widgets) {
-        const content = document.createElement('div')
-        const heading = document.createElement('h6')
-        heading.textContent = widget.about.name
-        content.append(heading)
-        if (widget.about.info !== undefined) content.append(document.createTextNode(widget.about.info))
-        tippy(widget.el, { content, appendTo: () => document.body, theme: 'light-border' })
-      }
+      for (const widget of widgets)
+        tippy(widget.el, { content: aboutTip(widget), appendTo: () => document.body, theme: 'light-border' })
     })
 
     grid.on('removed', () => {

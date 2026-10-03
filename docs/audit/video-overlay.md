@@ -2,93 +2,100 @@
 
 Port of `upstream/VideoOverlay/` (`VideoOverlay.js`, `WidgetEdit.js`, `Widgets/*`, `index.html`, the
 default layout and palette) together with the parts of `upstream/TelemetryDashboard/Widgets/` it
-subclasses (`Base_Class.js`, `SandBox.js`, `SubGrid.js`, `CustomHTML.js`). Upstream has no Readme for
-this tool, so the page has no Help link.
+subclasses (`Base_Class.js`, `SandBox.js`, `SubGrid.js`, `CustomHTML.js`) and the log parser its
+widget documents import (`modules/JsDataflashParser/parser.js`). Upstream has no Readme for this
+tool, so the page has no Help link.
+
+Oracles (upstream JavaScript run side by side with the port):
+
+- `analysis/log-info.test.ts`, `sync.test.ts`, `export-formats.test.ts`: log facts, offsets, time
+  maths and format choice against functions cut out of `VideoOverlay.js`.
+- `widgets/loader.test.ts`: upstream `add_widget`, `load_widgets`, `load_layout`, `init_grid`,
+  `clear_grid`, `grid_set_edit`, `new_widget` in `node:vm` against the port's loader over the same
+  recording fake grid (grid operations, constructions, `init`/`loadLog`, `setWidgetTime`, alerts,
+  errors), for the default layout and malformed layouts.
+- `widgets/options.test.ts`: upstream VideoOverlay widget constructors (with the TelemetryDashboard
+  classes they extend) over a fake DOM against the port's option reading, for 24 option values per
+  widget type.
+- `widgets/parser-facade.test.ts`: the parser facade against upstream's `JsDataflashParser` for two
+  logs and a synthetic log with every field type: `messageTypes` (keys, key order, `expressions`,
+  `units`, `multipliers`, `complexFields`, `instances`), every field of every message and instance
+  through `get`/`get_instance` (values and array types), the instanced-message throw, instance keys,
+  fresh copies, `stats`, `extractStartTime`, and results created in the calling document's realm.
+- `widgets/layout-file.test.ts`: bundled defaults byte-identical, file shapes.
 
 ## Inventory
 
-| Upstream                                                                                                                                                                                  | Port                                                                                      |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `getFlightTime`, log duration, date, `setDefaultOffset`                                                                                                                                   | `src/analysis/log-info.ts` (luxon 3.4.4 as upstream), oracle-tested                       |
-| `DfReader` record offsets used by `getLogDurationUS`/`setDefaultOffset`                                                                                                                   | `src/analysis/log-scan.ts`                                                                |
-| `setWidgetTime` offset maths, `formatTime`, seek bar, frame step, progress text, console stats                                                                                            | `src/analysis/sync.ts`                                                                    |
-| `matchOverlaySize`                                                                                                                                                                        | `src/analysis/stage.ts`                                                                   |
-| `loadCodecs`, `updateFormatSelection`, `MatchExportFormatToInput`                                                                                                                         | `src/analysis/export-formats.ts` + `src/export/mediabunny.ts`                             |
-| `exportVideo` (Mediabunny `Conversion` with per-frame `process`)                                                                                                                          | `src/export/pipeline.ts` (state machine) + `src/export/mediabunny.ts` (mediabunny 1.40.1) |
-| `renderOverlay` (html2canvas 1.4.1 per widget)                                                                                                                                            | `OverlayController.renderOverlay`                                                         |
-| Grid functions (`init_grid`, `add_widget`, `load_widgets`, `load_layout`, `widget_dropped`, `loadPalette`, `get_layout`, `save_layout`, `save_widget`, `gridSizeUpdate`, `handle_unload`) | `src/widgets/overlay-controller.ts` (gridstack 10.3.1)                                    |
-| Layout/widget JSON format and file input handler                                                                                                                                          | `src/widgets/layout-file.ts`                                                              |
-| `WidgetBase` (Formio form in a tippy popup, copy/delete/save/edit)                                                                                                                        | `src/widgets/widget.ts` (formiojs 4.21.7, tippy.js 6.3.7)                                 |
-| `WidgetSandBox(VideoOverlay)`, `WidgetCustomHTML(VideoOverlay)`                                                                                                                           | `src/widgets/frame-widgets.ts`                                                            |
-| `WidgetSubGrid(VideoOverlay)`                                                                                                                                                             | `src/widgets/subgrid-widget.ts`                                                           |
-| `Widgets/SandBox.html`, default Custom HTML                                                                                                                                               | `src/widgets/documents.ts`                                                                |
-| `WidgetEdit.js` (Monaco, Formio builder, test grid, colour component, `strip_component`)                                                                                                  | `src/widgets/widget-editor.ts`, `src/widgets/formio-setup.ts` (monaco-editor 0.57.0)      |
-| `Default_Layout.json`, `Default_Palette.json`                                                                                                                                             | `src/defaults/` (byte-identical, tested)                                                  |
-| The parser the sandbox scripts receive (`JsDataflashParser`)                                                                                                                              | `src/widgets/parser-facade.ts` over `@apwt/dataflash` (oracle-tested against upstream)    |
-| Page, controls, player                                                                                                                                                                    | `src/App.tsx`, `src/ui/*`                                                                 |
-
-The widget modules are marked as candidates to share with telemetry-dashboard.
+| Upstream                                                                                                                    | Port                                                                                                                                         | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getFlightTime`, log duration, date, `setDefaultOffset`                                                                     | `src/analysis/log-info.ts`, `log-scan.ts`                                                                                                    | identical (oracle)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `setWidgetTime` offset maths, `formatTime`, seek bar, frame step, progress text, console stats                              | `src/analysis/sync.ts`                                                                                                                       | identical (oracle)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `log_offset` and `grid_rows`/`grid_columns` `onchange`                                                                      | `ui/Rail.tsx` `CommitInput`                                                                                                                  | identical: widgets are moved / the grid rebuilt on the native `change` event; the typed offset is read at each time update as upstream read the input (fixed: the offset moved widgets on every keystroke, sending NaN times while typing; the grid inputs ignored spinner steps until blur)                                                                                                                                                                                                 |
+| `matchOverlaySize`                                                                                                          | `src/analysis/stage.ts`                                                                                                                      | identical                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `loadCodecs`, `updateFormatSelection`, `MatchExportFormatToInput`                                                           | `analysis/export-formats.ts`, `export/mediabunny.ts`                                                                                         | identical (oracle)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `exportVideo`, `renderOverlay`                                                                                              | `export/pipeline.ts`, `export/mediabunny.ts`, `OverlayController.renderOverlay`                                                              | identical                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `add_widget`, `load_widgets`, `load_layout`, `new_widget`                                                                   | `widgets/loader.ts`, `OverlayController`                                                                                                     | identical (oracle). Fixed: a null widget was checked after the fit test, `widgets: null` loaded as empty instead of failing, options that were not objects were replaced by `{}` instead of reaching the constructors, a failed load ended batch mode (upstream leaves it on), and the default layout loaded synchronously inside the failed load (upstream fetched it, so it arrived afterwards and `gridSizeUpdate`'s `grid_changed = true` was overwritten)                               |
+| `init_grid`, `widget_dropped`, `loadPalette`, `get_layout`, `save_layout`, `save_widget`, `gridSizeUpdate`, `handle_unload` | `OverlayController`                                                                                                                          | identical; palette tips use `innerText`/`createTextNode` of the stored values (fixed: non-string `info` was dropped)                                                                                                                                                                                                                                                                                                                                                                         |
+| Log input (`log = new DataflashParser()` before `processData`)                                                              | `App.tsx`, `OverlayController.assignLog`                                                                                                     | identical (fixed: a log that failed to parse was not the one later `loadLog()` calls sent)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Overlay file input                                                                                                          | `widgets/layout-file.ts`, `App.tsx`                                                                                                          | identical; read with `FileReader.readAsText` (fixed)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `WidgetBase`                                                                                                                | `widgets/widget.ts`, `widgets/options.ts`                                                                                                    | identical (oracle). Fixed: `about` kept as stored (non-object abouts were replaced), the name rendered as HTML, the form definition and content passed to Formio as stored                                                                                                                                                                                                                                                                                                                   |
+| `WidgetSandBoxVideoOverlay`                                                                                                 | `widgets/frame-widgets.ts`                                                                                                                   | identical (oracle); the script is kept as stored; `init()` runs twice on load as upstream (bug below, fixed)                                                                                                                                                                                                                                                                                                                                                                                 |
+| `WidgetCustomHTMLVideoOverlay`                                                                                              | `widgets/frame-widgets.ts`                                                                                                                   | identical (oracle)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `WidgetSubGridVideoOverlay`                                                                                                 | `widgets/subgrid-widget.ts`                                                                                                                  | identical (oracle). Fixed: colours assigned with DOM conversion (non-strings cleared the colour), background image read as upstream, rows/columns given to Gridstack unconverted, `acceptWidgets` a function as upstream (`true` additionally required `.grid-stack-item`)                                                                                                                                                                                                                   |
+| `Widgets/SandBox.html`, default Custom HTML                                                                                 | `widgets/documents.ts`                                                                                                                       | byte-identical to upstream (fixed: both had their parser import rewritten, so layouts saved by the port carried a different default document and upstream documents could not load the parser)                                                                                                                                                                                                                                                                                               |
+| `modules/JsDataflashParser/parser.js` as imported by widget documents                                                       | `public/apps/modules/JsDataflashParser/parser.js` (served at the path upstream's documents import from) exporting `widgets/parser-facade.ts` | identical for the public interface (oracle). Fixed: `int16[32]` columns were `Int16Array`s (upstream: plain arrays), repeated calls returned the same cached array (a script modifying it changed later results), `messageTypes` lacked `units`/`multipliers` and used the package's unit labels, instances were listed in ascending instead of appearance order, instance numbers were matched with `Number()` instead of as property keys, results were created in the parent page's realm |
+| `WidgetEdit.js`                                                                                                             | `widgets/widget-editor.ts`, `widgets/formio-setup.ts`                                                                                        | identical; the test copy is attached to the editor listener after its text is loaded (fixed: it was sent its own text and the log again)                                                                                                                                                                                                                                                                                                                                                     |
+| `Default_Layout.json`, `Default_Palette.json`                                                                               | `src/defaults/`                                                                                                                              | byte-identical (tested)                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Page, controls, player                                                                                                      | `src/App.tsx`, `src/ui/*`                                                                                                                    | presentation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ## Differences
 
 Presentation:
 
-- CustomBuild look: rail with Video, Log, Overlay and Export groups; the page's preview and palette
-  are `Section` cards; icons instead of Unicode glyphs on the player buttons; chips for format and
-  codec choice; the seek bar's trim range is highlighted in the accent colour instead of green.
-- Video and log facts appear once a file is chosen (the shared drop zone); before that upstream shows
-  empty labels.
-- The widget editor overlay and the widget popup are restyled; the popup buttons are inline icons.
-- Bootstrap and Formio CSS, which upstream loads globally, sit in a CSS cascade layer so they do
-  not restyle the shared page chrome.
+- CustomBuild look: rail with Video, Log, Overlay and Export groups; preview and palette are
+  `Section` cards; icons instead of Unicode glyphs on the player buttons; chips for format and
+  codec choice; the seek bar's trim range in the accent colour; the trim range redraws as the
+  start/end are typed (upstream on `change`; the gradient only).
+- Video and log facts appear once a file is chosen; before that upstream shows empty labels.
+- The widget editor overlay and the widget popup are restyled.
+- Bootstrap and Formio CSS sit in a CSS cascade layer.
 
 Conveniences that change no result:
 
-- Export progress is a panel with a progress bar and a Cancel button (upstream shows the
-  percentage on its loading overlay and cannot be cancelled). A cancelled export downloads nothing.
-- The export's speed statistics (upstream `console.log`) are shown under the preview after a
-  successful export, with the file name and size.
-- The rows/columns inputs apply on blur or Enter (the native `change` event upstream uses).
+- Export progress panel with a Cancel button; a cancelled export downloads nothing.
+- The export's speed statistics (upstream `console.log`) are shown after a successful export.
 
 Browser constraints and crashes:
 
-- `alert()`/`confirm()` are in-page messages with the same text and choices (`Widget won't fit on
-Grid`, `Layout not for this tool!`, `Unable to load from: [object File]`, `Grid load failed\n…`,
-  the delete confirmation).
-- Where upstream throws and the page stops (unreadable log, invalid layout JSON, video without
-  audio or video track, export errors), the port shows the error in the page; no result is
-  produced. Upstream leaves its loading overlay up forever after a failed export.
-- Libraries come from npm at upstream's versions instead of CDNs; Monaco's workers are bundled
-  instead of built as `data:` URLs that `importScripts` unpkg. Upstream loads `monaco-editor@latest`;
-  0.57.0 is used.
-- Sandbox iframes use `srcdoc` with upstream's `SandBox.html` and take the log parser from the
-  parent page, because the port does not serve upstream's `modules/JsDataflashParser/parser.js`.
-  The parser object they receive is a facade over `@apwt/dataflash` with the same `get`,
-  `get_instance`, `extractStartTime`, `messageTypes`, `stats` and `buffer` (oracle-tested).
-  User scripts that reach into other internals of upstream's parser object will not find them.
-- Widgets record their class name explicitly; upstream used `constructor.name`, which a minifier
-  would rename.
-- html2canvas clones the page to capture it, which constructs a fresh custom element for every
-  widget. Upstream's constructors then run with no options (creating default content in the
-  clone); the port keeps such clones empty. This only affects the throwaway clone.
-- `disableOneColumnMode` is not passed to gridstack: 10.3.1 ignores it when `true`.
+- `alert()`/`confirm()` are in-page messages with the same text and choices.
+- Where upstream throws and the page stops (invalid layout JSON, video without a video track,
+  export errors), the port shows the error in the page; no result is produced. Upstream leaves its
+  loading overlay up forever after a failed export.
+- Libraries come from npm at upstream's versions; Monaco's workers are bundled; `monaco-editor`
+  0.57.0 instead of `@latest`.
+- Sandbox iframes use `srcdoc` with upstream's `SandBox.html` (upstream: `src`); `window.parent`
+  and the parser path resolve the same way. As upstream, the page must be opened at its directory
+  URL for that path to resolve.
+- The parser widgets receive is a facade over `@apwt/dataflash` with upstream's public interface
+  (above). Upstream's parser internals (`FMT`, `data`, `offset`, `parse_type`, `parseAtOffset`,
+  `loadType`, `getModeString`, ...) are not provided; `messages` is the empty object a widget
+  document's `processData(data, [])` leaves. One edge differs: upstream compared message names with `==`,
+  so a number matched a numeric message name (ArduPilot names are never numeric).
+- Widgets record their class name explicitly; upstream used `constructor.name`.
+- html2canvas clones the page to capture it, which runs each widget's constructor without
+  options. Upstream's constructors then build default content (forms, iframes, tips) in the clone;
+  the port leaves clones empty. html2canvas immediately replaces every custom element clone with a
+  plain `html2canvascustomelement` holding copies of the original's children, so the constructed
+  content is never rendered: no frame differs, only upstream's wasted work.
+- `disableOneColumnMode` is not passed to Gridstack: 10.3.1 ignores it when `true`.
 - `beforeunload` uses `preventDefault()` only (`returnValue` is deprecated).
-- If the browser lacks WebCodecs or `OffscreenCanvas`, the Export group says so instead of failing
-  on first use; upstream's "Video export not supported by browser" message is kept.
+- If the browser lacks WebCodecs or `OffscreenCanvas`, the Export group says so; upstream's "Video
+  export not supported by browser" message is kept.
 
 ## Upstream bugs reproduced
 
-See `docs/upstream-bugs.md` for the table. In this tool:
-
-1. `VideoOverlay.js`, overlay file input: `alert("Unable to load from: " + file)` concatenates the
-   `File` object, so the message is always `Unable to load from: [object File]`. Reproduce: load a
-   JSON file with `{"header":{"tool":"videoOverlay"}}`.
-2. `parser.js` `checkNumberOfInstances` deletes `OffsetArray`, so a widget script calling
-   `log.get('IMU', 'GyrX')` (instanced message, no instance) throws. Reproduced by the facade.
-3. `VideoOverlay.js` log input: without GPS time `extractStartTime()` is `undefined` and the date
-   reads `Invalid DateTime`.
-4. `VideoOverlay.js` video input: a video without an audio track throws at `audioTrack.codec`
-   after the FPS is filled in; resolution, duration, codec and the export settings are not updated.
-5. `getLogDurationUS`/`setDefaultOffset` pick the first and last record by file position, not by
-   timestamp, so a log whose records are not in time order gets a duration and default offset from
-   whichever records happen to be first and last in the file.
+See `docs/upstream-bugs.md`: `[object File]` message; instanced message read without instance
+throws; `Invalid DateTime` without GPS time; a video without audio stops the panel; duration and
+offset from records by file position; sandbox script run twice on load; a log that fails to parse
+is still sent later; won't-fit reported before the type check; failed layouts leave earlier widgets
+created and the grid in batch mode.

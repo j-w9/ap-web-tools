@@ -113,27 +113,19 @@ describe('legacy message adapter', () => {
     }
   })
 
-  it('knows every message the dialect defines', () => {
+  it('knows every message upstream defines, with the same definition', () => {
     expect(DESCRIPTORS_BY_ID.size).toBe(ALL_MESSAGES.length)
+    expect(
+      sharedDescriptors()
+        .map((d) => String(d.id))
+        .sort()
+    ).toEqual(Object.keys(upstream.mavlink20.map).sort())
   })
 })
 
-/**
- * Strict equality when both define the same fields. Where the package's newer definitions add
- * extension fields upstream lacks, every upstream field and frame property must still match and
- * the extra fields follow upstream's.
- */
+/** The package uses upstream's definitions, so every message must be identical. */
 function expectSameAsUpstream(actual: Record<string, unknown>, expected: Record<string, unknown>): void {
-  const upstreamFields = expected.fieldnames as string[]
-  const ourFields = actual.fieldnames as string[]
-  if (ourFields.length === upstreamFields.length) {
-    expect(actual).toStrictEqual(expected)
-    return
-  }
-  expect(ourFields.slice(0, upstreamFields.length)).toEqual(upstreamFields)
-  for (const key of [...upstreamFields, '_id', '_name', 'crc_extra', '_signed', '_msgbuf', 'crc', '_header', '_timeStamp']) {
-    expect(actual[key], key).toStrictEqual(expected[key])
-  }
+  expect(actual).toStrictEqual(expected)
 }
 
 /** A MAVLink 2 frame carrying `payload`'s exact bytes (truncated as MAVLink 2 requires). */

@@ -2,41 +2,26 @@
  * Sandbox widget (upstream Widgets/SandBox.js): runs a user script in a sandboxed iframe
  * (`sandbox.html`), passing it the form contents; the script receives MAVLink messages.
  */
-import { jsString, type JsonObject } from '../layout/json.js'
+import { jsString, type JsonLike } from '../layout/json.js'
 import { postToFrame } from '../sandbox/protocol.js'
-import { Widget, type WidgetHost } from './base.js'
+import { editedTextChanged, Widget, type WidgetHost } from './base.js'
 import { createWidgetFrame } from './frame.js'
+import { sandboxOptions, type OptionsObject } from './options.js'
+
+export { DEFAULT_SANDBOX_SCRIPT, SANDBOX_ABOUT } from './options.js'
 
 /** The sandbox page, next to the dashboard page. */
 export const SANDBOX_PAGE = 'sandbox.html'
 
-export const DEFAULT_SANDBOX_SCRIPT = `// Initialization
-div.appendChild(document.createTextNode("Widget Example:"))
-div.appendChild(document.createElement("br"))
-
-message_report = document.createTextNode("No Data")
-div.appendChild(message_report)
-
-// Runtime function
-handle_msg = function (msg) {
-    message_report.nodeValue = "Got: " + msg._name
-}
-`
-
-export const SANDBOX_ABOUT = {
-  name: 'Sandbox',
-  info: 'Sandboxed widget allowing user defined functionality with JavaScript. User input using Formio form.'
-} as const
-
 export class SandboxWidget extends Widget {
-  private scriptText: string
+  /** The script as stored (normally a string; sent and saved unchanged, as upstream). */
+  private script: JsonLike
   private readonly iframe: HTMLIFrameElement
 
-  constructor(options: JsonObject, host: WidgetHost) {
-    const withAbout: JsonObject =
-      options.about === undefined || options.about === null ? { ...options, about: SANDBOX_ABOUT } : options
-    super('WidgetSandBox', withAbout, true, host)
-    this.scriptText = 'sandbox' in options ? jsString(options.sandbox) : DEFAULT_SANDBOX_SCRIPT
+  constructor(rawOptions: unknown, host: WidgetHost) {
+    const { options, script } = sandboxOptions(rawOptions)
+    super('WidgetSandBox', options, true, host)
+    this.script = script
     this.iframe = createWidgetFrame()
     this.iframe.src = SANDBOX_PAGE
     // Send the script and options as soon as the frame has loaded.
@@ -46,7 +31,7 @@ export class SandboxWidget extends Widget {
 
   /** Starts (or restarts) the user script with the current options. */
   override init(): void {
-    postToFrame(this.iframe, { script: this.scriptText, options: this.getFormContent() })
+    postToFrame(this.iframe, { script: this.script, options: this.getFormContent() })
   }
 
   override setEdit(enabled: boolean): void {
@@ -55,8 +40,8 @@ export class SandboxWidget extends Widget {
     this.iframe.style.pointerEvents = this.editEnabled ? 'none' : 'auto'
   }
 
-  override getOptions(): JsonObject {
-    return { ...super.getOptions(), sandbox: this.scriptText }
+  override getOptions(): OptionsObject {
+    return { ...super.getOptions(), sandbox: this.script }
   }
 
   override getEditLanguage(): 'javascript' {
@@ -64,12 +49,12 @@ export class SandboxWidget extends Widget {
   }
 
   override getEditText(): string {
-    return this.scriptText
+    return jsString(this.script)
   }
 
   override setEditedText(text: string): void {
-    if (this.scriptText !== text) this.changed = true
-    this.scriptText = text
+    if (editedTextChanged(this.script, text)) this.changed = true
+    this.script = text
     this.init()
   }
 

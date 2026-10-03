@@ -1,7 +1,9 @@
 /**
- * `@apwt/mavlink`: typed MAVLink 1/2 codec for the ArduPilot dialect, generated from the official
- * XML definitions (see `definitions/README.md`). Replaces upstream's pymavlink-generated
- * `modules/MAVLink/mavlink.js`.
+ * `@apwt/mavlink`: typed MAVLink 1/2 codec, a port of upstream's pymavlink-generated
+ * `modules/MAVLink/mavlink.js` (with its `runtime-fixes.patch`). The messages and enums are generated
+ * from the same XML upstream's file was (`all.xml` at a pinned ArduPilot/mavlink commit, see
+ * `definitions/README.md`); framing, signing and SHA-256 are ports of its runtime. Differences are
+ * listed in `docs/audit/mavlink.md`.
  *
  *   const parser = new MavlinkParser({ messages: [HEARTBEAT, ATTITUDE] })
  *   for (const m of parser.push(bytes)) if (m.name === 'ATTITUDE') console.log(m.fields.roll)

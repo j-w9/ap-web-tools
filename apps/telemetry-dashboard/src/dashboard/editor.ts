@@ -7,13 +7,14 @@ import { GridStack } from 'gridstack'
 import type { FormBuilder } from 'formiojs/dist/formio.full.min.js'
 import type * as Monaco from 'monaco-editor'
 import { BUILDER_OPTIONS, Formio } from '../forms/formio-setup.js'
+import type { JsonLike } from '../layout/json.js'
 import type { StoredWidget } from '../layout/layout.js'
 import { widgetOf, type Widget } from '../widgets/base.js'
 
 /** What the editor needs from the dashboard. */
 export interface EditorHost {
   getWidgetObject(widget: Widget): StoredWidget
-  newWidget(spec: Pick<StoredWidget, 'type' | 'options'>): Widget
+  newWidget(type: JsonLike, options: JsonLike): Widget
 }
 
 type Tab = 'script' | 'form'
@@ -213,15 +214,17 @@ export class WidgetEditor {
       delete position.w
       delete position.h
     }
-    const testWidget = host.newWidget(stored)
+    const testWidget = host.newWidget(stored.type, stored.options)
     testWidget.disableButtonsForEdit()
     this.testGrid.addWidget(testWidget.el, position)
-    this.testWidget = testWidget
 
     const model = editor.getModel()
     const language = testWidget.getEditLanguage()
     if (model !== null && language !== undefined) monaco.editor.setModelLanguage(model, language)
+    // Loading the text fires the change listener; upstream registered this copy's listener after
+    // that, so the copy is not sent its own text back.
     editor.setValue(testWidget.getEditText() ?? '')
+    this.testWidget = testWidget
 
     // The original widget's form: the copy's may not have loaded yet.
     void this.formBuilder?.setForm(widget.getFormDefinition() ?? {})

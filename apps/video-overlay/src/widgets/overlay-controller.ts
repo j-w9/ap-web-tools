@@ -10,23 +10,19 @@ import html2canvas from 'html2canvas'
 import defaultLayout from '../defaults/default-layout.json'
 import defaultPalette from '../defaults/default-palette.json'
 import { CustomHtmlWidget, SandboxWidget } from './frame-widgets.js'
-import { isJsonObject } from './json.js'
+import { domString, hasKey, anyString, prop, type JsonLike } from './json.js'
 import {
-  gridLoadFailedMessage,
-  gridSize,
   LAYOUT_FILE_NAME,
   makeLayoutFile,
   makeWidgetFile,
-  savedPosition,
-  savedTypeAndOptions,
-  savedWidgetList,
   serialiseFile,
-  unknownWidgetTypeMessage,
   WIDGET_FILE_NAME,
   type GridSettings,
   type LayoutFile,
-  type SavedWidget
+  type SavedWidget,
+  type WidgetType
 } from './layout-file.js'
+import { addWidget, loadLayout, loadWidgets, type OverlayLayoutTarget } from './loader.js'
 import { SubGridWidget } from './subgrid-widget.js'
 import { gridWidgets, savedWidget, savedWidgets, type Dialogs, type OverlayWidget, type WidgetEnvironment } from './widget.js'
 import type { WidgetEditor } from './widget-editor.js'
@@ -51,18 +47,26 @@ export interface OverlayPage {
   download(fileName: string, text: string): void
 }
 
-/** Create a widget of a saved class (upstream `new_widget`). */
-export function newWidget(env: WidgetEnvironment, type: unknown, options: unknown): OverlayWidget {
-  const opts = isJsonObject(options) ? options : {}
+/** Create a widget of a saved class (upstream `new_widget`); the options go to it as stored. */
+export function newWidget(env: WidgetEnvironment, type: WidgetType, options: JsonLike): OverlayWidget {
   switch (type) {
     case 'WidgetSandBoxVideoOverlay':
-      return new SandboxWidget(env, opts)
+      return new SandboxWidget(env, options)
     case 'WidgetSubGridVideoOverlay':
-      return new SubGridWidget(env, opts)
+      return new SubGridWidget(env, options)
     case 'WidgetCustomHTMLVideoOverlay':
-      return new CustomHtmlWidget(env, opts)
+      return new CustomHtmlWidget(env, options)
   }
-  throw new Error(unknownWidgetTypeMessage(type))
+}
+
+/** A palette widget's tip: `about.name` as a heading (`innerText`), then `about.info` if present. */
+function aboutTip(about: JsonLike): HTMLDivElement {
+  const tip = document.createElement('div')
+  const heading = document.createElement('h6')
+  heading.innerText = domString(prop(about, 'name'))
+  tip.appendChild(heading)
+  if (hasKey(about, 'info')) tip.appendChild(document.createTextNode(anyString(prop(about, 'info'))))
+  return tip
 }
 
 export class OverlayController implements WidgetEnvironment {
@@ -72,9 +76,35 @@ export class OverlayController implements WidgetEnvironment {
   private gridChanged = false
   private log: ArrayBuffer | null = null
   editor: WidgetEditor | undefined
+  /** The grid and widget operations of upstream's layout functions (see `loader.ts`). */
+  private readonly target: OverlayLayoutTarget<GridStack, OverlayWidget>
 
   constructor(private readonly page: OverlayPage) {
     this.dialogs = page.dialogs
+    this.target = {
+      currentGrid: () => this.grid,
+      setEdit: (grid, enabled) => this.gridSetEdit(grid, enabled),
+      initGrid: (columns, rows) => this.initGrid(columns, rows),
+      willItFit: (grid, position) => grid.willItFit(position),
+      alert: (text) => this.dialogs.alert(text),
+      createWidget: (type, options) => newWidget(this, type, options),
+      place: (grid, widget, position) => {
+        grid.addWidget(widget, position)
+        widget.setEdit(true)
+      },
+      batchUpdate: (grid, on) => grid.batchUpdate(on),
+      items: (grid) => gridWidgets(grid),
+      initItem: (widget) => {
+        widget.init()
+        widget.loadLog()
+      },
+      showCurrentTime: () => void this.setWidgetTime(this.page.videoTime()),
+      // Upstream fetched the default layout, so it loaded after the failed load had finished.
+      loadDefault: () => void Promise.resolve().then(() => this.loadDefaultLayout()),
+      clearChanged: () => {
+        this.gridChanged = false
+      }
+    }
   }
 
   // ------------------------------------------------------------ widget services
@@ -83,35 +113,14 @@ export class OverlayController implements WidgetEnvironment {
     return this.log
   }
 
+  /** Upstream `add_widget`, from a stored or copied widget object. */
   addWidget(target: GridStack, saved: unknown): OverlayWidget | undefined {
-    const pos = savedPosition(saved)
-    if (!target.willItFit(pos)) {
-      pos.autoPosition = true
-      if (!target.willItFit(pos)) {
-        this.dialogs.alert(WONT_FIT_MESSAGE)
-        return undefined
-      }
-    }
-    const { type, options } = savedTypeAndOptions(saved)
-    const widget = newWidget(this, type, options)
-    target.addWidget(widget, pos)
-    widget.setEdit(true)
-    return widget
+    return addWidget(this.target, target, saved)
   }
 
+  /** Upstream `load_widgets`. */
   loadWidgets(target: GridStack, widgets: unknown): void {
-    target.batchUpdate(true)
-    try {
-      for (const widget of savedWidgetList(widgets)) this.addWidget(target, widget)
-    } finally {
-      target.batchUpdate(false)
-    }
-    // Initialise once the grid has laid the widgets out.
-    for (const widget of gridWidgets(target)) {
-      widget.init()
-      widget.loadLog()
-    }
-    void this.setWidgetTime(this.page.videoTime())
+    loadWidgets(this.target, target, widgets)
   }
 
   clearGrid(target: GridStack | undefined): void {
@@ -190,16 +199,7 @@ export class OverlayController implements WidgetEnvironment {
 
   /** Load a layout; on failure fall back to the default and report why (upstream `load_layout`). */
   loadLayout(gridSettings: unknown, widgets: unknown): void {
-    try {
-      const { columns, rows } = gridSize(gridSettings)
-      const grid = this.initGrid(columns, rows)
-      this.loadWidgets(grid, widgets)
-    } catch (error) {
-      this.loadDefaultLayout()
-      this.dialogs.alert(gridLoadFailedMessage(error))
-    }
-    this.gridSetEdit(this.grid, true)
-    this.gridChanged = false
+    loadLayout(this.target, gridSettings, widgets)
   }
 
   loadDefaultLayout(): void {
@@ -265,17 +265,19 @@ export class OverlayController implements WidgetEnvironment {
     this.palette = palette
     this.loadWidgets(palette, defaultPalette.widgets)
     for (const widget of gridWidgets(palette)) {
-      const about = widget.getAbout()
-      const tip = document.createElement('div')
-      const heading = document.createElement('h6')
-      heading.innerText = about.name
-      tip.appendChild(heading)
-      if (about.info !== undefined) tip.appendChild(document.createTextNode(about.info))
-      tippy(widget, { content: tip, appendTo: () => document.body, theme: 'light-border' })
+      tippy(widget, { content: aboutTip(widget.about), appendTo: () => document.body, theme: 'light-border' })
     }
   }
 
   // ------------------------------------------------------------ log and time
+
+  /**
+   * The log widgets are given from now on (upstream assigned its global `log` before parsing, so a
+   * log that failed to parse is still the one later `loadLog()` calls send).
+   */
+  assignLog(buffer: ArrayBuffer): void {
+    this.log = buffer
+  }
 
   /** Hand a newly loaded log to every widget and show the current time. */
   setLog(buffer: ArrayBuffer): void {

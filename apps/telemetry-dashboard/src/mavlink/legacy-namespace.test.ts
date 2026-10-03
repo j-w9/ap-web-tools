@@ -26,21 +26,33 @@ describe('legacy mavlink20 namespace', () => {
         missing.push(key)
         continue
       }
-      // Enum ends move when newer definitions add entries; only compare the others exactly.
-      if (!key.endsWith('_ENUM_END') && ours[key] !== value) changed.push(key)
+      if (ours[key] !== value) changed.push(key)
       compared++
     }
     expect(compared).toBeGreaterThan(2000)
-    // Upstream's mavlink.js was generated from a different definitions snapshot than the
-    // package: some entries were renamed or dropped since (e.g. GSM_LINK_TYPE, AIS_NAV_*).
-    expect(missing.length).toBeLessThan(numeric.length * 0.12)
-    // Values renumbered in the definitions since upstream's snapshot.
-    expect(changed.length, changed.join(', ')).toBeLessThan(10)
+    // The package is generated from the definitions upstream's mavlink.js was generated from.
+    expect(missing, missing.join(', ')).toEqual([])
+    expect(changed, changed.join(', ')).toEqual([])
+    const extra = Object.entries(ours).filter(([k, v]) => typeof v === 'number' && !(k in upstream.mavlink20))
+    expect(extra.map(([k]) => k)).toEqual([])
+  })
+
+  it('defines exactly upstream message ids', () => {
+    expect(Object.keys(ours.map)).toEqual(Object.keys(upstream.mavlink20.map))
+  })
+
+  it('names components for the MAVLink Inspector exactly as upstream (its lookup keeps the last key per value)', () => {
+    const lookup = (namespace: Record<string, unknown>) => {
+      const out: Record<string, string> = {}
+      for (const [key, value] of Object.entries(namespace)) if (key.startsWith('MAV_COMP_ID')) out[String(value)] = key
+      return out
+    }
+    expect(lookup(ours)).toEqual(lookup(upstream.mavlink20))
   })
 
   it('has every MAV_COMP_ID constant the MAVLink Inspector widget looks up', () => {
     for (const [key, value] of Object.entries(upstream.mavlink20)) {
-      if (key.startsWith('MAV_COMP_ID') && key in ours) expect(ours[key], key).toBe(value)
+      if (key.startsWith('MAV_COMP_ID')) expect(ours[key], key).toBe(value)
     }
     expect(ours.MAV_COMP_ID_AUTOPILOT1).toBe(1)
   })
@@ -49,14 +61,15 @@ describe('legacy mavlink20 namespace', () => {
     let compared = 0
     for (const [id, entry] of Object.entries(upstream.mavlink20.map)) {
       const mine = ours.map[Number(id)]
-      if (mine === undefined || mine.crc_extra !== entry.crc_extra) continue
+      expect(mine, id).toBeDefined()
+      if (mine === undefined) continue
+      expect(mine.crc_extra, id).toBe(entry.crc_extra)
       const theirs = plain(new entry.type()) as Record<string, unknown>
       const fresh = plain(new mine.type()) as Record<string, unknown>
-      if ((fresh.fieldnames as string[]).length !== (theirs.fieldnames as string[]).length) continue
       expect(fresh, id).toStrictEqual(theirs)
       compared++
     }
-    expect(compared).toBeGreaterThan(250)
+    expect(compared).toBe(Object.keys(upstream.mavlink20.map).length)
   })
 
   it('assigns constructor arguments to fields in XML order', () => {

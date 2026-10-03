@@ -35,6 +35,16 @@ import { Player } from './ui/Player.js'
 import { Rail, type ExportSupport } from './ui/Rail.js'
 import { ExportProgress } from './ui/ExportProgress.js'
 
+/** Reads a file as text the way upstream's `FileReader.readAsText` did (BOM sniffing included). */
+function readAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read the file'))
+    reader.readAsText(file)
+  })
+}
+
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
@@ -197,9 +207,13 @@ export function App() {
     }
   }, [])
 
+  // Upstream read the offset input at every time update, and moved the widgets on its `change`.
   const setOffset = (text: string) => {
     offsetRef.current = text
     setOffsetTextState(text)
+  }
+  const commitOffset = (text: string) => {
+    setOffset(text)
     void controllerRef.current?.setWidgetTime(videoTime())
   }
 
@@ -243,6 +257,7 @@ export function App() {
   const { openFile } = useLogFile(async (buffer) => {
     await run(() => {
       try {
+        controllerRef.current?.assignLog(buffer)
         const log = DataflashLog.parse(buffer)
         const summary = summariseLog(log, buffer)
         setLogError(null)
@@ -262,7 +277,7 @@ export function App() {
 
   // ----- Overlay file -----
   const loadOverlay = (file: File) => {
-    void file.text().then((text) => {
+    void readAsText(file).then((text) => {
       const controller = controllerRef.current
       if (!controller) return
       try {
@@ -345,13 +360,14 @@ export function App() {
           logError={logError}
           offsetText={offsetText}
           onOffsetText={setOffset}
+          onOffsetCommit={commitOffset}
           onLoadOverlay={loadOverlay}
           onSaveOverlay={() => controllerRef.current?.saveLayout()}
           gridRows={gridRows}
           gridColumns={gridColumns}
           onGridRows={setGridRows}
           onGridColumns={setGridColumns}
-          onGridCommit={() => controllerRef.current?.setGridSize(gridRows, gridColumns)}
+          onGridCommit={(rows, columns) => controllerRef.current?.setGridSize(rows, columns)}
           support={support}
           selection={selection}
           onFormat={(option) => setSelection(selectFormat(option))}

@@ -11,7 +11,7 @@ import { loadDialect, type Dialect, type EnumDefinition, type FieldDefinition, t
 export const PACKAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
 export const DEFINITIONS_DIR = join(PACKAGE_DIR, 'definitions')
 export const GENERATED_DIR = join(PACKAGE_DIR, 'src', 'generated')
-export const ROOT_DEFINITION = 'ardupilotmega.xml'
+export const ROOT_DEFINITION = 'all.xml'
 
 const HEADER = (dialect: Dialect): string =>
   [

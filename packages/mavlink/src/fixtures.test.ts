@@ -24,12 +24,19 @@ function descriptorNamed(name: string): MessageDescriptor<MessageName> {
   return descriptor
 }
 
-/** Fixture fields (pymavlink names and values) as encoder input. */
+/**
+ * Fixture fields (pymavlink names and values) as encoder input. The fixtures were generated with a
+ * newer pymavlink whose SYS_STATUS has `*_extended` fields upstream's definitions lack; they are
+ * zero, so the wire bytes are the same, and upstream's test ignores them too.
+ */
 function toInput(descriptor: MessageDescriptor, fields: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const input: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(fields)) {
     const field = descriptor.fields.find((f) => f.name === camelCase(name))
-    if (field === undefined) throw new Error(`${descriptor.name} has no field ${name}`)
+    if (field === undefined) {
+      if (value !== 0) throw new Error(`${descriptor.name} has no field ${name}`)
+      continue
+    }
     input[field.name] = field.type.endsWith('64_t') ? BigInt(value as number) : value
   }
   return input
@@ -63,6 +70,7 @@ describe('pymavlink fixtures', () => {
       expect(message.header.componentId).toBe(1)
       expect(message.header.sequence).toBe(17)
       for (const [name, expected] of Object.entries(fixture.fields)) {
+        if (!(camelCase(name) in message.fields)) continue
         const actual: unknown = Reflect.get(message.fields, camelCase(name))
         if (typeof actual === 'bigint') expect(actual).toBe(BigInt(expected as number))
         else if (typeof expected === 'number') expect(actual as number).toBeCloseTo(expected, 6)
@@ -134,7 +142,7 @@ describe('signing', () => {
     const rx = parser(signing)
     const [message] = rx.push(fromHex(fixtures.messages[0]!.hex))
     expect(message?.signature).toBeNull()
-    expect(signing.stats).toEqual({ goodSignatures: 0, badSignatures: 0, acceptedUnsigned: 1, rejected: 0 })
+    expect(signing.stats).toEqual({ signedFrames: 0, goodSignatures: 0, badSignatures: 0, acceptedUnsigned: 1, rejected: 0 })
   })
 
   it('a new signing stream accepts exactly the 60-second boundary and rejects older packets', () => {
@@ -163,14 +171,21 @@ describe('framing', () => {
     expect(p.parse(new Uint8Array(0))).toEqual([])
   })
 
-  it('a corrupted length byte loses only the corrupted frame', () => {
-    // Upstream drops as many bytes as the bad length claims; resynchronising keeps the next frame.
+  it('a corrupted length byte discards as many bytes as it claims, as upstream does', () => {
+    // Upstream bug, reproduced: the good frame inside the claimed length is lost with the bad one.
     const packet = fromHex(fixtures.messages[0]!.hex)
     const bad = packet.slice()
     bad[1] = 200
     const p = parser()
     const events = p.parse(Uint8Array.from([...bad, ...packet, ...new Uint8Array(200)]))
-    expect(kinds(events).filter((k) => k === 'HEARTBEAT')).toHaveLength(1)
+    expect(kinds(events)).toEqual(['garbage:crc', 'garbage:noise'])
+    expect(events[0]).toMatchObject({ bytes: { length: 200 + 12 } })
+    expect(p.stats).toMatchObject({
+      messagesReceived: 0,
+      crcErrors: 1,
+      receiveErrors: 2,
+      droppedBytes: bad.length + packet.length + 200
+    })
   })
 
   it('unknown incompatibility flags and truncated packets are not delivered', () => {

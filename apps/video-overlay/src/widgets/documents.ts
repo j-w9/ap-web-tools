@@ -1,11 +1,11 @@
 /**
- * Documents loaded into widget iframes, from upstream VideoOverlay: the sandbox host page
+ * Documents loaded into widget iframes, verbatim from upstream VideoOverlay: the sandbox host page
  * (`Widgets/SandBox.html`) and the default Custom HTML widget (`Widgets/CustomHTML.js`).
  *
- * The only change: upstream imports its DataflashParser module from
- * `window.parent.location.href + '../modules/JsDataflashParser/parser.js'`, a path this site does
- * not serve, so both documents take the parser class the parent page publishes instead
- * (`window.VideoOverlayDataflashParser`, see `parser-facade.ts`).
+ * Both import the log parser from `window.parent.location.href + '../modules/JsDataflashParser/parser.js'`.
+ * The site serves a small module at that path (`public/apps/modules/JsDataflashParser/parser.js`)
+ * which exports the parent page's parser facade (see `parser-facade.ts`), so these documents, and
+ * user documents written for upstream, work unchanged.
  *
  * Candidate to share with telemetry-dashboard (its sandbox page differs only in the MAVLink feed).
  */
@@ -69,8 +69,7 @@ export const SANDBOX_DOCUMENT = `<!DOCTYPE html>
 <script type="module">
 
     var DataflashParser
-    // Port: the parent page provides the parser (apps/video-overlay/src/widgets/parser-facade.ts)
-    const import_done = Promise.resolve(window.parent.VideoOverlayDataflashParser).then((mod) => { DataflashParser = mod })
+    const import_done = import(window.parent.location.href + '../modules/JsDataflashParser/parser.js').then((mod) => { DataflashParser = mod.default })
 
     let user_class = null
     let user_script = null
@@ -287,8 +286,7 @@ export const DEFAULT_CUSTOM_HTML = `<!DOCTYPE html>
 </body>
 <script type="module">
     var DataflashParser
-    // Port: the parent page provides the parser (apps/video-overlay/src/widgets/parser-facade.ts)
-    const import_done = Promise.resolve(window.parent.VideoOverlayDataflashParser).then((mod) => { DataflashParser = mod })
+    const import_done = import(window.parent.location.href + '../modules/JsDataflashParser/parser.js').then((mod) => { DataflashParser = mod.default })
 
     let options
 

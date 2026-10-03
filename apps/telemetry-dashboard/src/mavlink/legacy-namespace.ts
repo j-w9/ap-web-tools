@@ -156,12 +156,13 @@ class LegacyHeaderImpl implements LegacyHeader {
 export function createLegacyMavlink20(): LegacyMavlink20 {
   const constants: Record<string, unknown> = { ...PROTOCOL_CONSTANTS }
   for (const [enumName, entries] of legacyEnums()) {
-    let last = 0
+    // pymavlink: one more than the highest entry value (not the last entry's).
+    let highest = 0
     for (const [entry, value] of Object.entries(entries)) {
       constants[entry] = value
-      last = value
+      highest = Math.max(highest, value)
     }
-    constants[`${enumName}_ENUM_END`] = last + 1
+    constants[`${enumName}_ENUM_END`] = highest + 1
   }
   const map: Record<number, LegacyMapEntry> = {}
   const messages: Record<string, LegacyMessageClass> = {}

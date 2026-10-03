@@ -12,6 +12,8 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       'upstream/**',
+      // Static assets served as-is (e.g. Video Overlay's parser shim at upstream's import path).
+      'public/**',
       // Emscripten glue kept verbatim from upstream.
       'apps/scurve-tool/src/wasm/*.js',
       'apps/kinematic-tool/src/wasm/*.js',

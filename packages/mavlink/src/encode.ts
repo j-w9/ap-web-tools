@@ -28,10 +28,16 @@ export interface Mavlink1Format {
   readonly version: 1
 }
 
+/**
+ * Field values are packed as upstream's jspack packs them (`_EnInt`, `_En754`, `_EnString`), so the
+ * same input gives the same bytes. `RangeError` is thrown for what the types already forbid (a field
+ * of the wrong type, a required field left out), for 64-bit values outside their type, and where
+ * upstream's `pack` throws.
+ */
+
 const INTEGER_RANGE: Readonly<
-  Record<Exclude<FieldType, 'float' | 'double' | 'int64_t' | 'uint64_t'>, readonly [number, number]>
+  Record<'uint8_t' | 'int8_t' | 'uint16_t' | 'int16_t' | 'uint32_t' | 'int32_t', readonly [number, number]>
 > = {
-  char: [0, 0xff],
   uint8_t: [0, 0xff],
   int8_t: [-0x80, 0x7f],
   uint16_t: [0, 0xffff],
@@ -40,37 +46,54 @@ const INTEGER_RANGE: Readonly<
   int32_t: [-0x80000000, 0x7fffffff]
 }
 
-let utf8: TextEncoder | undefined
+/** jspack's bit patterns for NaN (and for a value it was not given): mantissa 1, exponent all ones. */
+const NAN_FLOAT_BITS = 0x7f800001
+const NAN_DOUBLE_HIGH_BITS = 0x7ff00000
+
+/** Where upstream's generated `pack` throws (a crash), the encoder throws `RangeError` with this. */
+const UPSTREAM_THROWS = 'upstream mavlink.js cannot encode this'
 
 function fail(descriptor: MessageDescriptor, field: FieldDescriptor, problem: string): never {
   throw new RangeError(`${descriptor.name}.${field.name}: ${problem}`)
 }
 
-function writeNumber(
-  view: DataView,
-  type: Exclude<FieldType, 'int64_t' | 'uint64_t'>,
-  offset: number,
-  value: number,
-  onError: (problem: string) => never
-): void {
-  if (type === 'float') return view.setFloat32(offset, value, true)
-  if (type === 'double') return view.setFloat64(offset, value, true)
+/** jspack `_EnInt`: clamped to the type's range, then truncated toward zero (`val & 255`); NaN packs as 0. */
+function writeInteger(view: DataView, type: keyof typeof INTEGER_RANGE, offset: number, value: number): void {
   const [min, max] = INTEGER_RANGE[type]
-  if (!Number.isInteger(value) || value < min || value > max) onError(`${value} is not a ${type}`)
-  switch (type) {
-    case 'char':
-    case 'uint8_t':
-      return view.setUint8(offset, value)
-    case 'int8_t':
-      return view.setInt8(offset, value)
-    case 'uint16_t':
-      return view.setUint16(offset, value, true)
-    case 'int16_t':
-      return view.setInt16(offset, value, true)
-    case 'uint32_t':
-      return view.setUint32(offset, value, true)
-    case 'int32_t':
-      return view.setInt32(offset, value, true)
+  const clamped = value < min ? min : value > max ? max : value
+  const integer = Number.isNaN(clamped) ? 0 : Math.trunc(clamped)
+  const size = FIELD_TYPE_SIZE[type]
+  if (size === 1) view.setUint8(offset, integer & 0xff)
+  else if (size === 2) view.setUint16(offset, integer & 0xffff, true)
+  else view.setUint32(offset, integer >>> 0, true)
+}
+
+const bits = new DataView(new ArrayBuffer(4))
+
+/**
+ * jspack `_En754` for float32: the nearest float32, ties away from zero (DataView rounds ties to
+ * even). Verified against jspack in the oracle tests.
+ */
+function float32TiesAway(value: number): number {
+  const nearest = Math.fround(value)
+  if (nearest === value || !Number.isFinite(nearest)) return nearest
+  bits.setFloat32(0, nearest)
+  const pattern = bits.getUint32(0)
+  // The float32 on the other side of `value`: one step up or down in magnitude.
+  bits.setUint32(0, Math.abs(nearest) < Math.abs(value) ? pattern + 1 : pattern - 1)
+  const other = bits.getFloat32(0)
+  return Math.abs(value - nearest) === Math.abs(other - value) && Math.abs(other) > Math.abs(nearest) ? other : nearest
+}
+
+/** jspack `_En754`: NaN as mantissa 1, and +0 for -0 (its sign test is `v < 0`). */
+function writeFloat(view: DataView, type: 'float' | 'double', offset: number, value: number): void {
+  if (Number.isNaN(value)) {
+    if (type === 'float') view.setUint32(offset, NAN_FLOAT_BITS, true)
+    else view.setBigUint64(offset, (BigInt(NAN_DOUBLE_HIGH_BITS) << 32n) | 1n, true)
+  } else if (type === 'float') {
+    view.setFloat32(offset, value === 0 ? 0 : float32TiesAway(value), true)
+  } else {
+    view.setFloat64(offset, value === 0 ? 0 : value, true)
   }
 }
 
@@ -90,57 +113,107 @@ function writeBigInt(
   }
 }
 
-function writeValue(view: DataView, type: FieldType, offset: number, value: unknown, onError: (problem: string) => never): void {
+/**
+ * One numeric element. `undefined` (an omitted scalar extension field or a missing element of an
+ * array) packs as jspack packs `undefined`: 0 for integers, NaN for float and double (upstream bug,
+ * see `docs/upstream-bugs.md`); for 64-bit integers upstream throws, and so does this.
+ */
+function writeElement(
+  view: DataView,
+  type: Exclude<FieldType, 'char'>,
+  offset: number,
+  value: unknown,
+  onError: (problem: string) => never
+): void {
   if (type === 'int64_t' || type === 'uint64_t') {
+    if (value === undefined) onError(UPSTREAM_THROWS + ' (jspack cannot pack an omitted 64-bit value)')
     if (typeof value !== 'bigint') onError(`expected a bigint, got ${typeof value}`)
     writeBigInt(view, type, offset, value, onError)
-  } else {
-    if (typeof value !== 'number') onError(`expected a number, got ${typeof value}`)
-    writeNumber(view, type, offset, value, onError)
+    return
   }
+  if (value !== undefined && typeof value !== 'number') onError(`expected a number, got ${typeof value}`)
+  const number = value ?? Number.NaN
+  if (type === 'float' || type === 'double') writeFloat(view, type, offset, number)
+  else writeInteger(view, type, offset, number)
 }
 
 function isArrayLike(value: unknown): value is ArrayLike<unknown> {
   return typeof value === 'object' && value !== null && 'length' in value && typeof value.length === 'number'
 }
 
+/** A payload as jspack builds it: bytes, and which of them it never wrote (holes in its array). */
+interface PackedPayload {
+  readonly bytes: Uint8Array
+  /** 1 where jspack left a hole (see `packPayload`); null when every byte was written. */
+  readonly holes: Uint8Array | null
+}
+
+/**
+ * jspack `Pack` over the message's fields in wire order, as upstream's generated `pack` calls it.
+ * jspack takes one value per field from a cursor, except that a numeric array field given no array
+ * (an omitted extension array) writes nothing and does not advance the cursor: every later field
+ * then packs its predecessor's value (upstream bug, see `docs/upstream-bugs.md`). Bytes it does not
+ * write stay holes in its array: 0 on the wire, but skipped by the checksum.
+ */
+function packPayload(descriptor: MessageDescriptor, fields: object, version: 1 | 2): PackedPayload {
+  const payload = new Uint8Array(version === 1 ? descriptor.baseLength : descriptor.length)
+  const view = new DataView(payload.buffer)
+  let holes: Uint8Array | null = null
+  const wire = [...descriptor.fields].sort((a, b) => a.offset - b.offset).filter((f) => version === 2 || f.extension !== true)
+  for (const field of descriptor.fields) {
+    if (field.extension !== true && Reflect.get(fields, field.name) === undefined) fail(descriptor, field, 'missing')
+  }
+  const values = wire.map((f): unknown => Reflect.get(fields, f.name))
+  let cursor = 0
+  for (const field of wire) {
+    const onError: (problem: string) => never = (problem) => fail(descriptor, field, problem)
+    const value = values[cursor]
+    const count = field.arrayLength ?? 1
+    const type = field.type
+    if (type === 'char') {
+      // `_EnString`: each character's code, stored in a byte (so its low 8 bits); NUL after the end.
+      if (field.arrayLength === undefined) onError(UPSTREAM_THROWS + ' (jspack cannot pack a scalar char)')
+      if (value === undefined) onError(UPSTREAM_THROWS + ' (jspack cannot pack an omitted string)')
+      if (typeof value !== 'string') onError(`expected a string, got ${typeof value}`)
+      for (let i = 0; i < Math.min(count, value.length); i++) payload[field.offset + i] = value.charCodeAt(i)
+    } else if (field.arrayLength !== undefined && (type === 'uint8_t' || type === 'int8_t')) {
+      // Byte arrays are jspack strings: each element stored in a byte (low 8 bits, NaN as 0).
+      if (value === undefined) onError(UPSTREAM_THROWS + ' (jspack cannot pack an omitted byte array)')
+      if (!isArrayLike(value)) onError('expected an array')
+      for (let i = 0; i < Math.min(count, value.length); i++) {
+        const element = value[i]
+        if (typeof element !== 'number') onError(`expected numbers, got ${typeof element}`)
+        payload[field.offset + i] = element
+      }
+    } else if (field.arrayLength !== undefined || isArrayLike(value)) {
+      const size = FIELD_TYPE_SIZE[type]
+      if (field.arrayLength === undefined || !isArrayLike(value)) {
+        // No array for an array field (or an array for a scalar): nothing written, cursor stays.
+        holes ??= new Uint8Array(payload.length)
+        holes.fill(1, field.offset, field.offset + size * count)
+        continue
+      }
+      for (let i = 0; i < count; i++) writeElement(view, type, field.offset + i * size, value[i], onError)
+    } else {
+      writeElement(view, type, field.offset, value, onError)
+    }
+    cursor++
+  }
+  return { bytes: payload, holes }
+}
+
 /**
  * Encodes fields into an untruncated payload: `descriptor.length` bytes for MAVLink 2,
- * `descriptor.baseLength` (no extensions) for MAVLink 1. Throws `RangeError` for values that do not
- * fit their field, so mistakes surface instead of wrapping silently.
+ * `descriptor.baseLength` (no extensions) for MAVLink 1. Values are packed as upstream's jspack
+ * packs them: integers clamped to their type, strings and arrays cut to the field's length,
+ * strings and byte arrays one byte per element (its low 8 bits).
  */
 export function encodePayload<N extends MessageName>(
   descriptor: MessageDescriptor<N>,
   fields: NoInfer<MessageInput<N>>,
   version: 1 | 2 = 2
 ): Uint8Array {
-  const payload = new Uint8Array(version === 1 ? descriptor.baseLength : descriptor.length)
-  const view = new DataView(payload.buffer)
-  for (const field of descriptor.fields) {
-    if (version === 1 && field.extension === true) continue
-    const onError: (problem: string) => never = (problem) => fail(descriptor, field, problem)
-    const value: unknown = Reflect.get(fields, field.name)
-    if (value === undefined) {
-      if (field.extension === true) continue
-      onError('missing')
-    }
-    const size = FIELD_TYPE_SIZE[field.type]
-    if (field.type === 'char') {
-      if (typeof value !== 'string') onError(`expected a string, got ${typeof value}`)
-      utf8 ??= new TextEncoder()
-      const bytes = utf8.encode(value)
-      const capacity = field.arrayLength ?? 1
-      if (bytes.length > capacity) onError(`"${value}" is ${bytes.length} bytes, the field holds ${capacity}`)
-      payload.set(bytes, field.offset)
-    } else if (field.arrayLength === undefined) {
-      writeValue(view, field.type, field.offset, value, onError)
-    } else {
-      if (!isArrayLike(value)) onError('expected an array')
-      if (value.length > field.arrayLength) onError(`${value.length} elements, the field holds ${field.arrayLength}`)
-      for (let i = 0; i < value.length; i++) writeValue(view, field.type, field.offset + i * size, value[i], onError)
-    }
-  }
-  return payload
+  return packPayload(descriptor, fields, version).bytes
 }
 
 /** Length of `payload` without trailing zero bytes, keeping at least one byte (MAVLink 2 truncation). */
@@ -152,12 +225,13 @@ export function truncatedLength(payload: Uint8Array): number {
 
 function encodeFrameImpl(
   descriptor: MessageDescriptor,
-  payload: Uint8Array,
+  fields: object,
   address: FrameAddress,
   format: Mavlink1Format | Mavlink2Format
 ): Uint8Array {
   const v1 = format.version === 1
   if (v1 && descriptor.id > 0xff) throw new RangeError(`${descriptor.name} (id ${descriptor.id}) cannot be sent as MAVLink 1`)
+  const { bytes: payload, holes } = packPayload(descriptor, fields, v1 ? 1 : 2)
   const signing = format.version === 1 ? undefined : format.signing
   const length = v1 ? payload.length : truncatedLength(payload)
   const headerLength = v1 ? MAVLINK1_HEADER_LENGTH : MAVLINK2_HEADER_LENGTH
@@ -182,7 +256,10 @@ function encodeFrameImpl(
     ])
   }
   frame.set(payload.subarray(0, length), headerLength)
-  const crc = crcAccumulate(descriptor.crcExtra, crcX25(frame.subarray(1, headerLength + length)))
+  let crc = crcX25(frame.subarray(1, headerLength))
+  // Upstream's x25Crc iterates with forEach, which skips the holes jspack left in the payload.
+  for (let i = 0; i < length; i++) if (holes?.[i] !== 1) crc = crcAccumulate(payload[i]!, crc)
+  crc = crcAccumulate(descriptor.crcExtra, crc)
   frame[headerLength + length] = crc & 0xff
   frame[headerLength + length + 1] = crc >> 8
   return signing === undefined ? frame : signing.sign(frame)
@@ -212,7 +289,7 @@ export function encodeFrame<N extends MessageName>(
   address: FrameAddress,
   format: Mavlink1Format | Mavlink2Format = {}
 ): Uint8Array {
-  return encodeFrameImpl(descriptor, encodePayload(descriptor, fields, format.version ?? 2), address, format)
+  return encodeFrameImpl(descriptor, fields, address, format)
 }
 
 /** Messages an encoder of protocol version `V` can send. */
@@ -250,7 +327,7 @@ export class MavlinkEncoder<V extends 1 | 2 = 2> {
   /** Encodes one frame and advances the sequence number. */
   encode<N extends EncodableName<V>>(descriptor: MessageDescriptor<N>, fields: NoInfer<MessageInput<N>>): Uint8Array {
     const address = { systemId: this.systemId, componentId: this.componentId, sequence: this.sequence }
-    const frame = encodeFrameImpl(descriptor, encodePayload(descriptor, fields, this.format.version ?? 2), address, this.format)
+    const frame = encodeFrameImpl(descriptor, fields, address, this.format)
     this.sequence = (this.sequence + 1) & 0xff
     return frame
   }

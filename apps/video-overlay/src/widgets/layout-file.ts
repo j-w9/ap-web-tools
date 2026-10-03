@@ -5,7 +5,7 @@
  *
  * Candidate to share with telemetry-dashboard: the file shape is the same apart from the tool id.
  */
-import { isJsonObject, jsString, parseJson, type JsonObject, type JsonValue } from './json.js'
+import { isJsonObject, parseJson, type OptionsObject } from './json.js'
 
 /** `header.tool` of VideoOverlay files. */
 export const LAYOUT_TOOL = 'videoOverlay'
@@ -21,14 +21,6 @@ export function isWidgetType(value: unknown): value is WidgetType {
 }
 
 /**
- * Widget options as saved; `undefined` members are dropped by `JSON.stringify`, as upstream relies
- * on. Sub grids nest their widgets under `widgets`.
- */
-export interface WidgetOptions {
-  readonly [key: string]: JsonValue | undefined | Readonly<Record<string, SavedWidget>>
-}
-
-/**
  * One widget as saved (upstream `get_widget_object`): grid position as the `gs-*` attribute strings
  * (null when absent), the widget class name and its options.
  */
@@ -38,7 +30,7 @@ export interface SavedWidget {
   readonly w: string | null
   readonly h: string | null
   readonly type: string
-  readonly options: WidgetOptions
+  readonly options: OptionsObject
 }
 
 export interface LayoutHeader {
@@ -106,60 +98,6 @@ export interface GridPosition {
   w?: number
   h?: number
   autoPosition: boolean
-}
-
-function parseCoordinate(value: JsonValue | undefined): number | undefined {
-  // Upstream: `(obj.x == null) ? null : parseInt(obj.x)`. gridstack treats null like a missing value.
-  return value === null || value === undefined ? undefined : parseInt(jsString(value))
-}
-
-/** Grid position of a saved widget (upstream `add_widget`), before the fit check. */
-export function savedPosition(widget: unknown): GridPosition {
-  const obj = isJsonObject(widget) ? widget : {}
-  const pos: GridPosition = { autoPosition: false }
-  const x = parseCoordinate(obj['x'])
-  const y = parseCoordinate(obj['y'])
-  const w = parseCoordinate(obj['w'])
-  const h = parseCoordinate(obj['h'])
-  if (x !== undefined) pos.x = x
-  if (y !== undefined) pos.y = y
-  if (w !== undefined) pos.w = w
-  if (h !== undefined) pos.h = h
-  return pos
-}
-
-/** The class name and options of a saved widget, as `new_widget(obj.type, obj.options)` receives them. */
-export function savedTypeAndOptions(widget: unknown): { type: unknown; options: JsonObject | undefined } {
-  if (widget === null || widget === undefined) {
-    // Upstream reads `obj.x` first and throws this TypeError.
-    throw new TypeError(`Cannot read properties of ${String(widget)} (reading 'x')`)
-  }
-  const obj = isJsonObject(widget) ? widget : {}
-  const options = obj['options']
-  return { type: obj['type'], options: isJsonObject(options) ? options : undefined }
-}
-
-/** Upstream `new_widget`'s error for an unknown class name. */
-export function unknownWidgetTypeMessage(type: unknown): string {
-  return `Unknown widget type: ${String(type)}`
-}
-
-/** Widgets of a layout in load order (`Object.values`, so integer keys ascend). */
-export function savedWidgetList(widgets: unknown): unknown[] {
-  if (typeof widgets !== 'object' || widgets === null) return []
-  return Object.values(widgets)
-}
-
-/** Columns and rows for `init_grid(parseInt(columns), parseInt(rows))`; throws like upstream on a missing grid. */
-export function gridSize(grid: unknown): { columns: number; rows: number } {
-  if (grid === null || grid === undefined) throw new TypeError(`Cannot read properties of ${String(grid)} (reading 'columns')`)
-  const obj = isJsonObject(grid) ? grid : {}
-  return { columns: parseInt(jsString(obj['columns'])), rows: parseInt(jsString(obj['rows'])) }
-}
-
-/** Upstream's message when a layout fails to load (it then reloads the default layout). */
-export function gridLoadFailedMessage(error: unknown): string {
-  return 'Grid load failed\n' + (error instanceof Error ? error.message : String(error))
 }
 
 /** Build a layout file (upstream `get_layout`). */

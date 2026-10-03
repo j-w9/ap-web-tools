@@ -8,8 +8,9 @@
 import tippy, { type Instance as TippyInstance } from 'tippy.js'
 import type { GridItemHTMLElement, GridStack, GridStackDroppedHandler } from 'gridstack'
 import { Formio, type FormioStatic } from './formio-setup.js'
-import { isJsonObject, jsString, type JsonObject, type JsonValue } from './json.js'
-import type { SavedWidget, WidgetOptions, WidgetType } from './layout-file.js'
+import { domString, looseEquals, type JsonLike, type JsonObject, type OptionsObject } from './json.js'
+import type { SavedWidget, WidgetType } from './layout-file.js'
+import { readBaseOptions } from './options.js'
 
 type FormioForm = Awaited<ReturnType<FormioStatic['createForm']>>
 
@@ -30,7 +31,7 @@ export interface WidgetEnvironment {
   readonly dialogs: Dialogs
   /** The loaded log's bytes, or null before a log is loaded. */
   logBuffer(): ArrayBuffer | null
-  /** Add a widget to a grid if it fits (upstream `add_widget`). */
+  /** Add a widget to a grid if it fits (upstream `add_widget`), from a stored or copied widget object. */
   addWidget(grid: GridStack, saved: unknown): OverlayWidget | undefined
   /** Load saved widgets onto a grid (upstream `load_widgets`). */
   loadWidgets(grid: GridStack, widgets: unknown): void
@@ -68,20 +69,11 @@ export function savedWidgets(grid: GridStack): SavedWidget[] {
   return gridWidgets(grid).map(savedWidget)
 }
 
-/** `about` of a widget: name and palette information. */
-export interface About {
-  readonly name: string
-  readonly info?: string
-}
-
-function readAbout(value: JsonValue | undefined, fallbackName: string): JsonObject {
-  return isJsonObject(value) ? value : { name: fallbackName }
-}
-
-export function aboutOf(about: JsonObject): About {
-  const name = about['name']
-  const info = about['info']
-  return { name: typeof name === 'string' ? name : jsString(name), ...(typeof info === 'string' ? { info } : {}) }
+/**
+ * Upstream compared the edited text with `!=` against the stored value, which may not be a string.
+ */
+export function editedTextChanged(stored: JsonLike, text: string): boolean {
+  return !looseEquals(stored, text)
 }
 
 const ICONS = {
@@ -129,7 +121,8 @@ export abstract class OverlayWidget extends HTMLElement {
   /** Class name stored in layouts (upstream used `constructor.name`, which minification breaks). */
   abstract readonly widgetType: WidgetType
 
-  protected readonly about: JsonObject
+  /** `options.about` as stored (saved back unchanged), or `{ name: <class name> }`. */
+  readonly about: JsonLike
   protected editEnabled = false
   /** Unsaved changes, used to warn before leaving the page and before deleting. */
   protected changed = false
@@ -145,24 +138,14 @@ export abstract class OverlayWidget extends HTMLElement {
 
   protected constructor(
     protected readonly env: WidgetEnvironment,
-    options: JsonObject,
+    options: OptionsObject,
     editable: boolean,
-    fallbackName: string
+    className: string
   ) {
     super()
     this.isClone = env === INERT_ENVIRONMENT
-    this.about = readAbout(options['about'], fallbackName)
-
-    let formDefinition: JsonObject = {}
-    let formContent: JsonObject = {}
-    if ('form' in options) {
-      const form = options['form']
-      formDefinition = isJsonObject(form) ? form : {}
-      if ('form_content' in options) {
-        const content = options['form_content']
-        formContent = isJsonObject(content) ? content : {}
-      }
-    }
+    const { about, name: aboutName, formDefinition, formContent } = readBaseOptions(options, className)
+    this.about = about
 
     this.style.display = 'flex'
 
@@ -173,7 +156,9 @@ export abstract class OverlayWidget extends HTMLElement {
     head.className = 'vo-tip__head'
     const name = document.createElement('span')
     name.className = 'vo-tip__name'
-    name.textContent = aboutOf(this.about).name
+    // As upstream: the stored name is HTML (a layout's sandbox widgets run their own scripts on
+    // this origin anyway, so this adds no capability).
+    name.innerHTML = domString(aboutName)
     head.appendChild(name)
     this.buttons = {
       Edit: tipButton('Edit'),
@@ -242,7 +227,8 @@ export abstract class OverlayWidget extends HTMLElement {
   }
 
   /** Create the options form and start tracking its changes. */
-  private createForm(formDefinition: JsonObject, formContent: JsonObject): void {
+  /** Formio receives the stored definition and content as they are (a string definition is a form URL). */
+  private createForm(formDefinition: JsonLike, formContent: JsonLike): void {
     void Formio.createForm(this.formDiv, formDefinition).then(async (form) => {
       this.form = form
       await form.setForm(formDefinition)
@@ -272,10 +258,6 @@ export abstract class OverlayWidget extends HTMLElement {
   setEdit(enabled: boolean): void {
     this.editEnabled = enabled
     this.style.cursor = enabled ? 'move' : 'auto'
-  }
-
-  getAbout(): About {
-    return aboutOf(this.about)
   }
 
   /** Language of the editable text, for the code editor. */
@@ -319,8 +301,8 @@ export abstract class OverlayWidget extends HTMLElement {
     return this.form?.form
   }
 
-  /** Options to save (upstream `get_options`). */
-  getOptions(): WidgetOptions {
+  /** Options to save (upstream `get_options`; `form` is undefined, so not saved, until the form loads). */
+  getOptions(): OptionsObject {
     return { form: this.getFormDefinition(), form_content: this.getFormContent(), about: this.about }
   }
 

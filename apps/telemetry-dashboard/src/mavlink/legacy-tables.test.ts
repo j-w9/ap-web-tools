@@ -1,5 +1,5 @@
 // The name and instance tables must agree with the XML the package was generated from, for every
-// message (including those newer than upstream's mavlink.js, which the oracle tests cannot cover).
+// message the package defines (the oracle tests check the same against upstream's mavlink.js).
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,14 +18,16 @@ function readXml(): Map<string, XmlMessage> {
   const messages = new Map<string, XmlMessage>()
   for (const file of readdirSync(DEFINITIONS).filter((f) => f.endsWith('.xml'))) {
     const xml = readFileSync(resolve(DEFINITIONS, file), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
-    for (const m of xml.matchAll(/<message id="\d+" name="([A-Z0-9_]+)"[^>]*>([\s\S]*?)<\/message>/g)) {
+    for (const m of xml.matchAll(/<message ([^>]*)>([\s\S]*?)<\/message>/g)) {
+      const name = /name="([A-Z0-9_]+)"/.exec(m[1]!)?.[1]
+      if (name === undefined) continue
       const message: XmlMessage = { fields: [], instance: undefined }
       for (const f of m[2]!.matchAll(/<field ([^>]*)>/g)) {
-        const name = /name="([^"]+)"/.exec(f[1]!)![1]!
-        message.fields.push(name)
-        if (/instance="true"/.test(f[1]!)) message.instance = name
+        const fieldName = /name="([^"]+)"/.exec(f[1]!)![1]!
+        message.fields.push(fieldName)
+        if (/instance="true"/.test(f[1]!)) message.instance = fieldName
       }
-      messages.set(m[1]!, message)
+      messages.set(name, message)
     }
   }
   return messages

@@ -1,5 +1,5 @@
 import { Clapperboard, FolderOpen, Save } from 'lucide-react'
-import { useRef, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { ControlGroup, ErrorBanner, LogInput, RadioChips, RailCard, type LogFact } from '@apwt/tool-shell'
 import {
   codecLocked,
@@ -24,7 +24,10 @@ export interface RailProps {
   onLogFile: (file: File) => void
   logError: string | null
   offsetText: string
+  /** The offset as typed (widgets read it at their next time update, as upstream read the input). */
   onOffsetText: (text: string) => void
+  /** The offset input's `change` event: widgets are moved to the current time. */
+  onOffsetCommit: (text: string) => void
 
   onLoadOverlay: (file: File) => void
   onSaveOverlay: () => void
@@ -32,7 +35,8 @@ export interface RailProps {
   gridColumns: string
   onGridRows: (text: string) => void
   onGridColumns: (text: string) => void
-  onGridCommit: () => void
+  /** The rows or columns input's `change` event (upstream `gridSizeUpdate`). */
+  onGridCommit: (rows: string, columns: string) => void
 
   support: ExportSupport
   selection: FormatSelection | null
@@ -51,8 +55,29 @@ export interface RailProps {
   exportError: string | null
 }
 
-function commitOnEnter(e: KeyboardEvent<HTMLInputElement>, commit: () => void) {
-  if (e.key === 'Enter') commit()
+/**
+ * A number input that reports its text as typed and, separately, the native `change` event
+ * (commit: Enter, blur or a spinner step), which is when upstream acted on these inputs.
+ */
+function CommitInput(props: {
+  readonly value: string
+  readonly step?: number
+  readonly onText: (text: string) => void
+  readonly onCommit: (text: string) => void
+}) {
+  const input = useRef<HTMLInputElement>(null)
+  const commit = useRef(props.onCommit)
+  useLayoutEffect(() => {
+    commit.current = props.onCommit
+  })
+  useLayoutEffect(() => {
+    const el = input.current
+    if (el === null) return
+    const onChange = () => commit.current(el.value)
+    el.addEventListener('change', onChange)
+    return () => el.removeEventListener('change', onChange)
+  }, [])
+  return <input ref={input} type="number" step={props.step} value={props.value} onChange={(e) => props.onText(e.target.value)} />
 }
 
 /** The control rail: video, log and sync offset, overlay file and grid size, export settings. */
@@ -84,7 +109,7 @@ export function Rail(p: RailProps) {
           title="Offset of the log relative to the video. This relative to the boot time, when the log is first loaded this is set such that the timestamp of the first item in the log coincides with the start of the video. Increasing the value advances the log relative the video, decreasing the value advances the video relative to the log."
         >
           <span>Log offset (s)</span>
-          <input type="number" step={0.01} value={p.offsetText} onChange={(e) => p.onOffsetText(e.target.value)} />
+          <CommitInput step={0.01} value={p.offsetText} onText={p.onOffsetText} onCommit={p.onOffsetCommit} />
         </label>
         <p className="apwt-section__help" style={{ fontSize: 13 }}>
           Increase to advance the log relative to the video.
@@ -115,22 +140,14 @@ export function Rail(p: RailProps) {
         />
         <label className="apwt-field">
           <span>Rows</span>
-          <input
-            type="number"
-            value={p.gridRows}
-            onChange={(e) => p.onGridRows(e.target.value)}
-            onBlur={p.onGridCommit}
-            onKeyDown={(e) => commitOnEnter(e, p.onGridCommit)}
-          />
+          <CommitInput value={p.gridRows} onText={p.onGridRows} onCommit={(rows) => p.onGridCommit(rows, p.gridColumns)} />
         </label>
         <label className="apwt-field">
           <span>Columns</span>
-          <input
-            type="number"
+          <CommitInput
             value={p.gridColumns}
-            onChange={(e) => p.onGridColumns(e.target.value)}
-            onBlur={p.onGridCommit}
-            onKeyDown={(e) => commitOnEnter(e, p.onGridCommit)}
+            onText={p.onGridColumns}
+            onCommit={(columns) => p.onGridCommit(p.gridRows, columns)}
           />
         </label>
       </ControlGroup>

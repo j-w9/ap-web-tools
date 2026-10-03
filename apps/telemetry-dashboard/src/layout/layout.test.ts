@@ -2,16 +2,9 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import {
-  LayoutError,
-  classifyDashboardFile,
-  fileText,
-  parseLayout,
-  parseWidget,
-  storedLayout,
-  storedWidgetFile,
-  type StoredWidget
-} from './layout.js'
+import { classifyDashboardFile, fileText, storedLayout, storedWidgetFile, type StoredWidget } from './layout.js'
+import { gridSettings, widgetPlacement } from './loader.js'
+import { prop } from './json.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const APP = resolve(HERE, '../..')
@@ -36,12 +29,12 @@ describe('bundled layouts and widgets', () => {
     }
   })
 
-  it('parses the default layout with its nested sub grid', () => {
+  it('reads the default layout with its nested sub grid', () => {
     const file = classifyDashboardFile(read(resolve(APP, 'src/assets/Default_Layout.json')))
     if (file.kind !== 'layout') throw new Error(file.kind)
-    const layout = parseLayout(file.grid, file.widgets)
-    expect(layout.grid).toEqual({ columns: 12, rows: 12, color: 'rgb(255, 255, 255)' })
-    expect(layout.widgets.map((w) => w.type)).toEqual([
+    expect(gridSettings(file.grid)).toEqual({ columns: 12, rows: 12, color: 'rgb(255, 255, 255)' })
+    const widgets = Object.values(file.widgets ?? {})
+    expect(widgets.map((w) => prop(w, 'type'))).toEqual([
       'WidgetMenu',
       'WidgetSandBox',
       'WidgetSandBox',
@@ -51,59 +44,26 @@ describe('bundled layouts and widgets', () => {
       'WidgetSandBox'
     ])
     // The menu has no stored width: auto-sized like upstream.
-    expect(layout.widgets[0]).toMatchObject({ x: 11, y: 0, w: null, h: 3 })
-    const sub = layout.widgets[4]!
-    expect(sub.options.form_content).toEqual({ rows: 2, columns: 2, borderColor: '#c8c8c8', backgroundColor: '#ffffff' })
+    expect(widgetPlacement(widgets[0])).toEqual({ x: 11, y: 0, w: null, h: 3 })
+    expect(prop(prop(widgets[4], 'options'), 'form_content')).toEqual({
+      rows: 2,
+      columns: 2,
+      borderColor: '#c8c8c8',
+      backgroundColor: '#ffffff'
+    })
   })
 
-  it('parses every bundled sandbox widget and example as a single-widget file', () => {
+  it('classifies every bundled sandbox widget and example as a single-widget file', () => {
     for (const [ours] of BUNDLED.slice(1)) {
       const file = classifyDashboardFile(read(resolve(APP, ours)))
       if (file.kind !== 'widget') throw new Error(`${ours}: ${file.kind}`)
-      const widget = parseWidget(file.widget)
-      expect(['WidgetSandBox', 'WidgetCustomHTML']).toContain(widget.type)
+      expect(['WidgetSandBox', 'WidgetCustomHTML']).toContain(prop(file.widget, 'type'))
     }
   })
 })
 
-describe('layout validation', () => {
-  it('parses positions like parseInt and keeps missing ones null', () => {
-    expect(parseWidget({ type: 'WidgetSandBox', x: '3', y: 4, w: '2px', h: null })).toEqual({
-      type: 'WidgetSandBox',
-      x: 3,
-      y: 4,
-      w: 2,
-      h: null,
-      options: {}
-    })
-    expect(parseWidget({ type: 'WidgetSandBox', x: 'left' }).x).toBeNaN()
-  })
-
-  it('accepts widgets as an array as well as an object', () => {
-    const grid = { columns: '6', rows: 4, color: '#000' }
-    expect(parseLayout(grid, [{ type: 'WidgetSubGrid' }]).widgets).toHaveLength(1)
-    expect(parseLayout(grid, { 0: { type: 'WidgetSubGrid' } }).grid).toEqual({ columns: 6, rows: 4, color: '#000' })
-    expect(parseLayout(grid, 5).widgets).toEqual([])
-  })
-
-  it('treats a non-string colour as "keep the current background"', () => {
-    expect(parseLayout({ columns: 2, rows: 2, color: 7 }, {}).grid.color).toBeNull()
-  })
-
-  it('rejects what made the original fail, with the original message for unknown widgets', () => {
-    expect(() => parseWidget({ type: 'WidgetClock' })).toThrow(new LayoutError('Unknown widget type: WidgetClock'))
-    expect(() => parseWidget({})).toThrow('Unknown widget type: undefined')
-    expect(() => parseWidget(null)).toThrow(LayoutError)
-    expect(() => parseLayout(undefined, {})).toThrow('Layout has no grid settings')
-    expect(() => parseLayout({ columns: 2, rows: 2 }, null)).toThrow('Layout has no widgets')
-    expect(() => parseLayout({ columns: 2, rows: 2 }, 'ab')).toThrow('Unknown widget type: undefined')
-    expect(() => parseWidget({ type: 'WidgetSandBox', options: 'x' })).toThrow('WidgetSandBox options must be an object')
-    expect(() => parseWidget({ type: 'WidgetSubGrid', options: { form_content: 3 } })).toThrow(
-      'options.form_content must be an object'
-    )
-  })
-
-  it('classifies files like load_file', () => {
+describe('reading files', () => {
+  it('classifies files like load_file, throwing where its `in` threw', () => {
     expect(classifyDashboardFile('{"widgets": {}, "grid": {"columns": 2}}')).toEqual({
       kind: 'layout',
       widgets: {},
@@ -116,7 +76,8 @@ describe('layout validation', () => {
     expect(classifyDashboardFile('{"other": 1}')).toEqual({ kind: 'unrecognised' })
     expect(classifyDashboardFile('[]')).toEqual({ kind: 'unrecognised' })
     expect(() => classifyDashboardFile('{')).toThrow(SyntaxError)
-    expect(() => classifyDashboardFile('5')).toThrow(LayoutError)
+    expect(() => classifyDashboardFile('5')).toThrow(new TypeError("Cannot use 'in' operator to search for 'widgets' in 5"))
+    expect(() => classifyDashboardFile('null')).toThrow(new TypeError("Cannot use 'in' operator to search for 'widgets' in null"))
   })
 })
 
@@ -136,6 +97,12 @@ describe('saving', () => {
   it('writes single widgets and reads them back', () => {
     const file = classifyDashboardFile(fileText(storedWidgetFile(widget)))
     if (file.kind !== 'widget') throw new Error(file.kind)
-    expect(parseWidget(file.widget)).toEqual({ type: 'WidgetSandBox', x: 0, y: 1, w: null, h: 2, options: { sandbox: '' } })
+    expect(file.widget).toEqual(widget)
+    expect(widgetPlacement(file.widget)).toEqual({ x: 0, y: 1, w: null, h: 2 })
+  })
+
+  it('drops options members that are undefined (a form not yet loaded), as JSON.stringify did', () => {
+    const text = fileText(storedWidgetFile({ ...widget, options: { form: undefined, form_content: {} } }))
+    expect(JSON.parse(text)).toEqual({ header: { version: 1 }, widget: { ...widget, options: { form_content: {} } } })
   })
 })

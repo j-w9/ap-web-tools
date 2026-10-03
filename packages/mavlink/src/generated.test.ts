@@ -19,19 +19,32 @@ describe('generator', () => {
     }
   }, 30_000)
 
-  it('reads the whole ArduPilot dialect', () => {
+  it('reads the dialect upstream mavlink.js was generated from: all.xml and its includes', () => {
     const dialect = loadDialect(DEFINITIONS_DIR, ROOT_DEFINITION)
-    expect(dialect.files).toEqual([
-      'ardupilotmega.xml',
-      'common.xml',
-      'standard.xml',
-      'minimal.xml',
-      'uAvionix.xml',
-      'icarous.xml',
-      'loweheiser.xml',
-      'cubepilot.xml',
-      'csAirLink.xml'
-    ])
+    // The same files as the "Generated from" line of upstream's mavlink.js (in include order here).
+    expect([...dialect.files].sort()).toEqual(
+      [
+        'all.xml',
+        'ardupilotmega.xml',
+        'ASLUAV.xml',
+        'common.xml',
+        'development.xml',
+        'icarous.xml',
+        'minimal.xml',
+        'python_array_test.xml',
+        'standard.xml',
+        'test.xml',
+        'ualberta.xml',
+        'uAvionix.xml',
+        'loweheiser.xml',
+        'storm32.xml',
+        'AVSSUAS.xml',
+        'cubepilot.xml',
+        'csAirLink.xml'
+      ].sort()
+    )
+    expect(dialect.messages).toHaveLength(347)
+    expect(dialect.enums).toHaveLength(205)
     // ardupilotmega.xml extends MAV_CMD from common.xml.
     const command = dialect.enums.find((e) => e.name === 'MAV_CMD')
     expect(command?.entries.some((e) => e.name === 'MAV_CMD_NAV_WAYPOINT')).toBe(true)

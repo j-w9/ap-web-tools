@@ -4,22 +4,17 @@ import { describe, expect, it } from 'vitest'
 import defaultLayout from '../defaults/default-layout.json'
 import defaultPalette from '../defaults/default-palette.json'
 import {
-  gridLoadFailedMessage,
-  gridSize,
   isWidgetType,
   makeLayoutFile,
   makeWidgetFile,
   readOverlayFile,
-  savedPosition,
-  savedTypeAndOptions,
-  savedWidgetList,
   serialiseFile,
   UNABLE_TO_LOAD_MESSAGE,
-  unknownWidgetTypeMessage,
   WRONG_TOOL_MESSAGE,
   type SavedWidget
 } from './layout-file.js'
-import { jsString } from './json.js'
+import { gridSize, widgetClass, widgetPosition } from './loader.js'
+import { jsString, objectValues, prop } from './json.js'
 import { upstreamDir } from '../test-utils/upstream.js'
 
 describe('bundled defaults', () => {
@@ -32,10 +27,10 @@ describe('bundled defaults', () => {
   it('name only VideoOverlay widget classes', () => {
     const types: unknown[] = []
     const walk = (widgets: unknown) => {
-      for (const w of savedWidgetList(widgets)) {
-        const { type, options } = savedTypeAndOptions(w)
-        types.push(type)
-        if (options && 'widgets' in options) walk(options['widgets'])
+      for (const w of objectValues(widgets)) {
+        types.push(prop(w, 'type'))
+        const nested = prop(prop(w, 'options'), 'widgets')
+        if (nested !== undefined) walk(nested)
       }
     }
     walk(defaultLayout.widgets)
@@ -83,19 +78,19 @@ describe('reading overlay files (upstream overlay-input handler)', () => {
 
 describe('widget positions (upstream add_widget)', () => {
   it('parses gs-* strings with parseInt and leaves missing values to gridstack', () => {
-    expect(savedPosition({ x: '3', y: '0', w: '4.9', h: '2px' })).toEqual({ x: 3, y: 0, w: 4, h: 2, autoPosition: false })
-    expect(savedPosition({ x: 1, y: 1, w: null, h: null })).toEqual({ x: 1, y: 1, autoPosition: false })
-    expect(savedPosition({ x: 'a' })).toEqual({ x: Number.NaN, autoPosition: false })
+    expect(widgetPosition({ x: '3', y: '0', w: '4.9', h: '2px' })).toEqual({ x: 3, y: 0, w: 4, h: 2, autoPosition: false })
+    expect(widgetPosition({ x: 1, y: 1, w: null, h: null })).toEqual({ x: 1, y: 1, autoPosition: false })
+    expect(widgetPosition({ x: 'a' })).toEqual({ x: Number.NaN, autoPosition: false })
   })
 
   it('throws like upstream for a missing widget and reports unknown classes', () => {
-    expect(() => savedTypeAndOptions(undefined)).toThrow("Cannot read properties of undefined (reading 'x')")
-    expect(unknownWidgetTypeMessage('WidgetMenu')).toBe('Unknown widget type: WidgetMenu')
+    expect(() => widgetPosition(undefined)).toThrow("Cannot read properties of undefined (reading 'x')")
+    expect(() => widgetClass('WidgetMenu')).toThrow('Unknown widget type: WidgetMenu')
   })
 
-  it('lists widgets in key order', () => {
-    expect(savedWidgetList({ 1: 'b', 0: 'a', 10: 'c' })).toEqual(['a', 'b', 'c'])
-    expect(savedWidgetList(undefined)).toEqual([])
+  it('lists widgets in key order, and throws for none as Object.values did', () => {
+    expect(objectValues({ 1: 'b', 0: 'a', 10: 'c' })).toEqual(['a', 'b', 'c'])
+    expect(() => objectValues(undefined)).toThrow('Cannot convert undefined or null to object')
   })
 })
 
@@ -105,9 +100,8 @@ describe('grid settings (upstream load_layout)', () => {
     expect(gridSize({ columns: [5], rows: '' })).toEqual({ columns: 5, rows: Number.NaN })
   })
 
-  it('throws for a missing grid and builds upstream failure text', () => {
-    expect(() => gridSize(undefined)).toThrow(TypeError)
-    expect(gridLoadFailedMessage(new Error('boom'))).toBe('Grid load failed\nboom')
+  it('throws for a missing grid', () => {
+    expect(() => gridSize(undefined)).toThrow(new TypeError("Cannot read properties of undefined (reading 'columns')"))
   })
 })
 
@@ -142,7 +136,7 @@ describe('writing files (upstream get_layout / save_widget)', () => {
   })
 
   it('round-trips the default layout', () => {
-    const widgets = savedWidgetList(defaultLayout.widgets) as SavedWidget[]
+    const widgets = objectValues(defaultLayout.widgets) as SavedWidget[]
     const text = serialiseFile(makeLayoutFile(defaultLayout.grid, widgets))
     expect(JSON.parse(text)).toEqual(defaultLayout)
   })

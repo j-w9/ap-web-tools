@@ -14,6 +14,7 @@ import { GridStack } from 'gridstack'
 import { BUILDER_OPTIONS, Formio, type FormioStatic } from './formio-setup.js'
 import type { OverlayController } from './overlay-controller.js'
 import { newWidget } from './overlay-controller.js'
+import { widgetClass } from './loader.js'
 import { savedWidget, type OverlayWidget } from './widget.js'
 
 type FormioBuilder = Awaited<ReturnType<FormioStatic['builder']>>
@@ -130,16 +131,17 @@ export class WidgetEditor {
       delete pos.w
       delete pos.h
     }
-    const testWidget = newWidget(this.controller, saved.type, saved.options)
+    const testWidget = newWidget(this.controller, widgetClass(saved.type), saved.options)
     testWidget.disableButtonsForEdit()
     this.testGrid.addWidget(testWidget, pos)
     testWidget.setEdit(true)
 
     const language = testWidget.editLanguage()
     if (language !== undefined) monaco.editor.setModelLanguage(this.model, language)
-    // Loading the text fires the change handler, which hands the copy its text and the log (as upstream).
-    this.testWidget = testWidget
+    // Loading the text fires the change listener; upstream registered this copy's listener after
+    // that, so the copy is not sent its own text (and the log) back.
     this.editor.setValue(testWidget.editText())
+    this.testWidget = testWidget
 
     // The original's form, as the copy's may not have loaded yet.
     void builder.setForm(widget.getFormDefinition())

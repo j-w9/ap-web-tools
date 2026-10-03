@@ -3,28 +3,28 @@
  * grid, loading and saving layouts and widgets, the widget palette, shareable links and the
  * unsaved-changes prompt.
  */
-import { GridStack, type GridStackNode, type GridStackWidget } from 'gridstack'
+import { GridStack, type GridStackNode } from 'gridstack'
 import { downloadText } from '@apwt/tool-shell'
 import {
   classifyDashboardFile,
   fileText,
   LAYOUT_FILE_NAME,
-  parseLayout,
   storedLayout,
   storedWidgetFile,
   WIDGET_FILE_NAME,
   type StoredLayout,
-  type StoredWidget,
-  type WidgetSpec,
-  parseWidget
+  type StoredWidget
 } from '../layout/layout.js'
+import { domString, prop, type JsonLike } from '../layout/json.js'
 import { dashboardLink, decompressLayout, readHash, type HashSettings, type LinkConnection } from '../layout/link.js'
+import { addWidget, loadLayout, loadWidgets, widgetClass, type LayoutTarget } from '../layout/loader.js'
 import type { LegacyMessage } from '../mavlink/legacy-message.js'
+import { createMavlinkProcessor, type MavlinkProcessor } from '../connection/connection.js'
 import { showMessage } from '../ui/dialogs.js'
-import { parseStored, widgetOf, type Widget } from '../widgets/base.js'
+import { widgetOf, type Widget } from '../widgets/base.js'
 import { CustomHtmlWidget } from '../widgets/custom-html.js'
 import { MenuWidget, SETTINGS_ICON_ID } from '../widgets/menu.js'
-import type { MenuHost, SettingsMenu } from '../widgets/menu-panels.js'
+import { SETTINGS_PANEL_ID, type MenuHost, type SettingsMenu } from '../widgets/menu-panels.js'
 import { SandboxWidget } from '../widgets/sandbox.js'
 import { SubGridWidget } from '../widgets/subgrid.js'
 import type { WidgetEditor } from './editor.js'
@@ -39,14 +39,14 @@ export interface DashboardOptions {
   readonly hash: string
 }
 
-function gridWidget(spec: WidgetSpec): GridStackWidget {
-  // Upstream passed null for missing values, which GridStack treats like undefined.
-  const position: GridStackWidget = { autoPosition: false }
-  if (spec.x !== null) position.x = spec.x
-  if (spec.y !== null) position.y = spec.y
-  if (spec.w !== null) position.w = spec.w
-  if (spec.h !== null) position.h = spec.h
-  return position
+/** Reads a file as text the way upstream's `FileReader.readAsText` did (BOM sniffing included). */
+function readAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read the file'))
+    reader.readAsText(file)
+  })
 }
 
 export class Dashboard implements MenuHost {
@@ -57,11 +57,39 @@ export class Dashboard implements MenuHost {
   private readonly options: DashboardOptions
   private connectionParams: (() => LinkConnection) | null = null
   private readonly settingsMenus = new WeakMap<HTMLElement, SettingsMenu>()
+  private readonly settingsPanels = new WeakMap<HTMLElement, SettingsMenu>()
+  /** The page's one MAVLink parser and signing state (upstream global `MAVLink`), shared by every menu. */
+  readonly mavlink: MavlinkProcessor = createMavlinkProcessor(Date.now())
+  /** The grid and widget operations of upstream's layout functions (see `loader.ts`). */
+  private readonly target: LayoutTarget<GridStack, Widget>
 
   constructor(options: DashboardOptions) {
     this.options = options
     this.element = options.element
     this.hashSettings = readHash(options.hash)
+    this.target = {
+      currentGrid: () => this.grid,
+      editEnabled: (grid) => this.gridEditEnabled(grid),
+      setEdit: (grid, enabled) => this.gridSetEdit(grid, enabled),
+      setBackground: (value) => {
+        this.element.style.backgroundColor = domString(value)
+      },
+      initGrid: (columns, rows) => this.initGrid(columns, rows),
+      willItFit: (grid, position) => grid.willItFit(position),
+      alert: (text) => void showMessage(text),
+      createWidget: (type, options) => this.newWidget(type, options),
+      place: (grid, widget, position) => {
+        grid.addWidget(widget.el, position)
+        widget.setEdit(this.gridEditEnabled(grid))
+      },
+      batchUpdate: (grid, on) => grid.batchUpdate(on),
+      items: (grid) => this.gridWidgets(grid),
+      initItem: (widget) => widget.init(),
+      loadDefault: () => this.loadDefaultGrid(),
+      clearChanged: () => {
+        this.gridChanged = false
+      }
+    }
   }
 
   publish(message: LegacyMessage): void {
@@ -70,17 +98,26 @@ export class Dashboard implements MenuHost {
 
   // ---- Widgets and grids -------------------------------------------------------------------
 
-  newWidget(spec: Pick<WidgetSpec, 'type' | 'options'>): Widget {
-    switch (spec.type) {
+  /** Upstream `new_widget(type, options)`. */
+  newWidget(type: JsonLike, options: JsonLike): Widget {
+    switch (widgetClass(type)) {
       case 'WidgetMenu':
-        return new MenuWidget(spec.options, this)
+        return new MenuWidget(options, this)
       case 'WidgetSandBox':
-        return new SandboxWidget(spec.options, this)
+        return new SandboxWidget(options, this)
       case 'WidgetSubGrid':
-        return new SubGridWidget(spec.options, this)
+        return new SubGridWidget(options, this)
       case 'WidgetCustomHTML':
-        return new CustomHtmlWidget(spec.options, this)
+        return new CustomHtmlWidget(options, this)
     }
+  }
+
+  /** The widgets on a grid (upstream `getGridItems()`, which only ever holds widgets). */
+  private gridWidgets(grid: GridStack): Widget[] {
+    return grid.getGridItems().flatMap((el) => {
+      const widget = widgetOf(el)
+      return widget === undefined ? [] : [widget]
+    })
   }
 
   /** Details of a widget for copying or saving: grid attributes as stored by GridStack. */
@@ -136,7 +173,7 @@ export class Dashboard implements MenuHost {
     grid.destroy(false)
   }
 
-  private initGrid(columns: number, rows: number): void {
+  private initGrid(columns: number, rows: number): GridStack {
     this.clearGrid(this.grid)
     const grid = GridStack.init(
       {
@@ -152,11 +189,14 @@ export class Dashboard implements MenuHost {
       this.element
     )
     this.grid = grid
-    this.firstSettingsMenu()?.setGridSize(columns, rows)
+    // Upstream looked the settings popup up by id, which finds it only while it is shown.
+    const panel = document.getElementById(SETTINGS_PANEL_ID)
+    if (panel !== null) this.settingsPanels.get(panel)?.setGridSize(columns, rows)
     grid.on('dropped', (event, previous, dropped) => this.widgetDropped(event, previous, dropped))
     grid.on('change added removed', () => {
       this.gridChanged = true
     })
+    return grid
   }
 
   gridEditEnabled(grid: GridStack | null): boolean {
@@ -171,52 +211,26 @@ export class Dashboard implements MenuHost {
     for (const el of grid.getGridItems()) widgetOf(el)?.setEdit(enabled)
   }
 
-  /** Adds a widget at its position, else anywhere it fits, else tells the user it will not fit. */
-  addWidget(grid: GridStack, spec: WidgetSpec): Widget | undefined {
-    const position = gridWidget(spec)
-    if (!grid.willItFit(position)) {
-      position.autoPosition = true
-      if (!grid.willItFit(position)) {
-        void showMessage("Widget won't fit on Grid")
-        return undefined
-      }
-    }
-    const widget = this.newWidget(spec)
-    grid.addWidget(widget.el, position)
-    widget.setEdit(this.gridEditEnabled(grid))
-    return widget
+  /** Upstream `add_widget`: at its position, else anywhere it fits, else "Widget won't fit on Grid". */
+  addWidget(grid: GridStack, obj: unknown): Widget | undefined {
+    return addWidget(this.target, grid, obj)
   }
 
-  loadWidgets(grid: GridStack, widgets: readonly WidgetSpec[]): void {
-    grid.batchUpdate(true)
-    for (const spec of widgets) this.addWidget(grid, spec)
-    grid.batchUpdate(false)
-    // Initialise after the grid has laid out, so widgets have their size.
-    for (const el of grid.getGridItems()) widgetOf(el)?.init()
+  /** Upstream `load_widgets`. */
+  loadWidgets(grid: GridStack, widgets: unknown): void {
+    loadWidgets(this.target, grid, widgets)
   }
 
-  /** Loads a layout's grid and widgets; on failure loads the default layout and reports why. */
+  /** Upstream `load_layout`: on failure loads the default layout and reports why. */
   loadLayout(grid: unknown, widgets: unknown): void {
-    const editEnabled = this.gridEditEnabled(this.grid)
-    try {
-      const layout = parseLayout(grid, widgets)
-      if (layout.grid.color !== null) this.element.style.backgroundColor = layout.grid.color
-      this.initGrid(layout.grid.columns, layout.grid.rows)
-      if (this.grid !== null) this.loadWidgets(this.grid, layout.widgets)
-    } catch (error) {
-      this.loadDefaultGrid()
-      void showMessage('Grid load failed\n' + (error instanceof Error ? error.message : String(error)))
-    }
-    this.gridSetEdit(this.grid, editEnabled)
-    this.gridChanged = false
+    loadLayout(this.target, grid, widgets)
   }
 
   loadDefaultGrid(): void {
     void fetch(defaultLayoutUrl)
       .then((res) => res.json() as Promise<unknown>)
       .then((obj) => {
-        const record = typeof obj === 'object' && obj !== null ? (obj as Readonly<Record<string, unknown>>) : {}
-        this.loadLayout(record.grid, record.widgets)
+        this.loadLayout(prop(obj, 'grid'), prop(obj, 'widgets'))
       })
   }
 
@@ -229,9 +243,8 @@ export class Dashboard implements MenuHost {
     }
     try {
       const parsed: unknown = JSON.parse(await decompressLayout(layoutParam))
-      const record = typeof parsed === 'object' && parsed !== null ? (parsed as Readonly<Record<string, unknown>>) : {}
       if (parsed === null) throw new TypeError("Cannot read properties of null (reading 'grid')")
-      this.loadLayout(record.grid, record.widgets)
+      this.loadLayout(prop(parsed, 'grid'), prop(parsed, 'widgets'))
     } catch (error) {
       console.log(error)
       this.loadDefaultGrid()
@@ -240,7 +253,7 @@ export class Dashboard implements MenuHost {
 
   /** A layout or single widget file chosen by the user (upstream `load_file`). */
   loadFile(file: File): void {
-    void file.text().then((text) => {
+    void readAsText(file).then((text) => {
       const contents = classifyDashboardFile(text)
       switch (contents.kind) {
         case 'layout':
@@ -248,7 +261,7 @@ export class Dashboard implements MenuHost {
           break
         case 'widget': {
           if (this.grid === null) return
-          const widget = this.addWidget(this.grid, parseWidget(contents.widget))
+          const widget = this.addWidget(this.grid, contents.widget)
           widget?.init()
           break
         }
@@ -272,7 +285,7 @@ export class Dashboard implements MenuHost {
     const stored = this.getWidgetObject(widget)
     widget.destroy()
     target.removeWidget(el)
-    this.addWidget(target, parseStored(stored))?.init()
+    this.addWidget(target, stored)?.init()
   }
 
   loadEditor(widget: Widget): void {
@@ -281,11 +294,12 @@ export class Dashboard implements MenuHost {
 
   // ---- Menu --------------------------------------------------------------------------------
 
-  registerSettingsMenu(icon: HTMLElement, menu: SettingsMenu): void {
+  registerSettingsMenu(icon: HTMLElement, panel: HTMLElement, menu: SettingsMenu): void {
     this.settingsMenus.set(icon, menu)
+    this.settingsPanels.set(panel, menu)
   }
 
-  /** The settings of the first menu in the page (upstream looked the elements up by id). */
+  /** The settings of the first menu in the page (upstream looked its icon up by id). */
   private firstSettingsMenu(): SettingsMenu | undefined {
     const icon = document.getElementById(SETTINGS_ICON_ID)
     return icon === null ? undefined : this.settingsMenus.get(icon)

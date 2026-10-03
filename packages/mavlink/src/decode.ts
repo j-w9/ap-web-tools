@@ -17,8 +17,6 @@ export type FieldValue =
   | BigInt64Array
   | BigUint64Array
 
-let utf8: TextDecoder | undefined
-
 /** Reads one scalar; every type except the 64-bit integers fits in a `number`. */
 function readScalar(view: DataView, type: FieldType, offset: number): number | bigint {
   switch (type) {
@@ -61,11 +59,15 @@ function readArray(view: DataView, field: FieldDescriptor, length: number): Fiel
   const { type, offset } = field
   switch (type) {
     case 'char': {
-      // C string: up to the first NUL. Decoded as UTF-8 (ASCII in practice).
+      // Upstream (jspack) maps each byte to one character, String.fromCharCode(byte), keeping the
+      // NUL padding, which its tools strip with `replace(/\0+$/, '')`. The string here is that
+      // stripped value: trailing NULs removed, anything before them (even a NUL) kept.
       const bytes = new Uint8Array(view.buffer, view.byteOffset + offset, length)
-      const end = bytes.indexOf(0)
-      utf8 ??= new TextDecoder()
-      return utf8.decode(end === -1 ? bytes : bytes.subarray(0, end))
+      let end = length
+      while (end > 0 && bytes[end - 1] === 0) end--
+      let text = ''
+      for (let i = 0; i < end; i++) text += String.fromCharCode(bytes[i]!)
+      return text
     }
     case 'uint8_t':
       return new Uint8Array(view.buffer.slice(view.byteOffset + offset, view.byteOffset + offset + length))

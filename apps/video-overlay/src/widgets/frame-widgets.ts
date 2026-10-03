@@ -6,48 +6,17 @@
  *
  * Candidate to share with telemetry-dashboard, which feeds the same frames MAVLink instead.
  */
-import { jsString, type JsonObject } from './json.js'
-import { DEFAULT_CUSTOM_HTML, SANDBOX_DOCUMENT } from './documents.js'
-import { INERT_ENVIRONMENT, OverlayWidget, type RenderItem, type WidgetEnvironment } from './widget.js'
-import type { WidgetOptions } from './layout-file.js'
+import { anyString, type JsonLike, type JsonObject, type OptionsObject } from './json.js'
+import { SANDBOX_DOCUMENT } from './documents.js'
+import { customHtmlOptions, sandboxOptions } from './options.js'
+import { editedTextChanged, INERT_ENVIRONMENT, OverlayWidget, type RenderItem, type WidgetEnvironment } from './widget.js'
 
-/** Default script of a new Sandbox widget (upstream `WidgetSandBoxVideoOverlay`). */
-export const DEFAULT_SANDBOX_SCRIPT = `// Initialization
-div.appendChild(document.createTextNode("Widget Example:"))
-div.appendChild(document.createElement("br"))
-
-message_report = document.createTextNode("No Log")
-div.appendChild(message_report)
-
-div.appendChild(document.createElement("br"))
-
-logTime = document.createTextNode("")
-div.appendChild(logTime)
-
-// Load function
-loadLog = function (log) {
-    message_report.nodeValue = "Got log starting at: " + log.extractStartTime()
-}
-
-// Runtime function
-setTime = function(time) {
-    logTime.nodeValue = "Log Time: " + time.toFixed(2)
-}
-`
-
-const SANDBOX_ABOUT: JsonObject = {
-  name: 'Sandbox',
-  info: 'Sandboxed widget allowing user defined functionality with JavaScript. User input using Formio form.'
-}
-const CUSTOM_HTML_ABOUT: JsonObject = {
-  name: 'Custom HTML',
-  info: 'Custom HTML allowing user defined HTML. User input using Formio form.'
-}
+export { DEFAULT_SANDBOX_SCRIPT } from './options.js'
 
 /** Messages the widget frames understand (see `documents.ts`). */
 type FrameMessage =
   | { readonly options: JsonObject }
-  | { readonly script: string; readonly options: JsonObject }
+  | { readonly script: JsonLike; readonly options: JsonObject }
   | { readonly logData: ArrayBuffer }
   | { readonly time: number }
 
@@ -105,7 +74,8 @@ abstract class FrameWidget extends OverlayWidget {
   override getContentForRender(parent: DOMRect): RenderItem[] {
     const box = this.getBoundingClientRect()
     const body = this.iframe.contentDocument?.body
-    if (body === undefined) throw new Error(`${this.getAbout().name} widget has not loaded`)
+    // Upstream read `this.iframe.contentDocument.body`, which throws before the frame exists.
+    if (body === undefined) throw new TypeError("Cannot read properties of null (reading 'body')")
     return [{ pos: { x: box.x - parent.x, y: box.y - parent.y, height: box.height, width: box.width }, content: body }]
   }
 
@@ -118,14 +88,18 @@ abstract class FrameWidget extends OverlayWidget {
 /** Upstream `WidgetSandBoxVideoOverlay`: a user script run in the sandbox page. */
 export class SandboxWidget extends FrameWidget {
   readonly widgetType = 'WidgetSandBoxVideoOverlay'
-  private scriptText: string
+  /** The script as stored (normally a string; sent and saved unchanged, as upstream). */
+  private script: JsonLike
   private readonly initDone: Promise<void>
 
-  constructor(env: WidgetEnvironment = INERT_ENVIRONMENT, options: JsonObject = {}) {
-    super(env, { ...options, about: options['about'] ?? SANDBOX_ABOUT }, true, 'Sandbox')
-    const sandbox = options['sandbox']
-    this.scriptText = sandbox === null || sandbox === undefined ? DEFAULT_SANDBOX_SCRIPT : jsString(sandbox)
+  constructor(env: WidgetEnvironment = INERT_ENVIRONMENT, rawOptions: unknown = {}) {
+    const { options, script } = sandboxOptions(rawOptions)
+    super(env, options, true, 'WidgetSandBoxVideoOverlay')
+    this.script = script
     this.iframe.srcdoc = SANDBOX_DOCUMENT
+    // Upstream's `WidgetSandBox` and its VideoOverlay subclass each listened for the frame's load
+    // and each called `init()`, so the script and options are sent twice.
+    this.iframe.addEventListener('load', () => this.init())
     this.initDone = new Promise((resolve) => {
       this.iframe.addEventListener('load', () => {
         this.init()
@@ -137,11 +111,11 @@ export class SandboxWidget extends FrameWidget {
 
   /** Send the script and options to the sandbox. */
   override init(): void {
-    this.post({ script: this.scriptText, options: this.getFormContent() })
+    this.post({ script: this.script, options: this.getFormContent() })
   }
 
-  override getOptions(): WidgetOptions {
-    return { ...super.getOptions(), sandbox: this.scriptText }
+  override getOptions(): OptionsObject {
+    return { ...super.getOptions(), sandbox: this.script }
   }
 
   editLanguage(): 'javascript' {
@@ -149,12 +123,12 @@ export class SandboxWidget extends FrameWidget {
   }
 
   editText(): string {
-    return this.scriptText
+    return anyString(this.script)
   }
 
   setEditedText(text: string): void {
-    if (this.scriptText !== text) this.changed = true
-    this.scriptText = text
+    if (editedTextChanged(this.script, text)) this.changed = true
+    this.script = text
     this.init()
     this.loadLog()
   }
@@ -176,10 +150,10 @@ export class SandboxWidget extends FrameWidget {
 export class CustomHtmlWidget extends FrameWidget {
   readonly widgetType = 'WidgetCustomHTMLVideoOverlay'
 
-  constructor(env: WidgetEnvironment = INERT_ENVIRONMENT, options: JsonObject = {}) {
-    super(env, { ...options, about: options['about'] ?? CUSTOM_HTML_ABOUT }, true, 'Custom HTML')
-    const html = options['custom_HTML']
-    this.iframe.srcdoc = html === null || html === undefined ? DEFAULT_CUSTOM_HTML : jsString(html)
+  constructor(env: WidgetEnvironment = INERT_ENVIRONMENT, rawOptions: unknown = {}) {
+    const { options, srcdoc } = customHtmlOptions(rawOptions)
+    super(env, options, true, 'WidgetCustomHTMLVideoOverlay')
+    this.iframe.srcdoc = srcdoc
     this.iframe.addEventListener('load', () => this.init())
     if (this.isClone) return
     this.appendChild(this.iframe)
@@ -196,7 +170,7 @@ export class CustomHtmlWidget extends FrameWidget {
     this.postOptions()
   }
 
-  override getOptions(): WidgetOptions {
+  override getOptions(): OptionsObject {
     return { ...super.getOptions(), custom_HTML: this.iframe.srcdoc }
   }
 

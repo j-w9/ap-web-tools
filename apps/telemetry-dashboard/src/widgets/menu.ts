@@ -6,11 +6,11 @@
 import { GridStack } from 'gridstack'
 import tippy from 'tippy.js'
 import type { ConnectionColor } from '../connection/connection.js'
-import { jsString, type JsonObject } from '../layout/json.js'
+import { domString } from '../layout/json.js'
 import { INTERACTIVE_TIP, Widget } from './base.js'
-import { MENU_FORM } from './forms.js'
 import { framedContent, fullSizeDiv } from './grid-host.js'
 import { createConnectionPanel, createSettingsPanel, type MenuHost } from './menu-panels.js'
+import { menuOptions, type OptionsObject } from './options.js'
 import apSquareUrl from '../assets/AP_Square.png'
 import githubMarkUrl from '../assets/github-mark.png'
 
@@ -57,8 +57,8 @@ export class MenuWidget extends Widget {
   private readonly sizeDiv: HTMLDivElement
   private grid: GridStack | null
 
-  constructor(options: JsonObject, host: MenuHost) {
-    super('WidgetMenu', { ...options, form: MENU_FORM }, false, host)
+  constructor(rawOptions: unknown, host: MenuHost) {
+    super('WidgetMenu', menuOptions(rawOptions), false, host)
     this.host = host
     this.el.classList.add('grid-stack-item', 'grid-stack-draggable-item', 'grid-stack-sub-grid')
     const { widgetDiv, sizeDiv } = framedContent()
@@ -89,7 +89,7 @@ export class MenuWidget extends Widget {
     const settingsTip = tippy(settings.button, { ...INTERACTIVE_TIP, content: settingsPanel.element, maxWidth: '1000px' })
     settingsPanel.onClose(() => settingsTip.hide())
     settings.button.onclick = () => settingsTip.show()
-    this.host.registerSettingsMenu(settings.button, {
+    this.host.registerSettingsMenu(settings.button, settingsPanel.element, {
       show: () => settingsTip.show(),
       focusSave: () => settingsPanel.focusSave(),
       hide: () => settingsTip.hide(),
@@ -130,15 +130,15 @@ export class MenuWidget extends Widget {
     })
   }
 
-  override getOptions(): JsonObject {
+  override getOptions(): OptionsObject {
     return { form_content: this.getFormContent() }
   }
 
   override formChanged(): void {
     super.formChanged()
     const options = this.getFormContent()
-    this.widgetDiv.style.borderColor = jsString(options.borderColor)
-    this.widgetDiv.style.backgroundColor = jsString(options.backgroundColor)
+    this.widgetDiv.style.borderColor = domString(options.borderColor)
+    this.widgetDiv.style.backgroundColor = domString(options.backgroundColor)
   }
 
   override destroy(): void {

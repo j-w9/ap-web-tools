@@ -29,8 +29,9 @@ declare module 'formiojs/dist/formio.full.min.js' {
     /** The current definition. */
     readonly form: FormDefinition
     readonly submission: { readonly data: JsonObject }
-    setForm(definition: FormDefinition): Promise<unknown>
-    setSubmission(submission: { data: JsonObject }): Promise<unknown>
+    /** Widgets pass stored definitions unchanged; Formio treats a string as a form URL. */
+    setForm(definition: unknown): Promise<unknown>
+    setSubmission(submission: { data: unknown }): Promise<unknown>
     checkValidity(data: JsonObject): boolean
     on(event: 'change', callback: (event: ChangeEvent) => void): void
     destroy(): void
@@ -62,7 +63,7 @@ declare module 'formiojs/dist/formio.full.min.js' {
   }
 
   export interface FormioStatic {
-    createForm(element: HTMLElement, definition: FormDefinition, options?: JsonObject): Promise<Webform>
+    createForm(element: HTMLElement, definition: unknown, options?: JsonObject): Promise<Webform>
     builder(element: HTMLElement, definition: FormDefinition, options: JsonObject): Promise<FormBuilder>
     use(plugin: { components: Record<string, ComponentClass> }): void
     readonly Components: { readonly components: Record<string, ComponentClass | undefined> }

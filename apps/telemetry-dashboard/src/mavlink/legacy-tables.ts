@@ -1,22 +1,83 @@
 /**
  * Facts about the XML definitions that `@apwt/mavlink` descriptors do not carry but upstream's
  * pymavlink-generated `mavlink.js` exposes on every message. Both tables are checked against the
- * XML in `legacy-tables.test.ts`.
+ * XML in `legacy-tables.test.ts`, so they follow the package's definitions (keyed by message name
+ * as a string, so a message dropped from the definitions fails that test, not the build).
  */
-import type { MessageName } from '@apwt/mavlink'
 
 /**
  * XML field names that are not the snake_case of the package's camelCase key, by message. Every
  * other field's XML name is `snakeCase(key)` (`timeBootMs` -> `time_boot_ms`).
  */
-export const XML_NAME_EXCEPTIONS: Partial<Record<MessageName, Readonly<Record<string, string>>>> = {
+export const XML_NAME_EXCEPTIONS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   ADSB_VEHICLE: { icaoAddress: 'ICAO_address' },
   AHRS: { omegaIx: 'omegaIx', omegaIy: 'omegaIy', omegaIz: 'omegaIz' },
   AIRSPEED_AUTOCAL: { eas2tas: 'EAS2TAS', pax: 'Pax', pby: 'Pby', pcz: 'Pcz' },
   AIS_VESSEL: { mmsi: 'MMSI', cog: 'COG' },
   AOA_SSA: { aoa: 'AOA', ssa: 'SSA' },
+  ASLCTRL_DATA: {
+    hRef: 'hRef',
+    hRefT: 'hRef_t',
+    pitchAngle: 'PitchAngle',
+    pitchAngleRef: 'PitchAngleRef',
+    qRef: 'qRef',
+    uElev: 'uElev',
+    uThrot: 'uThrot',
+    uThrot2: 'uThrot2',
+    nZ: 'nZ',
+    airspeedRef: 'AirspeedRef',
+    spoilersEngaged: 'SpoilersEngaged',
+    yawAngle: 'YawAngle',
+    yawAngleRef: 'YawAngleRef',
+    rollAngle: 'RollAngle',
+    rollAngleRef: 'RollAngleRef',
+    pRef: 'pRef',
+    rRef: 'rRef',
+    uAil: 'uAil',
+    uRud: 'uRud'
+  },
+  ASLCTRL_DEBUG: {
+    i321: 'i32_1',
+    i81: 'i8_1',
+    i82: 'i8_2',
+    f1: 'f_1',
+    f2: 'f_2',
+    f3: 'f_3',
+    f4: 'f_4',
+    f5: 'f_5',
+    f6: 'f_6',
+    f7: 'f_7',
+    f8: 'f_8'
+  },
+  ASLUAV_STATUS: { ledStatus: 'LED_status', satcomStatus: 'SATCOM_status', servoStatus: 'Servo_status', motorRpm: 'Motor_rpm' },
+  ASL_OBCTRL: { uElev: 'uElev', uThrot: 'uThrot', uThrot2: 'uThrot2', uAilL: 'uAilL', uAilR: 'uAilR', uRud: 'uRud' },
+  AVSS_DRONE_OPERATION_MODE: { m300OperationMode: 'M300_operation_mode' },
   CAMERA_SETTINGS: { zoomLevel: 'zoomLevel', focusLevel: 'focusLevel' },
   COMPASSMOT_STATUS: { compensationX: 'CompensationX', compensationY: 'CompensationY', compensationZ: 'CompensationZ' },
+  EKF_EXT: { windspeed: 'Windspeed', windDir: 'WindDir', windZ: 'WindZ', airspeed: 'Airspeed' },
+  FW_SOARING_DATA: {
+    timestampModeChanged: 'timestampModeChanged',
+    xW: 'xW',
+    xR: 'xR',
+    xLat: 'xLat',
+    xLon: 'xLon',
+    varW: 'VarW',
+    varR: 'VarR',
+    varLat: 'VarLat',
+    varLon: 'VarLon',
+    loiterRadius: 'LoiterRadius',
+    loiterDirection: 'LoiterDirection',
+    distToSoarPoint: 'DistToSoarPoint',
+    vSinkExp: 'vSinkExp',
+    z1LocalUpdraftSpeed: 'z1_LocalUpdraftSpeed',
+    z2DeltaRoll: 'z2_DeltaRoll',
+    thermalGSNorth: 'ThermalGSNorth',
+    thermalGSEast: 'ThermalGSEast',
+    tseDot: 'TSE_dot',
+    debugVar1: 'DebugVar1',
+    debugVar2: 'DebugVar2',
+    controlMode: 'ControlMode'
+  },
   HWSTATUS: { vcc: 'Vcc', i2Cerr: 'I2Cerr' },
   ICAROUS_KINEMATIC_BANDS: { numBands: 'numBands' },
   MCU_STATUS: {
@@ -25,8 +86,18 @@ export const XML_NAME_EXCEPTIONS: Partial<Record<MessageName, Readonly<Record<st
     mcuVoltageMin: 'MCU_voltage_min',
     mcuVoltageMax: 'MCU_voltage_max'
   },
+  MLRS_RADIO_LINK_STATS: { rxLQRc: 'rx_LQ_rc', rxLQSer: 'rx_LQ_ser', txLQSer: 'tx_LQ_ser' },
+  NAV_FILTER_BIAS: { accel0: 'accel_0', accel1: 'accel_1', accel2: 'accel_2', gyro0: 'gyro_0', gyro1: 'gyro_1', gyro2: 'gyro_2' },
   PID_TUNING: { ff: 'FF', p: 'P', i: 'I', d: 'D', sRate: 'SRate', pDmod: 'PDmod' },
   POWER_STATUS: { vcc: 'Vcc', vservo: 'Vservo' },
+  SENSORPOD_STATUS: {
+    visensorRate1: 'visensor_rate_1',
+    visensorRate2: 'visensor_rate_2',
+    visensorRate3: 'visensor_rate_3',
+    visensorRate4: 'visensor_rate_4'
+  },
+  SENS_ATMOS: { tempAmbient: 'TempAmbient', humidity: 'Humidity' },
+  SENS_BATMON: { soC: 'SoC' },
   UAVIONIX_ADSB_GET: { reqMessageId: 'ReqMessageId' },
   UAVIONIX_ADSB_OUT_CFG: {
     icao: 'ICAO',
@@ -60,7 +131,7 @@ export const XML_NAME_EXCEPTIONS: Partial<Record<MessageName, Readonly<Record<st
 }
 
 /** The field marked `instance="true"` in the XML (camelCase key), by message. */
-export const INSTANCE_FIELDS: Partial<Record<MessageName, string>> = {
+export const INSTANCE_FIELDS: Readonly<Record<string, string>> = {
   ADAP_TUNING: 'axis',
   AIRSPEED: 'id',
   BATTERY_STATUS: 'id',
@@ -73,7 +144,7 @@ export const INSTANCE_FIELDS: Partial<Record<MessageName, string>> = {
   GIMBAL_MANAGER_SET_MANUAL_CONTROL: 'gimbalDeviceId',
   GIMBAL_MANAGER_SET_PITCHYAW: 'gimbalDeviceId',
   GIMBAL_MANAGER_STATUS: 'gimbalDeviceId',
-  GLOBAL_POSITION_SENSOR: 'id',
+  GNSS_INTEGRITY: 'id',
   GPS_INPUT: 'gpsId',
   HIGHRES_IMU: 'id',
   HYGROMETER_SENSOR: 'id',
@@ -83,7 +154,6 @@ export const INSTANCE_FIELDS: Partial<Record<MessageName, string>> = {
   MCU_STATUS: 'id',
   NAMED_VALUE_FLOAT: 'name',
   NAMED_VALUE_INT: 'name',
-  NAMED_VALUE_STRING: 'name',
   OBSTACLE_DISTANCE_3D: 'obstacleId',
   OPTICAL_FLOW_RAD: 'sensorId',
   PID_TUNING: 'axis',
@@ -91,6 +161,11 @@ export const INSTANCE_FIELDS: Partial<Record<MessageName, string>> = {
   SERVO_OUTPUT_RAW: 'port',
   SMART_BATTERY_INFO: 'id',
   STORAGE_INFORMATION: 'storageId',
+  STORM32_GIMBAL_MANAGER_CONTROL: 'gimbalId',
+  STORM32_GIMBAL_MANAGER_CONTROL_PITCHYAW: 'gimbalId',
+  STORM32_GIMBAL_MANAGER_CORRECT_ROLL: 'gimbalId',
+  STORM32_GIMBAL_MANAGER_INFORMATION: 'gimbalId',
+  STORM32_GIMBAL_MANAGER_STATUS: 'gimbalId',
   VIDEO_STREAM_INFORMATION: 'streamId',
   VIDEO_STREAM_STATUS: 'streamId',
   WATER_DEPTH: 'id'

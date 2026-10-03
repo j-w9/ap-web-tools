@@ -3,20 +3,43 @@
  * border, background colour and optional background image (the grid then keeps the image's
  * aspect ratio so widgets stay over the same part of the image).
  */
-import { GridStack } from 'gridstack'
-import { isJsonArray, isJsonObject, jsString, type Json, type JsonObject } from '../layout/json.js'
-import { parseWidgets, type WidgetSpec } from '../layout/layout.js'
-import { parseStored, Widget, widgetOf } from './base.js'
-import { SUBGRID_FORM } from './forms.js'
+import { GridStack, type GridStackOptions } from 'gridstack'
+import { domString, jsString, looseEquals, nullPropertyError, prop, type JsonLike } from '../layout/json.js'
+import { Widget, widgetOf } from './base.js'
 import { framedContent, fullSizeDiv, type GridHost } from './grid-host.js'
+import { subgridOptions, type OptionsObject } from './options.js'
 
-export const SUBGRID_ABOUT = { name: 'Subgrid', info: 'Nestable sub grid widget' } as const
+export { SUBGRID_ABOUT } from './options.js'
 
-/** Upstream compared stored and form values with `!=`, so `2` and `"2"` are the same size. */
-function looselyEqual(a: Json | undefined, b: Json | undefined): boolean {
-  if (a === null || a === undefined || b === null || b === undefined) return (a ?? null) === (b ?? null)
-  if (typeof a === 'object' || typeof b === 'object') return a === b
-  return typeof a === typeof b ? a === b : Number(a) === Number(b)
+/**
+ * Grid options with the stored rows and columns passed as they are (upstream handed GridStack the
+ * form values unconverted); the cell height divides 100 by the row value, as JavaScript does.
+ */
+function subgridGridOptions(rows: JsonLike, columns: JsonLike, accept: (el: Element) => boolean): GridStackOptions {
+  const options: GridStackOptions = {
+    float: true,
+    disableDrag: true,
+    disableResize: true,
+    cellHeight: `${100 / Number(rows)}%`,
+    alwaysShowResizeHandle: true,
+    acceptWidgets: accept
+  }
+  Reflect.set(options, 'column', columns)
+  Reflect.set(options, 'row', rows)
+  return options
+}
+
+/**
+ * The background image URL as upstream read it from the file component's value:
+ * `value.length > 0` then `value[0].url` (throwing for a missing first entry), or undefined when
+ * there is no image.
+ */
+export function backgroundImageUrl(value: JsonLike): string | undefined {
+  if (value === null || value === undefined) return undefined
+  if (!(Number(prop(value, 'length')) > 0)) return undefined
+  const first = prop(value, '0')
+  if (first === null || first === undefined) throw nullPropertyError(first, 'url')
+  return jsString(prop(first, 'url'))
 }
 
 export class SubGridWidget extends Widget {
@@ -25,14 +48,16 @@ export class SubGridWidget extends Widget {
   private readonly sizeDiv: HTMLDivElement
   private gridDiv: HTMLDivElement | null = null
   grid: GridStack | null = null
-  private gridRows: Json | undefined
-  private gridColumns: Json | undefined
-  private widgetsToLoad: WidgetSpec[] | null = null
+  private gridRows: JsonLike
+  private gridColumns: JsonLike
+  /** Stored widgets, loaded on `init()` (upstream `widgets_to_load`). */
+  private widgetsToLoad: JsonLike = undefined
   private gridChanged = false
   private image: HTMLImageElement | null = null
 
-  constructor(options: JsonObject, host: GridHost) {
-    super('WidgetSubGrid', { ...options, form: SUBGRID_FORM, about: SUBGRID_ABOUT }, true, host)
+  constructor(rawOptions: unknown, host: GridHost) {
+    const { options, content } = subgridOptions(rawOptions)
+    super('WidgetSubGrid', options, true, host)
     this.host = host
     this.el.classList.add('grid-stack-item', 'grid-stack-draggable-item', 'grid-stack-sub-grid')
     const { widgetDiv, sizeDiv } = framedContent()
@@ -41,12 +66,11 @@ export class SubGridWidget extends Widget {
     this.el.append(widgetDiv)
     this.hideEditButton()
 
-    const content = options.form_content
-    if (isJsonObject(content) && 'rows' in content && 'columns' in content) {
+    if (content !== null) {
       this.gridRows = content.rows
       this.gridColumns = content.columns
       this.loadGrid()
-      if ('widgets' in options) this.widgetsToLoad = parseWidgets(options.widgets)
+      this.widgetsToLoad = content.widgets
     }
     this.gridChanged = false
   }
@@ -57,9 +81,9 @@ export class SubGridWidget extends Widget {
    */
   override init(): void {
     super.init()
-    if (this.widgetsToLoad !== null && this.grid !== null) {
+    if (this.widgetsToLoad !== null && this.widgetsToLoad !== undefined && this.grid !== null) {
       this.host.loadWidgets(this.grid, this.widgetsToLoad)
-      this.widgetsToLoad = null
+      this.widgetsToLoad = undefined
       this.gridChanged = false
     }
   }
@@ -72,23 +96,12 @@ export class SubGridWidget extends Widget {
     this.gridDiv = fullSizeDiv()
     this.sizeDiv.append(this.gridDiv)
 
-    // Values go to GridStack as stored, like upstream (a numeric string works there too).
-    const rows = Number(this.gridRows)
     this.grid = GridStack.init(
-      {
-        float: true,
-        disableDrag: true,
-        disableResize: true,
-        column: Number(this.gridColumns),
-        row: rows,
-        cellHeight: `${100 / rows}%`,
-        alwaysShowResizeHandle: true,
-        // The menu may not be moved into a sub grid.
-        acceptWidgets: (el: Element) => widgetOf(el)?.type !== 'WidgetMenu'
-      },
+      // The menu may not be moved into a sub grid.
+      subgridGridOptions(this.gridRows, this.gridColumns, (el: Element) => widgetOf(el)?.type !== 'WidgetMenu'),
       this.gridDiv
     )
-    if (widgets !== null) this.host.loadWidgets(this.grid, widgets.map(parseStored))
+    if (widgets !== null) this.host.loadWidgets(this.grid, widgets)
     this.setEdit(this.editEnabled)
     this.grid.on('dropped', (event, previous, dropped) => this.host.widgetDropped(event, previous, dropped))
     this.grid.on('change added removed', () => {
@@ -102,7 +115,7 @@ export class SubGridWidget extends Widget {
     this.host.gridSetEdit(this.grid, enabled)
   }
 
-  override getOptions(): JsonObject {
+  override getOptions(): OptionsObject {
     return { form_content: this.getFormContent(), widgets: this.grid === null ? {} : storedWidgetsJson(this.host, this.grid) }
   }
 
@@ -123,11 +136,11 @@ export class SubGridWidget extends Widget {
   override formChanged(): void {
     super.formChanged()
     const options = this.getFormContent()
-    this.widgetDiv.style.borderColor = cssValue(options.borderColor)
-    this.widgetDiv.style.backgroundColor = cssValue(options.backgroundColor)
+    this.widgetDiv.style.borderColor = domString(options.borderColor)
+    this.widgetDiv.style.backgroundColor = domString(options.backgroundColor)
 
-    const image = options.backgroundImage
-    if (isJsonArray(image) && image.length > 0) {
+    const url = 'backgroundImage' in options ? backgroundImageUrl(options.backgroundImage) : undefined
+    if (url !== undefined) {
       if (this.image === null) {
         this.image = document.createElement('img')
         this.image.setAttribute('width', '100%')
@@ -135,8 +148,7 @@ export class SubGridWidget extends Widget {
         this.image.style.objectFit = 'contain'
         this.widgetDiv.append(this.image)
       }
-      const first: Json | undefined = image[0]
-      this.image.src = isJsonObject(first) ? cssValue(first.url) : cssValue(undefined)
+      this.image.src = url
       this.resize()
       // Upstream added another observer on every form change.
       new ResizeObserver(() => this.resize()).observe(this.image)
@@ -145,7 +157,7 @@ export class SubGridWidget extends Widget {
     if (
       'rows' in options &&
       'columns' in options &&
-      (!looselyEqual(options.rows, this.gridRows) || !looselyEqual(options.columns, this.gridColumns))
+      (!looseEquals(options.rows, this.gridRows) || !looseEquals(options.columns, this.gridColumns))
     ) {
       this.gridRows = options.rows
       this.gridColumns = options.columns
@@ -171,16 +183,8 @@ export class SubGridWidget extends Widget {
   }
 }
 
-/**
- * A stored value as upstream assigned it to a style property or `src` (coerced to a string; the
- * browser ignores invalid style values such as "undefined", keeping the previous one).
- */
-function cssValue(value: Json | undefined): string {
-  return jsString(value)
-}
-
-function storedWidgetsJson(host: GridHost, grid: GridStack): JsonObject {
-  const out: Record<string, JsonObject> = {}
+function storedWidgetsJson(host: GridHost, grid: GridStack): OptionsObject {
+  const out: Record<string, OptionsObject> = {}
   host.getWidgets(grid).forEach((widget, i) => {
     out[i] = { ...widget }
   })
