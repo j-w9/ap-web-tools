@@ -118,3 +118,27 @@ values, 1D curves of every leg, axis ranges and spheres for two missions.
 
 None of these changes a number the port computes differently, so no maths bug needed a deliberate
 divergence.
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light: the default view,
+waypoint-radius spheres, and colour by velocity, acceleration, jerk and none. Every upstream
+control is present (four waypoints, the three parameter groups, the radius and colour options) and
+every field has an accessible name; number fields commit on Enter or blur. No console errors,
+overflow or clipped text in any capture.
+
+Changed (presentation only):
+
+- 3D path: the colour bar is horizontal under the scene and thinner, and the legend is a row
+  above it, so the cube keeps the card width (on phones the vertical bar took half of it). The
+  scene gets its own domain between them, and the default camera keeps Plotly's view direction
+  from further out (eye 1.5, or 2 at phone width) so the cube's corners and tick labels are not
+  cut off. The camera is still kept across recomputes; crossing phone width resets it.
+- 1D S-curves: legend in a row above each plot.
+- Waypoint table: the waypoint description wraps, and on phones the cells and inputs are narrower,
+  so North, East and Up stay in view without scrolling the table sideways. The 3D plot is 500 px
+  tall on phones.
+
+Remaining: when the path is coloured, Plotly draws the "Target" legend swatch black (it cannot
+show a colour scale in a legend), which is hard to see in the dark theme; the colour bar identifies
+the line.

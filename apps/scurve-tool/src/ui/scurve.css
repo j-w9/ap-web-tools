@@ -56,3 +56,30 @@
   color: rgb(var(--g400));
   font-size: 14px;
 }
+
+/* The waypoint description wraps, so the North/East/Up inputs stay in view on narrow screens. */
+.scurve-waypoints td:first-child {
+  min-width: 9em;
+  white-space: normal;
+}
+
+@media (max-width: 560px) {
+  .scurve-waypoints th,
+  .scurve-waypoints td {
+    padding: 8px 6px;
+  }
+
+  .scurve-waypoints td:first-child {
+    min-width: 7em;
+  }
+
+  .scurve-waypoints td.apwt-field input[type='number'] {
+    min-width: 52px;
+    padding-inline: 6px;
+  }
+
+  .scurve-plot3d {
+    height: 500px;
+    min-height: 0;
+  }
+}

@@ -189,3 +189,60 @@ html:not(.light) .gf-map .leaflet-tile-pane {
   gap: 10px;
   margin-top: 14px;
 }
+
+.gf-hint--spaced {
+  margin-top: 12px;
+}
+
+/* "How fences are made": two columns on wide screens, stacked on narrow ones. */
+.gf-about {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+}
+
+.gf-about__title {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(var(--g500));
+}
+
+.gf-tags {
+  margin: 0;
+  padding-left: 18px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgb(var(--g300));
+}
+
+/* Text columns in the feature and fence tables read left to right. */
+.apwt-table th.gf-left,
+.apwt-table td.gf-left {
+  text-align: left;
+}
+
+.apwt-table td.gf-wrap {
+  white-space: normal;
+}
+
+.gf-table {
+  margin-top: 14px;
+}
+
+.gf-file-toggle {
+  margin-top: 12px;
+  cursor: pointer;
+}
+
+/* Phones: leave some page above and below the map to scroll by. */
+@media (max-width: 560px) {
+  .gf-map {
+    height: 60vh;
+    min-height: 320px;
+  }
+}

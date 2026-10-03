@@ -176,3 +176,31 @@ Statuses: **identical** (same result, possibly restructured code), **code-improv
 | A plane log without `SIDS` stops the load                 | `load_log`: `sid_sets.axis[0]`                                                                                           | `load-upstream.test.ts`                                                                                | Only the harmonic notch parameters are copied                                                                                                 |
 | `.param` lines are not trimmed                            | `load_parameters`                                                                                                        | `param-file.test.ts`                                                                                   | Indented lines are ignored                                                                                                                    |
 | A file input named in a `.param` file stops the load      | `load_parameters` → `parameter_set_value("fileItem", …)`                                                                 | `param-file.test.ts`                                                                                   | Lines after it are not applied                                                                                                                |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light: empty, a
+synthetic copter SID log with two runs (`apps/analytic-tune/test-fixtures/copter-sid.bin`, made
+with `buildSidLog` from `src/analysis/test-utils/synthetic.ts`: roll angle and rate roll runs,
+one harmonic notch and one FILT notch) and the second run selected. The run table, rail fields,
+groups, chips and Calculate work from the keyboard. No console errors, overflow or clipped text.
+Compared against `upstream/AnalyticTune/index.html`: every input, graph setting, control loop,
+the run table, Load/Save parameters and the coherence plot are present.
+
+Changed (presentation only):
+
+- Parameter rail groups (INS settings, both notches, notch tracking, loop rate, controller,
+  controller notches) collapse, with the notch state in the heading; a notch that is off starts
+  folded. The two rail cards (analysis, parameters) are now spaced apart.
+- Fields use the same two-column grid and 128 px control width as Filter Tool, including the
+  analysis window and FFT size inputs. Parameter names no longer break mid-word.
+- An unfocused number field shows at most 7 significant digits, so logged float values such as
+  0.20000000298023224 read 0.2 and fit; the full value is shown while editing and is the one used
+  and saved.
+- The control loop chips have a "Control loop" label; plot options wrap as label plus chips;
+  "±180°" and "rad/s" spelt as units; run table units no longer uppercase ("(s)", not "(S)").
+- The flight data card shows an empty state that says what to open instead of empty axes.
+- Rail note now points to the System ID runs card (it said "below the plots").
+
+Remaining: the flight data plot has four y axes, which leaves a narrow plot area on phones; the
+analysis window inputs show the run times unrounded (as upstream fills them, and as calculated).

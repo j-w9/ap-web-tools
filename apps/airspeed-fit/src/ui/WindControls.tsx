@@ -12,7 +12,7 @@ export interface WindControlsProps {
 export function WindControls({ position, onPositionChange, onCommit }: WindControlsProps) {
   const { text, hint } = qReadout(sliderToQ(position))
   return (
-    <label className="apwt-field" style={{ flexWrap: 'wrap' }}>
+    <label className="apwt-field af-slider">
       <span>Wind process noise q</span>
       <input
         type="range"
@@ -20,12 +20,11 @@ export function WindControls({ position, onPositionChange, onCommit }: WindContr
         max={Q_SLIDER.max}
         step={Q_SLIDER.step}
         value={position}
-        style={{ flex: '1 1 240px', accentColor: 'var(--yellow)' }}
         onChange={(e) => onPositionChange(Number(e.target.value))}
         onPointerUp={onCommit}
         onKeyUp={onCommit}
       />
-      <span style={{ fontFamily: 'var(--mono)' }}>
+      <span className="af-slider__value">
         {text} (m/s)/√s{hint && <span className="apwt-section__help"> · {hint}</span>}
       </span>
     </label>

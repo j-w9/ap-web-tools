@@ -55,7 +55,17 @@ function targetTrace(sim: Simulation, colourBy: ColourBy): Partial<PlotData> {
           color: Array.from(values),
           colorscale: 'Viridis',
           showscale: true,
-          colorbar: { title: { text: info.title }, len: 0.75, thickness: 40 }
+          // Horizontal under the scene, so the cube keeps the card width on narrow screens.
+          colorbar: {
+            title: { text: info.title, side: 'top' },
+            orientation: 'h',
+            len: 0.6,
+            thickness: 14,
+            x: 0.5,
+            xanchor: 'center',
+            y: 0,
+            yanchor: 'bottom'
+          }
         }
   // Upstream's hover labels the north coordinate (x) as E and east (y) as N; fixed here.
   const position = 'N = %{x:.0f} m<br>E = %{y:.0f} m<br>U = %{z:.0f} m'
@@ -95,20 +105,30 @@ export function pathTraces(mission: Mission, sim: Simulation, colourBy: ColourBy
   return [waypointTrace(mission), targetTrace(sim, colourBy)]
 }
 
-/** The 3D scene: one shared range on every axis with North reversed, as upstream. */
-export function pathLayout(range: readonly [number, number]): Partial<Layout> {
+/**
+ * The 3D scene: one shared range on every axis with North reversed, as upstream. `narrow` pulls
+ * the camera further back so the tick labels fit a phone-width card.
+ */
+export function pathLayout(range: readonly [number, number], narrow = false): Partial<Layout> {
+  const eye = narrow ? 2 : 1.5
   const [min, max] = range
   const axis = (title: string, r: [number, number]) => ({ title: { text: title }, autorange: false, zeroline: false, range: r })
   return {
-    legend: { itemclick: false, itemdoubleclick: false },
-    margin: { b: 20, l: 20, r: 20, t: 20 },
-    // Keep the user's camera when the path is recomputed.
-    uirevision: 'flight-path',
+    legend: { itemclick: false, itemdoubleclick: false, orientation: 'h', x: 0, xanchor: 'left', y: 1, yanchor: 'top' },
+    margin: { b: 10, l: 10, r: 10, t: 10 },
+    // Keep the user's camera when the path is recomputed (a new default view only when the
+    // page crosses phone width).
+    uirevision: narrow ? 'flight-path-narrow' : 'flight-path',
     scene: {
       xaxis: axis('North (m)', [max, min]),
       yaxis: axis('East (m)', [min, max]),
       zaxis: axis('Up (m)', [min, max]),
-      aspectmode: 'cube'
+      aspectmode: 'cube',
+      // Room for the legend above and the colour bar below.
+      domain: { x: [0, 1], y: [0.16, 0.94] },
+      // Plotly's default view direction from a little further out, so the cube's corners and
+      // tick labels are not cut off.
+      camera: { eye: { x: eye, y: eye, z: eye } }
     }
   }
 }
@@ -139,8 +159,9 @@ export function curveTraces(legs: readonly Curve1D[], key: CurveKey): Partial<Da
 export function curveLayout(key: CurveKey): Partial<Layout> {
   const { title, units } = CURVE_PLOTS[key]
   return {
-    legend: { itemclick: false, itemdoubleclick: false },
-    margin: { b: 50, l: 60, r: 50, t: 20 },
+    // Legend above the plot, so the time axis keeps the full card width on narrow screens.
+    legend: { itemclick: false, itemdoubleclick: false, orientation: 'h', x: 0, xanchor: 'left', y: 1.02, yanchor: 'bottom' },
+    margin: { b: 50, l: 60, r: 20, t: 36 },
     xaxis: { title: { text: 'Time (s)' }, zeroline: false, showline: true, mirror: true },
     yaxis: { title: { text: `${title} (${units})` }, zeroline: false, showline: true, mirror: true },
     showlegend: true

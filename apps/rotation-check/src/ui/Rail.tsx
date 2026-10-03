@@ -32,8 +32,7 @@ export function Rail(p: RailProps) {
     <RailCard>
       <ControlGroup label="Rotation">
         <input
-          className="apwt-input"
-          style={{ width: '100%', boxSizing: 'border-box', margin: '6px 0' }}
+          className="apwt-input rc-search"
           type="search"
           placeholder="Search, e.g. yaw90 or 24"
           aria-label="Search rotations"
@@ -41,8 +40,7 @@ export function Rail(p: RailProps) {
           onChange={(e) => p.onSearchChange(e.target.value)}
         />
         <select
-          className="apwt-input"
-          style={{ width: '100%', boxSizing: 'border-box' }}
+          className="apwt-input rc-list"
           size={12}
           aria-label="Rotation"
           value={String(p.selected.value)}
@@ -72,7 +70,7 @@ export function Rail(p: RailProps) {
             />
           </label>
         ))}
-        <p className="apwt-section__help" style={{ fontSize: 13 }}>
+        <p className="rc-hint">
           {custom
             ? 'Intrinsic 321 order: yaw, then pitch, then roll.'
             : 'Intrinsic 321 order. Choose Custom 1 or Custom 2 to type your own angles.'}

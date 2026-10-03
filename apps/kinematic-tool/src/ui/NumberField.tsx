@@ -60,7 +60,8 @@ export function NumberField({ label, value, onChange, disabled, title, step, min
             setDraft(null)
           }}
         />
-        {suffix && <span className="kt-unit">{suffix}</span>}
+        {/* Always present, so inputs without a unit line up with the others. */}
+        <span className="kt-unit">{suffix ?? ''}</span>
       </span>
     </label>
   )

@@ -58,3 +58,27 @@ for `.bin` logs, the real upstream `JsDataflashParser` on the fixture logs
 | `bin_count` / `total_count` with a negative window                                 | Window size -4                                          | Negative rates; total omits negative bins, `null` if no bin 0     |
 | `array_from_range` with a window of 0 or empty                                     | Window size 0 or empty                                  | `RangeError: Invalid array length`, nothing replotted             |
 | `bin_count` on an empty series                                                     | not reachable (every series has at least one record)    | would throw the same `RangeError`                                 |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light: empty, the SITL
+`.bin`, and a synthetic `.tlog` (`apps/stream-stats/test-fixtures/synthetic.tlog`, 3000 frames
+from two systems and three components, made with `buildTlog` from
+`src/analysis/test-support/tlog-writer.ts`) with a component's message table open. Include chips,
+message tables (`<details>`), the unit chips and the window input work from the keyboard. No
+console errors, overflow or clipped text. Compared against `upstream/StreamStats/index.html`:
+every component field, message include, unit option, plot and the bin total size are present.
+
+Changed (presentation only):
+
+- Component cards: the MAVLink id name moved under the card title (it broke mid-word in the facts
+  list), cards are at least 340 px wide, and the message table is compact so the include column
+  fits; on phones long message names wrap.
+- Composition pie is 420 px tall on phones (720 px elsewhere) instead of leaving half the card
+  empty.
+- Plot right margin 20 px (was 50 with no right axis).
+- Bin total size reads "Total size: 589,824 bytes".
+- Inline styles moved to `ui/stream-stats.css`.
+
+Remaining: many small pie slices of a busy `.bin` have unreadable labels (upstream's pie; hover
+shows them).

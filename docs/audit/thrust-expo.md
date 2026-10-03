@@ -63,3 +63,26 @@ saved file (or the error saving throws).
 | `MOT_THST_HOVER.save` never cleared              | Example, then AUW 100                                         | Hover box empty, file still writes the old estimate       |
 | `param_to_string(NaN)`                           | Empty MOT_PWM_MAX, Save                                       | Error, no file                                            |
 | `loadParamFile` on `paramFile`                   | File line `paramFile,1`                                       | Throws, later lines not applied                           |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light: empty and with
+the example data loaded. The data grid works from the keyboard (arrows, Shift, Tab, Enter to
+edit, Delete, copy and paste) as before; rail fields and buttons are labelled. No console errors,
+overflow or clipped text. Compared against `upstream/ThrustExpo/index.html`: every input, the
+grid, the three plots, Example, Reset and Save are present.
+
+Changed (presentation only):
+
+- Rail fields show the parameter name in mono over a short sentence-case label (as Filter Tool
+  and Analytic Tune), with a 128 px input column; the full description stays the tooltip.
+- Grid selection uses the shell's yellow accent instead of a blue that appears nowhere else.
+- Grid headings keep their units' case: "ESC signal (µs)" rendered as "(MS)" under the uppercase
+  heading style.
+- Legend names in sentence case ("Measured thrust", "Linearised thrust"); the gradient axis
+  title is on two lines (with Δ) so it fits the plot height. The right margin no longer reserves
+  150 px: Plotly widens it for the legend, and on phones the legend sits above the plot.
+- Inline styles moved to `ui/thrust-expo.css`.
+
+Remaining: on phones the SPIN_ARM and SPIN_MIN marker labels on the PWM plot can overlap, as they
+sit close together; the grid scrolls sideways.

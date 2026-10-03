@@ -28,7 +28,7 @@ function rateHover(unit: RateUnit, name: string): string {
   return `<extra></extra>${name}<br>${RATE_LABELS[unit].hover}`
 }
 
-const MARGIN = { b: 50, l: 60, r: 50, t: 20 }
+const MARGIN = { b: 50, l: 60, r: 20, t: 20 }
 
 /** One line per message stream. Upstream draws tlog streams with SVG and DataFlash ones with WebGL. */
 export function rateTraces(stats: StreamStats, format: LogFormat, unit: RateUnit): Partial<Data>[] {

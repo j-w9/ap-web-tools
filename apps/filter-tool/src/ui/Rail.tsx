@@ -14,12 +14,23 @@ import {
   type PidAxis,
   type SimInputName
 } from '../analysis/params.js'
+import { PARAM_METADATA } from '../analysis/metadata.js'
 import { ParamField, PlainField } from './Fields.js'
+import { RailGroup } from './RailGroup.js'
 import { HARMONIC_BIT_LABELS, NOTCH_FIELD_LABELS, NOTCH_STEPS, PID_STEPS, PID_TERM_LABELS, SIM_INPUTS } from './field-specs.js'
 
 export const AXIS_LABELS: Readonly<Record<PidAxis, string>> = { RLL: 'Roll', PIT: 'Pitch', YAW: 'Yaw' }
 
 const NOTCH_TITLES: Readonly<Record<NotchPrefix, string>> = { INS_HNTCH: 'Harmonic notch 1', INS_HNTC2: 'Harmonic notch 2' }
+
+/** A notch's state for its collapsed heading: off, or on with its tracking mode. */
+function notchSummary(inputs: Inputs, prefix: NotchPrefix): string {
+  if (!notchInputsEnabled(inputs, prefix)) return 'Off'
+  const name = notchParam(prefix, 'MODE')
+  const meta = PARAM_METADATA[name]
+  const mode = meta.kind === 'values' ? meta.values.find((o) => o.value === inputs[name])?.label : undefined
+  return mode === undefined ? 'On' : `On · ${mode}`
+}
 
 /** What the parameter file control last did. */
 export type FileStatus = { readonly kind: 'idle' } | { readonly kind: 'loaded'; readonly name: string; readonly count: number }
@@ -58,7 +69,13 @@ export function Rail(p: RailProps) {
   const notchGroup = (prefix: NotchPrefix) => {
     const enabled = notchInputsEnabled(inputs, prefix)
     return (
-      <ControlGroup key={prefix} label={NOTCH_TITLES[prefix]}>
+      <RailGroup
+        key={prefix}
+        label={NOTCH_TITLES[prefix]}
+        summary={notchSummary(inputs, prefix)}
+        // A notch that is off starts folded; its Enable field is one click away.
+        defaultOpen={enabled}
+      >
         {NOTCH_FIELDS.map((field) => {
           const name = notchParam(prefix, field)
           return (
@@ -75,7 +92,7 @@ export function Rail(p: RailProps) {
           )
         })}
         {!enabled && <p className="ft-note">Set {prefix}_ENABLE to 1 to edit this notch.</p>}
-      </ControlGroup>
+      </RailGroup>
     )
   }
 
@@ -121,7 +138,7 @@ export function Rail(p: RailProps) {
         </p>
       </ControlGroup>
 
-      <ControlGroup label="Gyro">
+      <RailGroup label="Gyro">
         {plain('GyroSampleRate')}
         <ParamField
           name="INS_GYRO_FILTER"
@@ -130,13 +147,13 @@ export function Rail(p: RailProps) {
           step={0.1}
           onChange={onInput}
         />
-      </ControlGroup>
+      </RailGroup>
 
       {notchGroup('INS_HNTCH')}
       {notchGroup('INS_HNTC2')}
 
       {sources.size > 0 && (
-        <ControlGroup label="Tracking inputs">
+        <RailGroup label="Tracking inputs">
           <p className="ft-note">Where the tracking notches sit for this simulation.</p>
           {sources.has('throttle') && (
             <>
@@ -153,15 +170,15 @@ export function Rail(p: RailProps) {
           )}
           {sources.has('rpm') && (
             <>
-              <p className="ft-subhead">RPM sensor</p>
+              <p className="ft-subhead">RPM/EFI based</p>
               {plain('RPM1')}
               {plain('RPM2')}
             </>
           )}
-        </ControlGroup>
+        </RailGroup>
       )}
 
-      <ControlGroup label="Rate controller">
+      <RailGroup label="Rate controller" summary={AXIS_LABELS[p.axis]}>
         <ParamField
           name="SCHED_LOOP_RATE"
           label="Loop rate"
@@ -170,6 +187,7 @@ export function Rail(p: RailProps) {
           freeValues
           onChange={onInput}
         />
+        <p className="ft-subhead">Axis</p>
         <RadioChips
           name="pid-axis"
           value={p.axis}
@@ -189,7 +207,7 @@ export function Rail(p: RailProps) {
             />
           )
         })}
-      </ControlGroup>
+      </RailGroup>
     </RailCard>
   )
 }

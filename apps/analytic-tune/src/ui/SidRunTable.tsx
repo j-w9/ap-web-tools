@@ -19,8 +19,12 @@ export function SidRunTable({ runs, selected, onSelect }: SidRunTableProps) {
             <th>Num</th>
             <th>Use</th>
             <th>SID axis</th>
-            <th>Start time (s)</th>
-            <th>End time (s)</th>
+            <th>
+              Start time <span className="at-unit">(s)</span>
+            </th>
+            <th>
+              End time <span className="at-unit">(s)</span>
+            </th>
           </tr>
         </thead>
         <tbody>

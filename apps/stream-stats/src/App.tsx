@@ -186,13 +186,9 @@ export function App() {
         }
       >
         {loaded?.log.kind === 'bin' && unit === 'bits' && (
-          <p className="apwt-section__help">Total size: {loaded.byteLength} Bytes</p>
+          <p className="apwt-section__help">Total size: {loaded.byteLength.toLocaleString()} bytes</p>
         )}
-        {!stats ? (
-          empty
-        ) : (
-          <PlotlyChart className="apwt-plot" style={{ height: 720 }} data={composition} layout={COMPOSITION_LAYOUT} />
-        )}
+        {!stats ? empty : <PlotlyChart className="apwt-plot ss-pie" data={composition} layout={COMPOSITION_LAYOUT} />}
       </Section>
     </ToolPage>
   )

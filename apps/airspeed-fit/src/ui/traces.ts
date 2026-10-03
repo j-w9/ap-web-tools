@@ -310,11 +310,22 @@ export function windTraces(
 
 export function windLayout(drift: number): Partial<Layout> {
   return {
-    title: { text: `Estimated wind vs onboard EKF wind (drift ${fmt(drift)} m/s)` },
+    // Two lines so the title fits a phone-width plot.
+    title: { text: `Estimated wind vs onboard EKF wind<br>(drift ${fmt(drift)} m/s)`, font: { size: 14 } },
     xaxis: WINDOW_AXIS,
     yaxis: { title: { text: 'Wind component (m/s)' }, ...AXIS_FRAME, zeroline: true },
     showlegend: true,
-    legend: { itemclick: 'toggle', itemdoubleclick: 'toggleothers', orientation: 'h' },
-    margin: { b: 50, l: 60, r: 30, t: 40 }
+    // Legend at the foot of the figure, below the time axis title, with room to wrap on phones.
+    legend: {
+      itemclick: 'toggle',
+      itemdoubleclick: 'toggleothers',
+      orientation: 'h',
+      x: 0,
+      xanchor: 'left',
+      yref: 'container',
+      y: 0,
+      yanchor: 'bottom'
+    },
+    margin: { b: 110, l: 60, r: 30, t: 60 }
   }
 }

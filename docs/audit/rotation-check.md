@@ -36,3 +36,23 @@ Port: `apps/rotation-check/`. Oracle tests load `Matrix3.js` and the inline scri
 | --------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
 | `update()` `parseFloat(roll_in.value)`        | Custom 1, empty the Roll box | Matrix NaN, rotated arrows disappear                                                                |
 | `index.html` label `38: Yaw293Pitch68Roll180` | Select 38                    | Label says Roll180 though the rotation (and upstream's special-cased angles) is roll 90; label kept |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light: rotation 0, a
+standard rotation (10, Yaw90Roll180), a search ("pitch90") and Custom 1 with typed angles. The
+list, search, angle boxes, plot and matrix all work from the keyboard (the list box takes arrow
+keys; the angle boxes are labelled). No console errors, overflow or clipped text in any capture.
+
+Changed (presentation only):
+
+- Plot legend in a row above the scene, which gets its own domain under it; on phones the
+  legend covered the right half of the scene.
+- Plot height follows the width (360 to 640 px) instead of a fixed 640 px, and the camera keeps
+  upstream's view direction from 1.2 times further out (eye -1.5, 1.5, 1.5) so the axis titles are
+  not cut off on narrow cards.
+- Parameter value shown as the number next to its `ROTATION_...` badge (the parentheses around the
+  badge read oddly); inline styles moved to `ui/rotation.css`.
+
+Remaining: upstream's pure blue (X) and its faded reference version have low contrast on the dark
+background; the colours are kept as upstream's.

@@ -18,8 +18,6 @@ export interface MavlinkSystemsProps {
   onToggleMessage: (key: MessageKey, include: boolean) => void
 }
 
-const GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 } as const
-
 function Signed({ signed }: { signed: boolean }) {
   return <span className={signed ? 'apwt-badge' : 'apwt-badge apwt-badge--gray'}>{signed ? 'Signed' : 'Unsigned'}</span>
 }
@@ -34,18 +32,17 @@ function ComponentCard({
   const included = !selection.excludedComponents.has(key)
   const multiVersion = component.versions.size > 1
   return (
-    <div className="apwt-card" style={{ padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <strong>Component {component.componentId}</strong>
+    <div className="apwt-card ss-component">
+      <div className="ss-component__head">
+        <div className="ss-component__title">
+          <strong>Component {component.componentId}</strong>
+          <span className="ss-component__name">{mavComponentName(component.componentId) ?? 'Unknown'}</span>
+        </div>
         <Chip type="checkbox" checked={included} onChange={(on) => onToggleComponent(key, on)}>
           Include
         </Chip>
       </div>
       <dl className="apwt-facts">
-        <div>
-          <dt>ID name</dt>
-          <dd>{mavComponentName(component.componentId) ?? 'Unknown'}</dd>
-        </div>
         <div>
           <dt>MAVLink version</dt>
           <dd>{versionsLabel(component.versions)}</dd>
@@ -63,10 +60,10 @@ function ComponentCard({
           </dd>
         </div>
       </dl>
-      <details style={{ marginTop: 12 }}>
+      <details className="ss-messages">
         <summary>Messages ({component.messages.length})</summary>
-        <div className="apwt-table-wrap" style={{ marginTop: 8 }}>
-          <table className="apwt-table">
+        <div className="apwt-table-wrap">
+          <table className="apwt-table ss-messages__table">
             <thead>
               <tr>
                 <th>Message</th>
@@ -118,11 +115,9 @@ export function MavlinkSystems({ tlog, ...rest }: MavlinkSystemsProps) {
   return (
     <>
       {[...systems].map(([systemId, components]) => (
-        <div key={systemId} style={{ marginBottom: 20 }}>
-          <h3 className="apwt-label" style={{ margin: '0 0 10px' }}>
-            System ID {systemId}
-          </h3>
-          <div style={GRID}>
+        <div key={systemId} className="ss-system">
+          <h3 className="apwt-label">System ID {systemId}</h3>
+          <div className="ss-system__grid">
             {components.map((c) => (
               <ComponentCard key={c.componentId} component={c} {...rest} />
             ))}

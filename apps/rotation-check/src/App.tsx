@@ -7,6 +7,7 @@ import { MatrixTable, eulerText } from './ui/MatrixPanel.js'
 import { Rail } from './ui/Rail.js'
 import { usePlotTheme } from './ui/usePlotTheme.js'
 import { frameTraces, sceneLayout } from './ui/traces.js'
+import './ui/rotation.css'
 
 type AngleText = Readonly<Record<EulerAxis, string>>
 
@@ -71,16 +72,17 @@ export function App() {
         title="Orientation"
         help="The faded arrows are the reference frame, the solid arrows the rotated one: forward (X) blue, right (Y) red, down (Z) green. Drag to orbit."
       >
-        <PlotlyChart className="apwt-plot" style={{ height: 640 }} data={traces} layout={layout} config={PLOT_CONFIG} />
+        <PlotlyChart className="apwt-plot rc-plot" data={traces} layout={layout} config={PLOT_CONFIG} />
       </Section>
 
       <Section title="Rotation matrix" help="Each column is a rotated body axis written in the reference frame.">
         <MatrixTable matrix={resolved.matrix} />
-        <dl className="apwt-facts" style={{ marginTop: 16 }}>
+        <dl className="apwt-facts rc-facts">
           <div>
             <dt>Parameter value</dt>
-            <dd>
-              {selected.value} (<code>ROTATION_{selected.id}</code>)
+            <dd className="rc-param">
+              <span>{selected.value}</span>
+              <code>ROTATION_{selected.id}</code>
             </dd>
           </div>
           <div>

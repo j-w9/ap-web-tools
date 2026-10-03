@@ -21,6 +21,7 @@ export interface LoopChipsProps {
 export function LoopChips({ vehicle, value, onChange }: LoopChipsProps) {
   return (
     <div className="at-loops">
+      <ChipLabel>Control loop</ChipLabel>
       <RadioChips
         name="control-loop"
         value={value}
@@ -50,45 +51,51 @@ export interface ScaleChipsProps {
 export function ScaleChips(p: ScaleChipsProps) {
   return (
     <>
-      <ChipLabel>Gain</ChipLabel>
-      <RadioChips
-        name="gain-scale"
-        value={p.gain}
-        onChange={p.onGainChange}
-        options={[
-          { value: 'dB', label: 'dB' },
-          { value: 'linear', label: 'Linear' }
-        ]}
-      />
-      <ChipLabel>Phase</ChipLabel>
-      <RadioChips
-        name="phase-scale"
-        value={p.phase}
-        onChange={p.onPhaseChange}
-        options={[
-          { value: 'wrapped', label: '±180' },
-          { value: 'unwrapped', label: 'Unwrapped' }
-        ]}
-      />
-      <ChipLabel>Frequency</ChipLabel>
-      <RadioChips
-        name="frequency-axis"
-        value={p.frequencyAxis}
-        onChange={p.onFrequencyAxisChange}
-        options={[
-          { value: 'log', label: 'Log' },
-          { value: 'linear', label: 'Linear' }
-        ]}
-      />
-      <RadioChips
-        name="frequency-unit"
-        value={p.frequencyUnit}
-        onChange={p.onFrequencyUnitChange}
-        options={[
-          { value: 'Hz', label: 'Hz' },
-          { value: 'rad/s', label: 'Rad/s' }
-        ]}
-      />
+      <span className="at-tool">
+        <ChipLabel>Gain</ChipLabel>
+        <RadioChips
+          name="gain-scale"
+          value={p.gain}
+          onChange={p.onGainChange}
+          options={[
+            { value: 'dB', label: 'dB' },
+            { value: 'linear', label: 'Linear' }
+          ]}
+        />
+      </span>
+      <span className="at-tool">
+        <ChipLabel>Phase</ChipLabel>
+        <RadioChips
+          name="phase-scale"
+          value={p.phase}
+          onChange={p.onPhaseChange}
+          options={[
+            { value: 'wrapped', label: '±180°' },
+            { value: 'unwrapped', label: 'Unwrapped' }
+          ]}
+        />
+      </span>
+      <span className="at-tool">
+        <ChipLabel>Frequency</ChipLabel>
+        <RadioChips
+          name="frequency-axis"
+          value={p.frequencyAxis}
+          onChange={p.onFrequencyAxisChange}
+          options={[
+            { value: 'log', label: 'Log' },
+            { value: 'linear', label: 'Linear' }
+          ]}
+        />
+        <RadioChips
+          name="frequency-unit"
+          value={p.frequencyUnit}
+          onChange={p.onFrequencyUnitChange}
+          options={[
+            { value: 'Hz', label: 'Hz' },
+            { value: 'rad/s', label: 'rad/s' }
+          ]}
+        />
+      </span>
     </>
   )
 }

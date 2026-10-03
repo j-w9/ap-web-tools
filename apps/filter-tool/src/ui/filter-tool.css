@@ -1,33 +1,39 @@
-/* Parameter fields: the ArduPilot name in mono over a short plain label. */
-.ft-param {
-  align-items: flex-start;
+/* Parameter fields: the ArduPilot name in mono over a short plain label, beside a control of one
+   fixed width so every input in the rail lines up. */
+.apwt-field.ft-param {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 128px;
+  align-items: center;
+  gap: 12px;
 }
 
 .ft-param__name {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: flex-start;
+  gap: 3px;
   min-width: 0;
 }
 
 .ft-param__name code {
-  align-self: flex-start;
   font-size: 11px;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .ft-param__name small {
   font-size: 13px;
+  line-height: 1.3;
   color: rgb(var(--g400));
 }
 
-.ft-param input,
-.ft-param select {
-  flex: none;
+/* Selects hold long option labels: a size smaller so more of them shows. */
+.apwt-field.ft-param select {
+  font-size: 12px;
 }
 
+.apwt-field.ft-param input,
 .apwt-field.ft-param select {
-  width: 150px;
+  width: 100%;
 }
 
 .ft-bits {
@@ -68,4 +74,77 @@
 
 .apwt-plot.ft-bode {
   height: 640px;
+}
+
+/* Collapsible rail groups (RailGroup). */
+.rail-group > summary {
+  list-style: none;
+}
+
+.rail-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rail-group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.rail-group__head:focus-visible {
+  outline: 2px solid rgba(250, 204, 21, 0.6);
+  outline-offset: 4px;
+}
+
+.rail-group__head .apwt-label {
+  margin: 0;
+}
+
+.rail-group__head:hover .apwt-label {
+  color: rgb(var(--g300));
+}
+
+.rail-group__summary {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgb(var(--g400));
+  text-align: right;
+}
+
+.rail-group__chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  color: rgb(var(--g500));
+  transition: transform 0.15s;
+}
+
+.rail-group__summary + .rail-group__chevron {
+  margin-left: 0;
+}
+
+.rail-group:not([open]) .rail-group__chevron {
+  transform: rotate(-90deg);
+}
+
+.rail-group__body {
+  margin-top: 10px;
+}
+
+/* A section toolbar item: a chip label kept on one line with its chips. */
+.ft-tool {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+@media (max-width: 560px) {
+  .apwt-plot.ft-bode {
+    height: 560px;
+  }
 }

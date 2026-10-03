@@ -319,7 +319,11 @@ export function App() {
         title="Flight data"
         help="Zoom into part of the flight to set the analysis window, then Calculate. Turns or a loiter at steady airspeed fit best."
       >
-        <PlotlyChart className="apwt-plot" data={flightTraces} layout={flightLayout} onRelayout={onFlightRelayout} />
+        {log ? (
+          <PlotlyChart className="apwt-plot" data={flightTraces} layout={flightLayout} onRelayout={onFlightRelayout} />
+        ) : (
+          <div className="apwt-empty">Open a log to see its flight data</div>
+        )}
       </Section>
 
       <Section title="Airspeed sensors" help="Every airspeed sensor in the log is calibrated against one shared wind.">
@@ -349,7 +353,7 @@ export function App() {
 
           <Section
             title="Calibration RMS error"
-            help="RMS airspeed error before and after, per sensor; the narrow dark bar is the mean error (bias). Lower is better."
+            help="RMS airspeed error before and after, per sensor; the narrow inner bar is the mean error (bias). Lower is better."
           >
             {model ? <PlotlyChart className="apwt-plot apwt-plot--short" data={rmsData} layout={RMS_LAYOUT} /> : noFit}
           </Section>

@@ -1,0 +1,82 @@
+[
+  {
+    "place_id": 279298054,
+    "osm_type": "node",
+    "osm_id": 7440484,
+    "lat": "51.4033624",
+    "lon": "-0.5661711",
+    "class": "place",
+    "type": "village",
+    "display_name": "Virginia Water, Runnymede, Surrey, England, GU25 4DL, United Kingdom",
+    "boundingbox": [
+      "51.3833624",
+      "51.4233624",
+      "-0.5861711",
+      "-0.5461711"
+    ]
+  },
+  {
+    "place_id": 280034403,
+    "osm_type": "node",
+    "osm_id": 1785378837,
+    "lat": "51.4015235",
+    "lon": "-0.5620827",
+    "class": "railway",
+    "type": "station",
+    "display_name": "Virginia Water, Christchurch Road, Virginia Water, Runnymede, Surrey, England, GU25 4BE, United Kingdom",
+    "boundingbox": [
+      "51.3965235",
+      "51.4065235",
+      "-0.5670827",
+      "-0.5570827"
+    ]
+  },
+  {
+    "place_id": 279308228,
+    "osm_type": "relation",
+    "osm_id": 2253671,
+    "lat": "51.4118901",
+    "lon": "-0.6028253",
+    "class": "water",
+    "type": "lake",
+    "display_name": "Virginia Water, Egham Wick, Englefield Green, Runnymede, Surrey, England, United Kingdom",
+    "boundingbox": [
+      "51.4075096",
+      "51.4162948",
+      "-0.6299094",
+      "-0.5907175"
+    ]
+  },
+  {
+    "place_id": 298033656,
+    "osm_type": "node",
+    "osm_id": 3096586413,
+    "lat": "6.4017200",
+    "lon": "-10.7665300",
+    "class": "place",
+    "type": "hamlet",
+    "display_name": "Virginia Water, St. Paul River, Montserrado County, 1001, Liberia",
+    "boundingbox": [
+      "6.3817200",
+      "6.4217200",
+      "-10.7865300",
+      "-10.7465300"
+    ]
+  },
+  {
+    "place_id": 272552235,
+    "osm_type": "relation",
+    "osm_id": 7349667,
+    "lat": "54.8714563",
+    "lon": "-1.5479273",
+    "class": "natural",
+    "type": "water",
+    "display_name": "Virginia Water, North Lodge, Durham, County Durham, North East, England, United Kingdom",
+    "boundingbox": [
+      "54.8707942",
+      "54.8721030",
+      "-1.5503463",
+      "-1.5473100"
+    ]
+  }
+]

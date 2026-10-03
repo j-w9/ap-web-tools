@@ -64,22 +64,22 @@ export function FencePreview({ polygon, label, fence, downloads, onGenerate, onD
         </div>
       ) : (
         <>
-          <div className="apwt-table-wrap" style={{ marginTop: 14 }}>
+          <div className="apwt-table-wrap gf-table">
             <table className="apwt-table">
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left' }}>Item</th>
-                  <th style={{ textAlign: 'left' }}>Type</th>
-                  <th style={{ textAlign: 'left' }}>Role</th>
+                  <th className="gf-left">Item</th>
+                  <th className="gf-left">Type</th>
+                  <th className="gf-left">Role</th>
                   <th>Size</th>
                 </tr>
               </thead>
               <tbody>
                 {fence.map((item, i) => (
                   <tr key={i}>
-                    <td style={{ textAlign: 'left' }}>{i + 1}</td>
-                    <td style={{ textAlign: 'left' }}>{KIND_LABEL[item.kind]}</td>
-                    <td style={{ textAlign: 'left' }}>{ROLE_LABEL[item.role]}</td>
+                    <td className="gf-left">{i + 1}</td>
+                    <td className="gf-left">{KIND_LABEL[item.kind]}</td>
+                    <td className="gf-left">{ROLE_LABEL[item.role]}</td>
                     <td>{itemSize(item)}</td>
                   </tr>
                 ))}
@@ -101,9 +101,7 @@ export function FencePreview({ polygon, label, fence, downloads, onGenerate, onD
                 </p>
               )}
               <details>
-                <summary className="gf-hint" style={{ marginTop: 12, cursor: 'pointer' }}>
-                  Show file
-                </summary>
+                <summary className="gf-hint gf-file-toggle">Show file</summary>
                 <pre className="gf-file">{text}</pre>
               </details>
             </>

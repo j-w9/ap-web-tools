@@ -134,3 +134,33 @@ Statuses: **identical** (same result, possibly restructured code), **code-improv
 | `filters.js` `load_parameters` does not trim                      | Load a file with indented lines or `NAME,`                               | Indented lines are ignored (first field empty); `NAME,` empties the field (`NaN`); `5.`, `+1`, `Infinity` empty a number field; any element id can be set, including `GyroSampleRate`, `Throttle`, `RPM1`. Reproduced (`parseParamFile`). |
 | `filters.js` `load()`                                             | Link with `Throttle=Infinity`                                            | The whole URL is lowercased, so `infinity` is not a number and is skipped. Reproduced.                                                                                                                                                    |
 | `filters.js` `unwrap` of an empty array                           | Gyro Sample Rate 0                                                       | Returns `[undefined]` (writes index 0 of a length-0 array). The port's `unwrapPhase` returns `[]`; with no x values neither plots anything, so the plot is the same.                                                                      |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light: the defaults, and
+a share link with both harmonic notches on (throttle and ESC tracking), individual filters and
+terms shown and the PID plot including the gyro filters. Every rail field, bitmask chip, plot option
+and the collapsible groups work from the keyboard (groups are native `<details>`; chips are
+labelled radio and check inputs). No console errors, overflow or clipped text in any capture.
+Compared against `upstream/FilterTool/index.html`: every input, plot option, Load, Save and the
+link are present.
+
+Changed (presentation only):
+
+- Rail groups (gyro, each notch, tracking inputs, rate controller) collapse. Each heading shows
+  its state (a notch "Off" or "On · Throttle", the PID axis) so a folded rail still reads. A notch
+  that is off when the page opens starts folded; groups never open or close on their own after
+  that.
+- Parameter fields are a two-column grid: name (mono, never broken mid-word) over a short label,
+  and one 128 px control column, so every input and select lines up. Selects use 12 px text so
+  more of each option shows.
+- An unfocused number field shows at most 7 significant digits (float precision); the full value
+  is shown while editing and is the one calculated with, linked and saved.
+- Plot options are grouped as label plus chips that wrap together; the components chip has an
+  "Options" label; the axis chips in the rail have an "Axis" label; "RPM sensor" heading renamed
+  "RPM/EFI based" as upstream and Analytic Tune.
+- Bode plots are 560 px tall on phones (640 px elsewhere); the legend moves above the plot on
+  narrow cards (shell).
+
+Remaining: native `<select>` controls truncate long option labels (e.g. "3: ESC Telemetry") at
+the rail width; the full label shows when the list is open.

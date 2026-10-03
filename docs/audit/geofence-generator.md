@@ -92,3 +92,25 @@ Statuses: **identical** (same result, possibly restructured code), **presentatio
 | `GeofenceGenerator.js` `apply_crop`                                                                   | Search an area containing an unclosed `natural=water` way (osmtogeojson makes it a LineString), then press Crop.                                                              | Turf `intersect` throws on the LineString; the map is left with only the features clipped before it, and the error alert appears.                                                                                                                                                                                   |
 | `GeofenceGenerator.js` `request`                                                                      | Search, add a crop, then search again while offline.                                                                                                                          | The map is cleared and the crop removed before the fetch fails, but `features` keeps the previous results, so pressing Crop brings the old water bodies back.                                                                                                                                                       |
 | `GeofenceGenerator.js` `wrap_180`                                                                     | `wrap_180(-200)` is `-200`.                                                                                                                                                   | `%` keeps the dividend's sign, so angles below -180 are not wrapped; harmless at lake scale, reproduced.                                                                                                                                                                                                            |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light: the empty map, a
+place search, the water bodies found, a selected fence with the file shown, and a crop. The
+Overpass and Nominatim answers are recorded for Virginia Water (Surrey) in
+`apps/geofence-generator/test-fixtures/` and served with `page.route`, so captures do not depend
+on those services; tiles are live. The OSM attribution stays visible and legible in both themes
+and the zoom control does not overlap it. Keyboard: place results are buttons, the table rows
+have Select buttons, and the Leaflet map is focusable with its own keyboard panning. No console
+errors, overflow or clipped text in any capture.
+
+Changed (presentation only):
+
+- The rail holds only controls (find a place, search, crop). The simplification limits and the
+  OSM tags searched moved to a "How fences are made" section after the results, so on phones the
+  map is no longer below a long reference list.
+- Map height is 60 vh (at least 320 px) on phones, leaving page above and below to scroll by.
+- Inline styles in the tables and the file toggle moved to classes in `ui/map.css`.
+
+Remaining: on phones the water-body and fence tables scroll sideways inside their frame (the
+shell's table pattern). Upstream's "Please Zoom in" text is kept as upstream wrote it.

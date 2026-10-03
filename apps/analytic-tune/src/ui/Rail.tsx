@@ -85,7 +85,7 @@ export function AnalysisRail(p: AnalysisRailProps) {
             onChange={(e) => p.onTimeRangeChange([p.timeRange[0], Number(e.target.value)])}
           />
         </label>
-        <p className="at-note">Pick a run below the plots, or zoom the flight data plot.</p>
+        <p className="at-note">Pick a run in System ID runs, or zoom the flight data plot.</p>
       </ControlGroup>
 
       <ControlGroup label="FFT">

@@ -47,7 +47,9 @@ export function ParamPanel({ suggestions, names, warnings, onSave, confirm, onCo
                     </td>
                   </>
                 ) : (
-                  <td colSpan={3}>not enough valid samples in the selected window</td>
+                  <td colSpan={3} className="af-wrap">
+                    Not enough valid samples in the selected window
+                  </td>
                 )}
               </tr>
             ))}
@@ -59,18 +61,16 @@ export function ParamPanel({ suggestions, names, warnings, onSave, confirm, onCo
           {w}
         </p>
       ))}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+      <div className="af-actions">
         <button type="button" className="apwt-btn apwt-btn--primary" disabled={confirm !== null} onClick={onSave}>
           <Download />
           Save parameters
         </button>
       </div>
       {confirm !== null && (
-        <div role="alertdialog" aria-label="Confirm save" style={{ marginTop: 12 }}>
-          <p className="apwt-error" style={{ whiteSpace: 'pre-wrap' }}>
-            {confirm}
-          </p>
-          <div style={{ display: 'flex', gap: 8 }}>
+        <div role="alertdialog" aria-label="Confirm save" className="af-confirm">
+          <p className="apwt-error af-pre">{confirm}</p>
+          <div className="af-actions">
             <button type="button" className="apwt-btn apwt-btn--primary" onClick={() => onConfirm(true)}>
               OK
             </button>
@@ -80,11 +80,7 @@ export function ParamPanel({ suggestions, names, warnings, onSave, confirm, onCo
           </div>
         </div>
       )}
-      {saveStatus && (
-        <p className="apwt-section__help" style={{ whiteSpace: 'pre-wrap' }}>
-          {saveStatus}
-        </p>
-      )}
+      {saveStatus && <p className="apwt-section__help af-pre">{saveStatus}</p>}
     </>
   )
 }

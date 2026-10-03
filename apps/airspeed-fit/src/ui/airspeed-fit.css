@@ -1,0 +1,45 @@
+/* Small explanatory text in the rail, as in the other tools. */
+.af-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g400));
+}
+
+.af-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.af-confirm {
+  margin-top: 12px;
+}
+
+.af-pre {
+  white-space: pre-wrap;
+}
+
+.apwt-table td.af-wrap {
+  white-space: normal;
+  text-align: left;
+}
+
+.af-swatch {
+  margin-right: 6px;
+}
+
+/* Wind process noise: label, slider and readout, wrapping onto two lines on phones. */
+.apwt-field.af-slider {
+  flex-wrap: wrap;
+}
+
+.af-slider input[type='range'] {
+  flex: 1 1 240px;
+  accent-color: var(--yellow);
+}
+
+.af-slider__value {
+  font-family: var(--mono);
+}

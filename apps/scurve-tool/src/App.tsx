@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { PlotlyChart, linkAutorangeReset, linkAxisRanges, type PlotlyHTMLElement } from '@apwt/plot'
 import {
   Chip,
@@ -50,6 +50,20 @@ const CURVE_LAYOUTS: Readonly<Record<CurveKey, ReturnType<typeof curveLayout>>> 
   accel: curveLayout('accel'),
   jerk: curveLayout('jerk'),
   snap: curveLayout('snap')
+}
+
+const NARROW = '(max-width: 560px)'
+
+/** Whether the page is phone width, following window resizes. */
+function useNarrow(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const media = window.matchMedia(NARROW)
+      media.addEventListener('change', onChange)
+      return () => media.removeEventListener('change', onChange)
+    },
+    () => window.matchMedia(NARROW).matches
+  )
 }
 
 function isDefault(params: ParamValues): boolean {
@@ -118,9 +132,10 @@ export function App() {
     [showRadius, simInputs]
   )
   const pathData = useMemo(() => [...path, ...spheres], [path, spheres])
+  const narrow = useNarrow()
   const layout3d = useMemo(
-    () => pathLayout(axisRange(simInputs?.mission ?? inputs.mission, radiusM)),
-    [simInputs, inputs, radiusM]
+    () => pathLayout(axisRange(simInputs?.mission ?? inputs.mission, radiusM), narrow),
+    [simInputs, inputs, radiusM, narrow]
   )
   const curveData = useMemo((): Readonly<Record<CurveKey, ReturnType<typeof curveTraces>>> => {
     const legs = sim?.legs ?? []

@@ -21,55 +21,64 @@ export function BodeChips<S extends BodeSettings>({
 }: BodeChipsProps<S>) {
   return (
     <>
-      <ChipLabel>Magnitude</ChipLabel>
-      <RadioChips
-        name={`${id}-magnitude`}
-        value={settings.magnitude}
-        onChange={(magnitude) => onChange({ ...settings, magnitude })}
-        options={[
-          { value: 'dB', label: 'dB' },
-          { value: 'linear', label: 'Linear' }
-        ]}
-      />
-      <ChipLabel>Phase</ChipLabel>
-      <RadioChips
-        name={`${id}-phase`}
-        value={settings.phase}
-        onChange={(phase) => onChange({ ...settings, phase })}
-        options={[
-          { value: 'unwrapped', label: 'Unwrapped' },
-          { value: 'wrapped', label: '±180°' }
-        ]}
-      />
-      <ChipLabel>Frequency</ChipLabel>
-      <RadioChips
-        name={`${id}-freq-axis`}
-        value={settings.frequencyAxis}
-        onChange={(frequencyAxis) => onChange({ ...settings, frequencyAxis })}
-        options={[
-          { value: 'log', label: 'Log' },
-          { value: 'linear', label: 'Linear' }
-        ]}
-      />
-      <RadioChips
-        name={`${id}-freq-unit`}
-        value={settings.frequencyUnit}
-        onChange={(frequencyUnit) => onChange({ ...settings, frequencyUnit })}
-        options={[
-          { value: 'Hz', label: 'Hz' },
-          { value: 'RPM', label: 'RPM' }
-        ]}
-      />
-      <div className="apwt-chips">
-        <Chip
-          type="checkbox"
-          checked={settings.showComponents}
-          title={componentsUnavailable}
-          onChange={(showComponents) => onChange({ ...settings, showComponents })}
-        >
-          {componentsLabel}
-        </Chip>
-      </div>
+      <span className="ft-tool">
+        <ChipLabel>Magnitude</ChipLabel>
+        <RadioChips
+          name={`${id}-magnitude`}
+          value={settings.magnitude}
+          onChange={(magnitude) => onChange({ ...settings, magnitude })}
+          options={[
+            { value: 'dB', label: 'dB' },
+            { value: 'linear', label: 'Linear' }
+          ]}
+        />
+      </span>
+      <span className="ft-tool">
+        <ChipLabel>Phase</ChipLabel>
+        <RadioChips
+          name={`${id}-phase`}
+          value={settings.phase}
+          onChange={(phase) => onChange({ ...settings, phase })}
+          options={[
+            { value: 'unwrapped', label: 'Unwrapped' },
+            { value: 'wrapped', label: '±180°' }
+          ]}
+        />
+      </span>
+      <span className="ft-tool">
+        <ChipLabel>Frequency</ChipLabel>
+        <RadioChips
+          name={`${id}-freq-axis`}
+          value={settings.frequencyAxis}
+          onChange={(frequencyAxis) => onChange({ ...settings, frequencyAxis })}
+          options={[
+            { value: 'log', label: 'Log' },
+            { value: 'linear', label: 'Linear' }
+          ]}
+        />
+        <RadioChips
+          name={`${id}-freq-unit`}
+          value={settings.frequencyUnit}
+          onChange={(frequencyUnit) => onChange({ ...settings, frequencyUnit })}
+          options={[
+            { value: 'Hz', label: 'Hz' },
+            { value: 'RPM', label: 'RPM' }
+          ]}
+        />
+      </span>
+      <span className="ft-tool">
+        <ChipLabel>Options</ChipLabel>
+        <div className="apwt-chips">
+          <Chip
+            type="checkbox"
+            checked={settings.showComponents}
+            title={componentsUnavailable}
+            onChange={(showComponents) => onChange({ ...settings, showComponents })}
+          >
+            {componentsLabel}
+          </Chip>
+        </div>
+      </span>
     </>
   )
 }
@@ -82,7 +91,7 @@ export interface FilteringChipsProps {
 /** Whether the PID plot includes the gyro filters (upstream "Filtering: Pre / Post"). */
 export function FilteringChips({ settings, onChange }: FilteringChipsProps) {
   return (
-    <>
+    <span className="ft-tool">
       <ChipLabel>Gyro filters</ChipLabel>
       <RadioChips
         name="pid-filtering"
@@ -93,6 +102,6 @@ export function FilteringChips({ settings, onChange }: FilteringChipsProps) {
           { value: 'post', label: 'Included' }
         ]}
       />
-    </>
+    </span>
   )
 }

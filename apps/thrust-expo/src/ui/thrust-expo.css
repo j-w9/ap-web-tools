@@ -1,0 +1,52 @@
+/* Rail fields: the ArduPilot name in mono over a short plain label, beside a fixed-width input. */
+.apwt-field.te-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 128px;
+  align-items: center;
+  gap: 12px;
+}
+
+.apwt-field.te-field input {
+  width: 100%;
+}
+
+.te-field__name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.te-field__name code {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.te-field__name code + small {
+  font-size: 13px;
+  line-height: 1.3;
+  color: rgb(var(--g400));
+}
+
+.te-field__name small:only-child {
+  font-size: 14px;
+}
+
+.te-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g400));
+}
+
+.te-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Column units keep their case under the table's uppercase headings (µs must not become MS). */
+.te-unit {
+  text-transform: none;
+  letter-spacing: 0;
+}

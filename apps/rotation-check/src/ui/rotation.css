@@ -1,0 +1,33 @@
+/* Rotation Check additions to the shared shell styles. */
+.rc-search,
+.rc-list {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rc-search {
+  margin: 6px 0;
+}
+
+.rc-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g500));
+}
+
+/* Square-ish on phones, capped on wide screens. */
+.apwt-plot.rc-plot {
+  height: clamp(360px, 100vw, 640px);
+}
+
+.rc-facts {
+  margin-top: 16px;
+}
+
+.rc-param {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -91,3 +91,23 @@ Statuses: **identical** (same result, possibly restructured code), **presentatio
 | `index.html` `ATC_RATE_P_MAX`, `ATC_RATE_Y_MAX` inputs have `name="ATC_RATE_R_MAX"` | Inspect the inputs                                                                    | No effect: the name is only copied to a `<select>`, which `data-paramValues="false"` prevents.                                                                           |
 | `plane/index.html` Parameters tooltip                                               | Hover the plane Parameters help icon                                                  | Copter text (mentions `ATC_SLEW_YAW` and acro) on the plane page; the port shows the same text.                                                                          |
 | Both pages: empty inputs                                                            | Clear any input                                                                       | `parseFloat('')` is NaN and is simulated (e.g. empty end time always runs to 20 s; empty desired angle never settles). Reproduced.                                       |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light, for copter (roll
+angle, pitch rate, yaw angle + rate, yaw rate) and plane (roll angle, pitch rate); rate states set a
+desired rate of 90 deg/s so the plots are not flat. Every upstream input of both pages (axis,
+mode, inputs, initial conditions and each axis's parameters, with their tooltips) is present.
+Keyboard: chips are radio groups (arrow keys, focus ring from the shell), number fields commit on
+Enter or blur. No console errors, overflow or clipped text in any capture.
+
+Changed (presentation only):
+
+- Plot legends sit in a row above each plot instead of a column on the right, so the time axis
+  keeps the card width; on phones the plots were squeezed to about half the card.
+- Inputs without a unit (plane `PTCH_ANGLE_P`, `ROLL_ANGLE_P`) keep an empty unit slot, so they line
+  up with the other inputs instead of sitting further right.
+
+Remaining: the rail is the shell's sticky, internally scrolling card; on desktop its lower
+parameters are reached by scrolling inside it (full-page captures show it cut at the viewport
+height).

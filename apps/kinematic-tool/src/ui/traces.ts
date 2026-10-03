@@ -134,8 +134,9 @@ export function quantityLayout(result: SimulationResult | null, quantity: Quanti
           }
         ]
   return {
-    legend: { itemclick: false, itemdoubleclick: false },
-    margin: { b: 50, l: 60, r: 50, t: 20 },
+    // Legend above the plot, so the time axis keeps the full card width on narrow screens.
+    legend: { itemclick: false, itemdoubleclick: false, orientation: 'h', x: 0, xanchor: 'left', y: 1.02, yanchor: 'bottom' },
+    margin: { b: 50, l: 60, r: 20, t: 36 },
     xaxis: { title: { text: 'Time (s)' } },
     yaxis: { title: { text: QUANTITY_INFO[quantity].axisTitle } },
     shapes

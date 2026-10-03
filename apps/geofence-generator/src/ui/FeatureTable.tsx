@@ -15,8 +15,8 @@ export function FeatureTable({ polygons, selectedKey, labelOf, onSelect }: Featu
       <table className="apwt-table">
         <thead>
           <tr>
-            <th style={{ textAlign: 'left' }}>Name</th>
-            <th style={{ textAlign: 'left' }}>OSM</th>
+            <th className="gf-left">Name</th>
+            <th className="gf-left">OSM</th>
             <th>Rings</th>
             <th>Points</th>
             <th />
@@ -27,8 +27,8 @@ export function FeatureTable({ polygons, selectedKey, labelOf, onSelect }: Featu
             const selected = p.key === selectedKey
             return (
               <tr key={p.key} className={selected ? 'gf-row-selected' : undefined}>
-                <td style={{ textAlign: 'left', whiteSpace: 'normal' }}>{labelOf(p)}</td>
-                <td style={{ textAlign: 'left' }}>{p.featureId}</td>
+                <td className="gf-left gf-wrap">{labelOf(p)}</td>
+                <td className="gf-left">{p.featureId}</td>
                 <td>{p.rings.length}</td>
                 <td>{pointCount(p.rings)}</td>
                 <td>

@@ -45,11 +45,23 @@ const CELL_STYLE = {
   minWidth: 110,
   height: 22
 } as const
-const SELECTED_STYLE = { ...CELL_STYLE, background: 'var(--accent-soft, rgba(37, 99, 235, 0.15))' } as const
-const ACTIVE_STYLE = { ...SELECTED_STYLE, outline: '2px solid var(--accent, #2563eb)', outlineOffset: -2 } as const
+// Selection in the shell's accent: a yellow wash, and a yellow outline on the active cell.
+const SELECTED_STYLE = { ...CELL_STYLE, background: 'rgba(250, 204, 21, 0.14)' } as const
+const ACTIVE_STYLE = { ...SELECTED_STYLE, outline: '2px solid var(--yellow)', outlineOffset: -2 } as const
 const HEADER_STYLE = { cursor: 'pointer', userSelect: 'none' } as const
 const EDITOR_STYLE = { width: '100%', textAlign: 'right', boxSizing: 'border-box' } as const
 const INVALID_EDITOR_STYLE = { ...EDITOR_STYLE, color: 'var(--red-text)', borderColor: 'var(--red-text)' } as const
+
+/** A column heading with its unit, e.g. `(µs)`, kept out of the heading's uppercase. */
+function ColumnTitle({ title }: { title: string }) {
+  const unit = /^(.*?)\s*(\([^)]*\))$/.exec(title)
+  if (unit === null) return title
+  return (
+    <>
+      {unit[1]} <span className="te-unit">{unit[2]}</span>
+    </>
+  )
+}
 
 function clamp(value: number, low: number, high: number): number {
   return Math.min(Math.max(value, low), high)
@@ -213,7 +225,7 @@ export function ThrustTable({ rows, onRowsChange }: ThrustTableProps) {
                   e.preventDefault()
                 }}
               >
-                {COLUMN_TITLES[c]}
+                <ColumnTitle title={COLUMN_TITLES[c]} />
               </th>
             ))}
           </tr>

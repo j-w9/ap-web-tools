@@ -188,32 +188,6 @@ export function App() {
           </p>
         </div>
       </ControlGroup>
-
-      <ControlGroup label="Simplification">
-        <dl className="apwt-facts">
-          <div>
-            <dt>Drop detail under</dt>
-            <dd>{SIMPLIFY_LIMITS.areaThresholdM2} m²</dd>
-          </div>
-          <div>
-            <dt>Points per fence</dt>
-            <dd>
-              {SIMPLIFY_LIMITS.minNodes}–{SIMPLIFY_LIMITS.maxNodes}
-            </dd>
-          </div>
-        </dl>
-        <p className="gf-hint" style={{ marginTop: 10 }}>
-          Round ponds become circle fences. As in the original tool, simplification does not check for crossing edges.
-        </p>
-      </ControlGroup>
-
-      <ControlGroup label="OSM tags searched">
-        <ul className="gf-hint" style={{ paddingLeft: 18, fontFamily: 'var(--mono)', fontSize: 12 }}>
-          {WATER_TAGS.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ul>
-      </ControlGroup>
     </RailCard>
   )
 
@@ -281,6 +255,37 @@ export function App() {
           )}
         </Section>
       )}
+
+      <Section title="How fences are made" help="What the search looks for and how each water body is simplified.">
+        <div className="gf-about">
+          <div>
+            <h3 className="gf-about__title">OSM tags searched</h3>
+            <ul className="gf-tags">
+              {WATER_TAGS.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h3 className="gf-about__title">Simplification</h3>
+            <dl className="apwt-facts">
+              <div>
+                <dt>Drop detail under</dt>
+                <dd>{SIMPLIFY_LIMITS.areaThresholdM2} m²</dd>
+              </div>
+              <div>
+                <dt>Points per fence</dt>
+                <dd>
+                  {SIMPLIFY_LIMITS.minNodes}–{SIMPLIFY_LIMITS.maxNodes}
+                </dd>
+              </div>
+            </dl>
+            <p className="gf-hint gf-hint--spaced">
+              Round ponds become circle fences. As in the original tool, simplification does not check for crossing edges.
+            </p>
+          </div>
+        </div>
+      </Section>
     </ToolPage>
   )
 }

@@ -5,3 +5,4 @@ dist/
 coverage/
 test-results/
 .DS_Store
+.ui-audit/

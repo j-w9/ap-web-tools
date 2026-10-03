@@ -4,6 +4,16 @@ import { hasBit } from '../analysis/config.js'
 import { PARAM_METADATA, type ParamMetadata } from '../analysis/metadata.js'
 import type { ParamName } from '../analysis/params.js'
 
+/**
+ * A value as an unfocused field shows it: at most 7 significant digits, the precision of the
+ * float parameters ArduPilot stores, so e.g. 0.20000000298023224 reads 0.2 and fits the field.
+ * Display only: the full value is used, saved and shown while the field has focus.
+ */
+export function displayNumber(value: number): string {
+  const full = String(value)
+  return full.length <= 10 ? full : String(Number(value.toPrecision(7)))
+}
+
 interface NumberInputProps {
   id?: string | undefined
   value: number
@@ -21,6 +31,7 @@ interface NumberInputProps {
  */
 export function NumberInput({ id, value, step, disabled, title, list, onChange }: NumberInputProps) {
   const [draft, setDraft] = useState<string | null>(null)
+  const [focused, setFocused] = useState(false)
   return (
     <input
       id={id}
@@ -29,12 +40,16 @@ export function NumberInput({ id, value, step, disabled, title, list, onChange }
       disabled={disabled}
       title={title}
       list={list}
-      value={draft ?? (Number.isNaN(value) ? '' : String(value))}
+      value={draft ?? (Number.isNaN(value) ? '' : focused ? String(value) : displayNumber(value))}
       onChange={(e) => {
         setDraft(e.target.value)
         onChange(parseFloat(e.target.value))
       }}
-      onBlur={() => setDraft(null)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setDraft(null)
+        setFocused(false)
+      }}
     />
   )
 }

@@ -1,0 +1,106 @@
+/* MAVLink systems: one heading per system over a grid of component cards. */
+.ss-system + .ss-system {
+  margin-top: 20px;
+}
+
+.ss-system .apwt-label {
+  margin: 0 0 10px;
+}
+
+.ss-system__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.ss-component {
+  padding: 16px;
+  min-width: 0;
+}
+
+.ss-component__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ss-component__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* MAVLink component id names are long single words: let them break anywhere. */
+.ss-component__name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgb(var(--g400));
+  overflow-wrap: anywhere;
+}
+
+.ss-messages {
+  margin-top: 12px;
+}
+
+.ss-messages > summary {
+  cursor: pointer;
+  color: rgb(var(--g300));
+}
+
+.ss-messages > summary:focus-visible {
+  outline: 2px solid rgba(250, 204, 21, 0.6);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.ss-messages .apwt-table-wrap {
+  margin-top: 8px;
+}
+
+/* A compact message table that fits the card: tighter cells and a small include chip. */
+.ss-messages__table th,
+.ss-messages__table td {
+  padding: 6px 8px;
+}
+
+.ss-messages__table .apwt-chip {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.ss-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g400));
+}
+
+/* The composition pie: tall on wide screens, about square on phones. */
+.apwt-plot.ss-pie {
+  height: 720px;
+}
+
+@media (max-width: 700px) {
+  .apwt-plot.ss-pie {
+    height: 420px;
+  }
+
+  .ss-component {
+    padding: 12px;
+  }
+
+  /* Long message names wrap so the include column stays in view. */
+  .ss-messages__table td:first-child {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+
+  .ss-messages__table th,
+  .ss-messages__table td {
+    padding: 6px;
+  }
+}

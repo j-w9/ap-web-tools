@@ -90,11 +90,16 @@ export function sceneLayout(theme: PlotTheme): Partial<Layout> {
       yaxis: axis('Y, right', [RANGE, -RANGE]),
       zaxis: axis('Z, down', [RANGE, -RANGE]),
       aspectratio: { x: 0.75, y: 0.75, z: 0.75 },
-      camera: { eye: { x: -1.25, y: 1.25, z: 1.25 } }
+      // Upstream's view direction (eye -1.25, 1.25, 1.25) from 1.2 times further out, so the axis
+      // titles are not cut off when the card is narrow.
+      camera: { eye: { x: -1.5, y: 1.5, z: 1.5 } },
+      // Room for the legend above the scene.
+      domain: { x: [0, 1], y: [0, 0.9] }
     },
     uirevision: 'rotation-check',
     showlegend: true,
-    legend: { itemclick: false, itemdoubleclick: false },
-    margin: { b: 20, l: 20, r: 20, t: 20 }
+    // Legend across the top, so the scene keeps the card width on narrow screens.
+    legend: { itemclick: false, itemdoubleclick: false, orientation: 'h', x: 0, xanchor: 'left', y: 1, yanchor: 'top' },
+    margin: { b: 10, l: 10, r: 10, t: 10 }
   }
 }

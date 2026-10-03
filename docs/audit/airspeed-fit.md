@@ -93,3 +93,26 @@ sample for sample with readout text; "No valid calibration to save" alert; out-o
 file and summary; save summary on the default log; BARO without instances; exact auto-window plot
 range. `params.test.ts`: `planSave` texts, non-finite ratio rows. Synthetic log gained a
 `baroNoInstance` option.
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in dark and light: empty and a
+synthetic plane log with two airspeed sensors (`apps/airspeed-fit/test-fixtures/plane-airspeed.bin`,
+made with `buildSyntheticAirspeedLog({ flightSeconds: 240 })` from `src/test-utils/synthetic-log.ts`).
+The capture runs offline, so the Open-Meteo lookup fails quietly and the other temperature
+sources show. Rail controls, the q slider (keyboard arrows refit on key release), the save button
+and its confirm work from the keyboard. No console errors, overflow or clipped text. Compared
+against `upstream/AirspeedFit/index.html`: every control, plot, the sensor summary and the save
+flow are present.
+
+Changed (presentation only):
+
+- Wind plot: the legend sat on the time axis title; it now sits at the foot of the figure, and
+  the title (with the drift value) is on two lines so it fits a phone-width plot.
+- The flight data card shows an empty state before a log is open instead of empty axes.
+- Inline styles moved to `ui/airspeed-fit.css`; rail notes use the same small note style as the
+  other tools.
+- RMS help says "narrow inner bar" for the bias bar, which is light in the dark theme.
+- "Not enough valid samples" row text starts with a capital and wraps.
+
+Remaining: the sensor and suggested-parameter tables scroll sideways on phones.

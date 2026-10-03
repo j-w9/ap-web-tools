@@ -18,7 +18,9 @@ import {
   type SimInputName,
   type TuneTarget
 } from '../analysis/params.js'
+import { PARAM_METADATA } from '../analysis/metadata.js'
 import { ParamField, PlainField } from './Fields.js'
+import { RailGroup } from './RailGroup.js'
 import {
   FILTER_FIELD_LABELS,
   HARMONIC_BIT_LABELS,
@@ -29,6 +31,15 @@ import {
 } from './field-specs.js'
 
 const NOTCH_TITLES: Readonly<Record<NotchPrefix, string>> = { INS_HNTCH: 'First notch filter', INS_HNTC2: 'Second notch filter' }
+
+/** A notch's state for its collapsed heading: off, or on with its tracking mode. */
+function notchSummary(inputs: Inputs, prefix: NotchPrefix): string {
+  if (!notchEnabled(inputs, prefix)) return 'Off'
+  const name = notchParam(prefix, 'MODE')
+  const meta = PARAM_METADATA[name]
+  const mode = meta.kind === 'values' ? meta.values.find((o) => o.value === inputs[name])?.label : undefined
+  return mode === undefined ? 'On' : `On · ${mode}`
+}
 
 /** What the parameter file control last did. */
 export type FileStatus =
@@ -79,14 +90,20 @@ export function ParamPanel(p: ParamPanelProps) {
   const notchGroup = (prefix: NotchPrefix) => {
     const enabled = notchEnabled(inputs, prefix)
     return (
-      <ControlGroup key={prefix} label={NOTCH_TITLES[prefix]}>
+      <RailGroup
+        key={prefix}
+        label={NOTCH_TITLES[prefix]}
+        summary={notchSummary(inputs, prefix)}
+        // A notch that is off starts folded; its Enable field is one click away.
+        defaultOpen={enabled}
+      >
         {NOTCH_FIELDS.map((field) =>
           param(notchParam(prefix, field), NOTCH_FIELD_LABELS[field], {
             disabled: field !== 'ENABLE' && !enabled,
             ...(field === 'HMNCS' ? { bitLabels: HARMONIC_BIT_LABELS } : {})
           })
         )}
-      </ControlGroup>
+      </RailGroup>
     )
   }
 
@@ -136,16 +153,16 @@ export function ParamPanel(p: ParamPanelProps) {
         )}
       </ControlGroup>
 
-      <ControlGroup label="INS settings">
+      <RailGroup label="INS settings">
         {plain('GyroSampleRate')}
         {param('INS_GYRO_FILTER', 'Gyro low-pass cut-off')}
-      </ControlGroup>
+      </RailGroup>
 
       {notchGroup('INS_HNTCH')}
       {notchGroup('INS_HNTC2')}
 
       {sources.size > 0 && (
-        <ControlGroup label="Notch tracking">
+        <RailGroup label="Notch tracking">
           <p className="at-note">Where the tracking notches sit for the prediction.</p>
           {sources.has('throttle') && (
             <>
@@ -167,19 +184,19 @@ export function ParamPanel(p: ParamPanelProps) {
               {plain('RPM2')}
             </>
           )}
-        </ControlGroup>
+        </RailGroup>
       )}
 
-      <ControlGroup label="Loop rate">{param('SCHED_LOOP_RATE', 'Main loop rate')}</ControlGroup>
+      <RailGroup label="Loop rate">{param('SCHED_LOOP_RATE', 'Main loop rate')}</RailGroup>
 
       {target && controller ? (
         <>
-          <ControlGroup label={`${target.axis} controller`}>
+          <RailGroup label={`${target.axis} controller`}>
             {controller.inputTc && param(controller.inputTc, INPUT_TC_LABELS[controller.inputTc])}
             {param(controller.angle.param, controller.angle.kind === 'gain' ? 'Angle P gain' : 'Angle time constant')}
             {RATE_GAIN_TERMS.map((term) => param(controller.rate[term], RATE_TERM_LABELS[term]))}
-          </ControlGroup>
-          <ControlGroup label="Controller notches">
+          </RailGroup>
+          <RailGroup label="Controller notches">
             {RATE_NOTCH_TERMS.map((term) => param(controller.rate[term], RATE_TERM_LABELS[term]))}
             {selectedFilters(inputs, target).map((index) => (
               <div key={index}>
@@ -187,7 +204,7 @@ export function ParamPanel(p: ParamPanelProps) {
                 {FILTER_FIELDS.map((field) => param(filterParam(index, field), FILTER_FIELD_LABELS[field]))}
               </div>
             ))}
-          </ControlGroup>
+          </RailGroup>
         </>
       ) : (
         <ControlGroup label="Controller">

@@ -58,9 +58,7 @@ export function Rail(p: RailProps) {
           <span>Window size (s)</span>
           <input ref={windowInput} type="number" min={0.1} step={1} defaultValue={p.defaultWindowText} />
         </label>
-        <p className="apwt-section__help" style={{ fontSize: 13 }}>
-          Rates are averaged over windows of this length.
-        </p>
+        <p className="ss-note">Rates are averaged over windows of this length.</p>
       </ControlGroup>
     </RailCard>
   )

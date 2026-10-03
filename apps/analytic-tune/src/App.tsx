@@ -315,7 +315,7 @@ export function App() {
       }
       actions={<OpenInButton file={file} messageTypes={log?.messageTypes ?? null} />}
       rail={
-        <>
+        <div className="at-rail">
           <AnalysisRail
             facts={facts}
             onFile={openFile}
@@ -349,7 +349,7 @@ export function App() {
             onLoadFile={onLoadParams}
             onSaveFile={onSaveParams}
           />
-        </>
+        </div>
       }
     >
       <ErrorBanner message={error ?? (prediction && 'error' in prediction ? prediction.error : null)} />
@@ -363,12 +363,16 @@ export function App() {
       </Section>
 
       <Section title="Flight data" help="SID target and gyro rates. Zoom in to set the analysis window, then calculate.">
-        <PlotlyChart
-          className="apwt-plot apwt-plot--short"
-          data={flightTraces}
-          layout={flightLayout}
-          onRelayout={onFlightRelayout}
-        />
+        {log ? (
+          <PlotlyChart
+            className="apwt-plot apwt-plot--short"
+            data={flightTraces}
+            layout={flightLayout}
+            onRelayout={onFlightRelayout}
+          />
+        ) : (
+          empty('Open a log with system identification runs to see its flight data')
+        )}
       </Section>
 
       <Section

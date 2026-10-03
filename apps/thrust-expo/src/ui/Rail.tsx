@@ -24,6 +24,8 @@ export interface RailProps {
 
 interface FieldProps {
   name: FieldName
+  /** The ArduPilot parameter name, shown in mono above the label; omitted for inputs that are not parameters. */
+  param?: string
   label: string
   title: string
   display: string
@@ -38,7 +40,7 @@ interface FieldProps {
  * or the spinner), as upstream's handlers listen for, and optionally on every keystroke. Its
  * text follows `display` after every session event.
  */
-function Field({ name, label, title, display, revision, onCommit, onInput, disabled = false }: FieldProps) {
+function Field({ name, param, label, title, display, revision, onCommit, onInput, disabled = false }: FieldProps) {
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const input = ref.current
@@ -58,8 +60,11 @@ function Field({ name, label, title, display, revision, onCommit, onInput, disab
   }, [name, onCommit, onInput])
   const spec = name === 'MOT_THST_HOVER' ? null : INPUTS[name]
   return (
-    <label className="apwt-field" title={title}>
-      <span>{label}</span>
+    <label className="apwt-field te-field" title={title}>
+      <span className="te-field__name">
+        {param !== undefined && <code>{param}</code>}
+        <small>{label}</small>
+      </span>
       <input
         ref={ref}
         type="number"
@@ -73,12 +78,23 @@ function Field({ name, label, title, display, revision, onCommit, onInput, disab
   )
 }
 
-type MotParamInput = Exclude<InputName, 'MOTOR_COUNT' | 'COPTER_AUW'>
+type MotParamInput = Exclude<InputName, 'MOTOR_COUNT' | 'COPTER_AUW'> | 'MOT_THST_HOVER'
 
-/** Label for a motor parameter input: the name, with units when it has them. */
+/** Short sentence-case labels; the full metadata description is each field's tooltip. */
+const PARAM_LABELS: Readonly<Record<MotParamInput, string>> = {
+  MOT_SPIN_ARM: 'Spin when armed',
+  MOT_SPIN_MIN: 'Spin minimum',
+  MOT_SPIN_MAX: 'Spin maximum',
+  MOT_PWM_MIN: 'PWM output minimum',
+  MOT_PWM_MAX: 'PWM output maximum',
+  MOT_THST_EXPO: 'Thrust curve expo',
+  MOT_THST_HOVER: 'Thrust at hover'
+}
+
+/** Label for a motor parameter input, with units when it has them. */
 function paramLabel(name: MotParamInput): string {
   const meta = PARAM_METADATA[name]
-  return 'units' in meta ? `${name} (${meta.units})` : name
+  return 'units' in meta ? `${PARAM_LABELS[name]} (${meta.units})` : PARAM_LABELS[name]
 }
 
 const OUTPUT_PARAMS = [
@@ -109,6 +125,7 @@ export function Rail(p: RailProps) {
           <Field
             key={name}
             name={name}
+            param={name}
             label={paramLabel(name)}
             title={PARAM_METADATA[name].description}
             display={p.display[name]}
@@ -122,13 +139,14 @@ export function Rail(p: RailProps) {
       <ControlGroup label="Thrust expo">
         <Field
           name="MOT_THST_EXPO"
-          label="MOT_THST_EXPO"
+          param="MOT_THST_EXPO"
+          label={paramLabel('MOT_THST_EXPO')}
           title={PARAM_METADATA.MOT_THST_EXPO.description}
           display={p.display.MOT_THST_EXPO}
           revision={p.revision}
           onCommit={p.onCommit}
         />
-        <p className="apwt-section__help" style={{ fontSize: 13 }}>
+        <p className="te-note">
           {p.expoSetting === 'fixed'
             ? 'Your value. Editing any other input fits it again.'
             : 'Fitted for the most linear thrust once there is data. Type a value to try your own.'}
@@ -160,14 +178,15 @@ export function Rail(p: RailProps) {
         />
         <Field
           name="MOT_THST_HOVER"
-          label="MOT_THST_HOVER"
+          param="MOT_THST_HOVER"
+          label={paramLabel('MOT_THST_HOVER')}
           title={PARAM_METADATA.MOT_THST_HOVER.description}
           display={p.display.MOT_THST_HOVER}
           revision={p.revision}
           onCommit={p.onCommit}
           disabled
         />
-        <p className="apwt-section__help" style={{ fontSize: 13 }}>
+        <p className="te-note">
           Optional. Prefer <code>MOT_HOVER_LEARN</code> over setting this; the learned value helps validate the thrust curve.
         </p>
       </ControlGroup>
@@ -177,7 +196,7 @@ export function Rail(p: RailProps) {
           <Download />
           Save parameters
         </button>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <div className="te-buttons">
           <button
             type="button"
             className="apwt-btn apwt-btn--block"

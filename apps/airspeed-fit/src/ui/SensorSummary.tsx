@@ -29,7 +29,7 @@ export function SensorSummary({ sensors }: { sensors: readonly AirspeedSensor[] 
           {sensors.map((s, i) => (
             <tr key={s.instance}>
               <td>
-                <span className="apwt-chip__swatch" style={{ background: airspeedColor(i), marginRight: 6 }} />
+                <span className="apwt-chip__swatch af-swatch" style={{ background: airspeedColor(i) }} />
                 Airspeed {s.instance + 1}
                 {s.primary && (
                   <>

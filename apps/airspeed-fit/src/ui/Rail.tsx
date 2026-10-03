@@ -63,11 +63,9 @@ export function Rail(p: RailProps) {
             onChange={p.onSourceChange}
           />
         ) : (
-          <p className="apwt-section__help">EKF cores appear here once a log is open.</p>
+          <p className="af-note">EKF cores appear here once a log is open.</p>
         )}
-        <p className="apwt-section__help" style={{ fontSize: 13 }}>
-          EKF ground velocity used as the truth for the wind triangle. The lowest core is normally fine.
-        </p>
+        <p className="af-note">EKF ground velocity used as the truth for the wind triangle. The lowest core is normally fine.</p>
       </ControlGroup>
 
       <ControlGroup label="Air temperature">
@@ -92,7 +90,7 @@ export function Rail(p: RailProps) {
             ))}
           </dl>
         )}
-        <p className="apwt-section__help" style={{ fontSize: 13 }}>
+        <p className="af-note">
           Outside air temperature at ground level, lapsed to altitude to convert equivalent to true airspeed. Each degree of error
           is about 0.2% in calibrated airspeed.
         </p>
@@ -115,7 +113,7 @@ export function Rail(p: RailProps) {
             />
           </label>
         ))}
-        <p className="apwt-section__help" style={{ fontSize: 13 }}>
+        <p className="af-note">
           Seeded from the detected flight. Or zoom the flight data plot; pick turns or a loiter at steady airspeed.
         </p>
       </ControlGroup>

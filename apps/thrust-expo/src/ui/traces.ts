@@ -12,7 +12,8 @@ import {
 } from '../analysis/linearisation.js'
 import type { TableRow } from '../analysis/thrust-table.js'
 
-const PLOT_MARGIN = { b: 50, l: 50, r: 150, t: 20 }
+// Plotly widens the right margin to fit the legend; on phones the plot puts the legend above.
+const PLOT_MARGIN = { b: 50, l: 50, r: 20, t: 20 }
 const AXIS_FRAME = { type: 'linear', zeroline: false, showline: true, mirror: true } as const
 const LEGEND = { itemclick: false, itemdoubleclick: false } as const
 const THROTTLE_AXIS = { title: { text: 'Throttle (%)' }, ...AXIS_FRAME, range: [0, 100] }
@@ -27,7 +28,7 @@ const MARKER_COLORS: Readonly<Record<SpinMarkerKey, string>> = {
 
 /** Measured thrust against ESC signal, plotting the cells' raw values as upstream does. */
 export function pwmTraces(rows: readonly TableRow[]): Partial<Data>[] {
-  return [{ x: rows.map((r) => r.pwm ?? null), y: rows.map((r) => r.thrust ?? null), name: 'Measured Thrust', mode: 'lines' }]
+  return [{ x: rows.map((r) => r.pwm ?? null), y: rows.map((r) => r.thrust ?? null), name: 'Measured thrust', mode: 'lines' }]
 }
 
 /** PWM axis over the output range, with the spin points marked. */
@@ -69,8 +70,8 @@ export function pwmLayout(spin: SpinParams): Partial<Layout> {
 export function expoTraces(lin: Linearisation | null, hover: HoverEstimate | null): Partial<Data>[] {
   if (!lin) return []
   const traces: Partial<Data>[] = [
-    { x: lin.throttlePct, y: lin.uncorrectedThrust, name: 'Measured Thrust', mode: 'lines' },
-    { x: lin.throttlePct, y: lin.result.correctedThrust, name: 'Linearized Thrust', mode: 'lines' }
+    { x: lin.throttlePct, y: lin.uncorrectedThrust, name: 'Measured thrust', mode: 'lines' },
+    { x: lin.throttlePct, y: lin.result.correctedThrust, name: 'Linearised thrust', mode: 'lines' }
   ]
   if (hover) {
     traces.push({
@@ -100,7 +101,7 @@ export function gradientTraces(lin: Linearisation | null): Partial<Data>[] {
     {
       x: lin.gradientThrottlePct,
       y: lin.result.gradient,
-      name: 'Linearized Thrust<br>Std dev: ' + lin.result.stdDeviation.toFixed(3),
+      name: 'Linearised thrust<br>Std dev: ' + lin.result.stdDeviation.toFixed(3),
       mode: 'lines',
       line: { color: 'indianred' }
     }
@@ -112,7 +113,7 @@ export function gradientLayout(lin: Linearisation | null): Partial<Layout> {
   const mean = lin?.result.mean ?? 0
   return {
     xaxis: THROTTLE_AXIS,
-    yaxis: { title: { text: 'Thrust gradient (delta thrust / delta throttle)' }, ...AXIS_FRAME },
+    yaxis: { title: { text: 'Thrust gradient<br>(Δ thrust / Δ throttle)' }, ...AXIS_FRAME },
     showlegend: true,
     legend: LEGEND,
     margin: PLOT_MARGIN,
