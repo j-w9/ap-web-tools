@@ -1,7 +1,6 @@
-import { beforeAll, describe, expect, it } from 'vitest'
-import { rng } from '../test-utils/synthetic-mag-log.js'
-import { createUpstreamMagfit, type UpstreamMagfit } from '../test-utils/upstream.js'
-import { buildParamFile, checkParams, compassParamNames, paramToString, readCompassParams, type CalParams } from './params.js'
+import { compassParamNames } from '@apwt/ardupilot'
+import { describe, expect, it } from 'vitest'
+import { buildParamFile, checkParams, readCompassParams, type CalParams } from './params.js'
 
 const good: CalParams = {
   offsets: [10, -20, 30.5],
@@ -14,30 +13,6 @@ const good: CalParams = {
 }
 
 describe('params', () => {
-  let up: UpstreamMagfit
-  beforeAll(async () => {
-    up = await createUpstreamMagfit()
-  })
-
-  it('matches upstream get_compass_param_names', () => {
-    for (const i of [1, 2, 3]) {
-      const theirs = up.evaluate<Record<string, unknown>>(`get_compass_param_names(${i})`)
-      const mine = compassParamNames(i)
-      expect({ ...mine, off_diagonals: mine.offDiagonals, offDiagonals: undefined }).toEqual(
-        JSON.parse(JSON.stringify({ ...theirs, offDiagonals: undefined }))
-      )
-    }
-    expect(compassParamNames(2).external).toBe('COMPASS_EXTERN2')
-  })
-
-  it('matches upstream param_to_string', () => {
-    const next = rng(11)
-    const values = [0, 1, -1, 0.1, 1e-7, 123456789, 3.4e38, 1.2, 0.95, -1500.25, 2 ** -20]
-    for (let i = 0; i < 300; i++) values.push((next() - 0.5) * 10 ** Math.floor(next() * 10 - 4))
-    for (const v of values) expect(paramToString(v), String(v)).toBe(up.evaluate(`param_to_string(${v})`))
-    expect(() => paramToString(NaN)).toThrow()
-  })
-
   it('reads missing parameters as NaN', () => {
     const p = readCompassParams(
       new Map([

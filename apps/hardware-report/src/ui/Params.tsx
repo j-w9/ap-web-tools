@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
-import { CheckChips, ChipLabel, RadioChips, Section } from '@apwt/tool-shell'
+import { CheckChips, ChipLabel, RadioChips, Section, downloadText } from '@apwt/tool-shell'
 import {
   PARAM_GROUPS,
   allParamsText,
@@ -10,8 +10,8 @@ import {
   presentGroupParams
 } from '../analysis/minimal-params.js'
 import type { ParamData, ParamHistory } from '../analysis/params.js'
-import { paramToString } from '../analysis/shared/param-helpers.js'
-import { Table, saveText } from './common.js'
+import { paramToString } from '@apwt/ardupilot'
+import { Table } from './common.js'
 
 type Base = 'all' | 'changed'
 
@@ -41,7 +41,7 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
       help="Download the parameters as a .param file for Mission Planner, QGroundControl or MAVProxy."
     >
       <div className="apwt-chips">
-        <button type="button" className="apwt-btn" onClick={() => saveText(name('.param'), allParamsText(params.values))}>
+        <button type="button" className="apwt-btn" onClick={() => downloadText(name('.param'), allParamsText(params.values))}>
           <Download />
           All parameters
         </button>
@@ -50,7 +50,7 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
             type="button"
             className="apwt-btn"
             title="Only parameters that differ from their firmware default"
-            onClick={() => saveText(name('_changed.param'), changedParamsText(params.values, params.defaults))}
+            onClick={() => downloadText(name('_changed.param'), changedParamsText(params.values, params.defaults))}
           >
             <Download />
             Changed parameters
@@ -93,7 +93,7 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
         className="apwt-btn apwt-btn--primary"
         style={{ marginTop: 12 }}
         onClick={() =>
-          saveText(
+          downloadText(
             name('_minimal.param'),
             minimalParamsText(params.values, params.defaults, { changedOnly, includedGroups: included })
           )

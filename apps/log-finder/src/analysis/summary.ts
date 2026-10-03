@@ -2,8 +2,7 @@
  * Per-log summary extraction (upstream LogFinder `load_log`).
  */
 import { DataflashLog, type VehicleType } from '@apwt/dataflash'
-import { boardName } from './board-types.js'
-import { getVersionAndBoard, type VersionAndBoard } from './version.js'
+import { boardName, getVersionAndBoard, type VersionAndBoard } from '@apwt/ardupilot'
 
 /** Everything the finder shows about one log. */
 export interface LogSummary {

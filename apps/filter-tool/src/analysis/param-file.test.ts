@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { formatParamFile, paramToString, parseParamFile } from './param-file.js'
+import { formatParamFile, parseParamFile } from './param-file.js'
 import { DEFAULT_INPUTS } from './params.js'
-import { loadFilterToolUpstream } from './test-utils/upstream.js'
 
 describe('parseParamFile', () => {
   it('reads comma, space, tab and = separated lines and skips unknown names', () => {
@@ -32,14 +31,9 @@ describe('parseParamFile', () => {
   it('reads Windows line endings', () => {
     expect(parseParamFile('INS_HNTCH_HMNCS,3\r\n').values).toEqual({ INS_HNTCH_HMNCS: 3 })
   })
-})
 
-describe('paramToString', () => {
-  it('matches upstream param_to_string', () => {
-    const up = loadFilterToolUpstream()
-    for (const v of [0, 1, 0.1, 0.135, 0.0036, 82.5, 1e-7, 123456789, -3.3, 2 / 3]) {
-      expect(paramToString(v)).toBe(up.param_to_string(v))
-    }
+  it('counts empty and non-finite values as ignored, but not lines without a value', () => {
+    expect(parseParamFile('INS_HNTCH_BW,\nINS_HNTCH_ATT,Infinity\nINS_HNTCH_FREQ\n,5\n')).toEqual({ values: {}, ignored: 2 })
   })
 })
 

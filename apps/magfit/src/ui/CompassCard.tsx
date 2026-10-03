@@ -1,5 +1,5 @@
+import { decodeDevId, describeDevId, DeviceType } from '@apwt/ardupilot'
 import { ChipLabel, Chip, RadioChips } from '@apwt/tool-shell'
-import { describeCompassDevice } from '../analysis/devid.js'
 import type { CompassFitResult } from '../analysis/magfit.js'
 import type { OrientationOption } from '../analysis/orientation.js'
 import type { UseOverride } from '../analysis/params.js'
@@ -62,7 +62,7 @@ export function CompassCard(p: CompassCardProps) {
     <div className="magfit-compass">
       <div className="magfit-compass__head">
         <h3>Compass {p.index + 1}</h3>
-        <span className="magfit-note">{describeCompassDevice(params.id)}</span>
+        <span className="magfit-note">{describeDevId(decodeDevId(params.id, DeviceType.compass))}</span>
       </div>
       <div className="apwt-readout">
         <Flag on={params.use !== 0 && !Number.isNaN(params.use)}>Use</Flag>

@@ -4,7 +4,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { DataflashLog } from '@apwt/dataflash'
 import { ALL_PARAM_IGNORE_KEYS, PARAM_IGNORE_RULES, paramDiff, type ParamDiff, type ParamIgnoreKey } from './param-diff.js'
-import { paramFileText, paramToString } from './param-format.js'
+import { paramFileText, paramToString } from '@apwt/ardupilot'
 import { readLogSummary, type LogSummary } from './summary.js'
 import { FIXTURES, loadUpstreamLogFinder, readFixture, type UpstreamDiff, type UpstreamLogFinder } from './test-utils/upstream.js'
 

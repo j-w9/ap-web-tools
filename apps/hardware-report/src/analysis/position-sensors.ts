@@ -4,7 +4,7 @@
  */
 import { paramVector3, type ParamVector3 } from './param-arrays.js'
 import type { ParamValues } from './params.js'
-import { paramNameVector3 } from './shared/param-helpers.js'
+import { paramNameVector3 } from '@apwt/ardupilot'
 
 /** Number of rangefinder slots (`RNGFND1_` .. `RNGFND9_`, `RNGFNDA_`). */
 export const MAX_NUM_RANGEFINDER = 10

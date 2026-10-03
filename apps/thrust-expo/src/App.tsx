@@ -1,6 +1,6 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { PlotlyChart } from '@apwt/plot'
-import { ErrorBanner, Section, ToolPage, type LogFact } from '@apwt/tool-shell'
+import { downloadText, ErrorBanner, Section, ToolPage, type LogFact } from '@apwt/tool-shell'
 import { estimateHover, linearise, type ExpoSetting } from './analysis/linearisation.js'
 import { PARAM_FILE_NAME, buildParamFile, invalidSavedParams, parseParamFile, type SavedParams } from './analysis/param-file.js'
 import type { InputName } from './analysis/params.js'
@@ -12,7 +12,6 @@ import {
   thrustData,
   type TableRow
 } from './analysis/thrust-table.js'
-import { downloadText } from './ui/download.js'
 import { constrainSpinMin, defaultInputText, parseInputs, withParamFile, type InputText } from './ui/inputs.js'
 import { ParamSummary } from './ui/ParamSummary.js'
 import { Rail } from './ui/Rail.js'
@@ -153,7 +152,7 @@ export function App() {
           onSpinBlur={() => setInputs(constrainSpinMin)}
           onRefit={() => setExpoKind('fit')}
           saveDisabledReason={saveDisabledReason}
-          onSave={() => downloadText(buildParamFile(saved), PARAM_FILE_NAME)}
+          onSave={() => downloadText(PARAM_FILE_NAME, buildParamFile(saved))}
           onExample={loadExample}
           onReset={reset}
         />

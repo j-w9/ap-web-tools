@@ -143,7 +143,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Explore attitude control input shaping.',
     category: 'simulation',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'KinematicTool',
     opens: NONE
   },
@@ -243,7 +243,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Calibrate ARSPD_RATIO for each airspeed sensor from a flight log.',
     category: 'logs',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'AirspeedFit',
     opens: messages('ARSP')
   },

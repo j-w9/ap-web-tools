@@ -5,7 +5,7 @@ import type { DataflashLog } from '@apwt/dataflash'
 import { canNameForNodeId, type CanInventory } from './can.js'
 import { paramVector3, type ParamVector3 } from './param-arrays.js'
 import type { ParamValues } from './params.js'
-import { paramNameVector3 } from './shared/param-helpers.js'
+import { paramNameVector3 } from '@apwt/ardupilot'
 
 /** Number of GPS slots. */
 export const MAX_NUM_GPS = 2

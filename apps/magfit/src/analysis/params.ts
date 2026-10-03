@@ -1,45 +1,10 @@
-// Compass parameter names, values and `.param` text formatting. Ported from upstream
-// Libraries/Param_Helpers.js (`get_compass_param_names`, `param_to_string`) and the parameter
-// handling in MAGFit/magfit.js (`save_parameters`, `check_params`).
+// Compass calibration parameters and the MAGFit `.param` file. Ported from the parameter
+// handling in upstream MAGFit/magfit.js (`save_parameters`, `check_params`); the generic
+// Param_Helpers.js parts (`get_compass_param_names`, `param_to_string`) are in @apwt/ardupilot.
 
+import { paramLine, type CompassParamNames, type Vector3Names } from '@apwt/ardupilot'
 import type { Vec3 } from './vector.js'
 import { rotationName } from './rotations.js'
-
-/** Three parameter names for the X, Y and Z components of a vector parameter. */
-export type Vec3Names = readonly [string, string, string]
-
-/** Names of the calibration parameters of one compass. */
-export interface CompassParamNames {
-  readonly use: string
-  readonly offsets: Vec3Names
-  readonly diagonals: Vec3Names
-  readonly offDiagonals: Vec3Names
-  readonly motor: Vec3Names
-  readonly scale: string
-  readonly orientation: string
-  readonly external: string
-  readonly id: string
-}
-
-function vec3Names(prefix: string): Vec3Names {
-  return [prefix + 'X', prefix + 'Y', prefix + 'Z']
-}
-
-/** Parameter names for compass `index` (1-based), upstream `get_compass_param_names`. */
-export function compassParamNames(index: number): CompassParamNames {
-  const suffix = index === 1 ? '' : String(index)
-  return {
-    use: 'COMPASS_USE' + suffix,
-    offsets: vec3Names('COMPASS_OFS' + suffix + '_'),
-    diagonals: vec3Names('COMPASS_DIA' + suffix + '_'),
-    offDiagonals: vec3Names('COMPASS_ODI' + suffix + '_'),
-    motor: vec3Names('COMPASS_MOT' + suffix + '_'),
-    scale: 'COMPASS_SCALE' + suffix,
-    orientation: 'COMPASS_ORIENT' + suffix,
-    external: index === 1 ? 'COMPASS_EXTERNAL' : 'COMPASS_EXTERN' + suffix,
-    id: 'COMPASS_DEV_ID' + suffix
-  }
-}
 
 /**
  * `COMPASS_MOTCT` values: 0 none, 1 throttle, 2 current. Upstream MAGFit only produces
@@ -73,7 +38,7 @@ export interface ExistingCompassParams extends Omit<CalParams, 'fitType'> {
  */
 export function readCompassParams(params: ReadonlyMap<string, number>, names: CompassParamNames): ExistingCompassParams {
   const get = (name: string): number => params.get(name) ?? NaN
-  const vec = (n: Vec3Names): Vec3 => [get(n[0]), get(n[1]), get(n[2])]
+  const vec = (n: Vector3Names): Vec3 => [get(n[0]), get(n[1]), get(n[2])]
   return {
     offsets: vec(names.offsets),
     diagonals: vec(names.diagonals),
@@ -85,21 +50,6 @@ export function readCompassParams(params: ReadonlyMap<string, number>, names: Co
     external: get(names.external),
     orientation: get(names.orientation)
   }
-}
-
-/**
- * Shortest decimal string that round-trips through a 32-bit float (upstream `param_to_string`).
- * Throws if no 7, 8 or 9 significant figure representation round-trips (e.g. NaN).
- */
-export function paramToString(value: number): string {
-  // Make sure number can be represented by 32 bit float
-  const floatVal = Math.fround(value)
-  for (const figures of [7, 8, 9]) {
-    const numberVal = Number(floatVal.toPrecision(figures))
-    if (floatVal !== Math.fround(numberVal)) continue
-    return numberVal.toString()
-  }
-  throw new Error('Could not convert ' + value.toString() + ' to float string')
 }
 
 /** Typical range of offsets; outside it a fit is invalid and saving warns (upstream `offsets_range`). */
@@ -119,7 +69,7 @@ function checkRange(name: string, value: number, range: Range): string {
   return ''
 }
 
-function checkArray(names: Vec3Names, values: Vec3, range: Range): string {
+function checkArray(names: Vector3Names, values: Vec3, range: Range): string {
   let ret = ''
   for (let i = 0; i < 3; i++) ret += checkRange(names[i]!, values[i]!, range)
   return ret
@@ -159,11 +109,6 @@ export function checkParams(
       '\n'
   }
   return warning
-}
-
-/** One `NAME,value` line of a `.param` file (upstream `param_string`). */
-export function paramLine(name: string, value: number): string {
-  return name + ',' + paramToString(value) + '\n'
 }
 
 /** `.param` lines for one compass's calibration, in upstream `save_params` order. */

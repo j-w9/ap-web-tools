@@ -1,13 +1,14 @@
 /**
- * Reading and writing ArduPilot `.param` files (upstream `load_parameters` / `save_parameters`
- * and `param_to_string` from `Libraries/Param_Helpers.js`).
+ * Reading and writing ArduPilot `.param` files (upstream `load_parameters` / `save_parameters`),
+ * on top of the shared reader and formatter in `@apwt/ardupilot`.
  */
+import { paramFileText, parseParamFile as parseParamText } from '@apwt/ardupilot'
 import { PARAM_NAMES, isParamName, type Inputs, type ParamName } from './params.js'
 
 export interface ParsedParamFile {
   /** Values of the parameters this tool simulates. */
   readonly values: Partial<Record<ParamName, number>>
-  /** How many lines held some other parameter. */
+  /** How many lines held some other parameter, or a value that is not a finite number. */
   readonly ignored: number
 }
 
@@ -16,30 +17,15 @@ export interface ParsedParamFile {
  * `Q_A_RAT_*` gains are read as `ATC_RAT_*`, as upstream does.
  */
 export function parseParamFile(text: string): ParsedParamFile {
+  const parsed = parseParamText(text)
   const values: Partial<Record<ParamName, number>> = {}
-  let ignored = 0
-  for (const raw of text.split('\n')) {
-    const fields = raw
-      .trim()
-      .replace('Q_A_RAT_', 'ATC_RAT_')
-      .split(/[\s,=\t]+/)
-    const [name, valueText] = fields
-    if (name === undefined || valueText === undefined || name === '' || name.startsWith('#')) continue
-    const value = parseFloat(valueText)
-    if (isParamName(name) && Number.isFinite(value)) values[name] = value
+  let ignored = parsed.skipped.filter((s) => s.reason === 'not-a-number').length
+  for (const entry of parsed.entries) {
+    const name = entry.name.replace('Q_A_RAT_', 'ATC_RAT_')
+    if (isParamName(name) && Number.isFinite(entry.value)) values[name] = entry.value
     else ignored++
   }
   return { values, ignored }
-}
-
-/** Shortest decimal string that round-trips through a 32-bit float (upstream `param_to_string`). */
-export function paramToString(value: number): string {
-  const floatVal = Math.fround(value)
-  for (const figures of [7, 8, 9]) {
-    const numberVal = Number(floatVal.toPrecision(figures))
-    if (floatVal === Math.fround(numberVal)) return numberVal.toString()
-  }
-  throw new Error(`Could not convert ${value} to float string`)
 }
 
 /**
@@ -47,8 +33,5 @@ export function paramToString(value: number): string {
  * loaded onto a vehicle without touching its PID gains.
  */
 export function formatParamFile(inputs: Inputs): string {
-  return PARAM_NAMES.filter((name) => name.startsWith('INS_'))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    .map((name) => `${name},${paramToString(inputs[name])}\n`)
-    .join('')
+  return paramFileText(new Map(PARAM_NAMES.filter((name) => name.startsWith('INS_')).map((name) => [name, inputs[name]])))
 }

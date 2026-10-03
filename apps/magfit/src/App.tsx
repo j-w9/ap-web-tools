@@ -8,7 +8,16 @@ import {
   type PlotRelayoutEvent,
   type PlotlyHTMLElement
 } from '@apwt/plot'
-import { ErrorBanner, OpenInButton, Section, ToolPage, useLoading, useLogFile, type LogFact } from '@apwt/tool-shell'
+import {
+  downloadText,
+  ErrorBanner,
+  OpenInButton,
+  Section,
+  ToolPage,
+  useLoading,
+  useLogFile,
+  type LogFact
+} from '@apwt/tool-shell'
 import { loadMagFitLog, type MagFitLog } from './analysis/load.js'
 import { prepareAttitude, runFits, type CompassFitResult, type PreparedAttitude } from './analysis/magfit.js'
 import type { OrientationOption } from './analysis/orientation.js'
@@ -26,7 +35,7 @@ import { CompassCard } from './ui/CompassCard.js'
 import { ParamTable } from './ui/ParamTable.js'
 import { paramRows } from './ui/params-table.js'
 import { Rail } from './ui/Rail.js'
-import { downloadText, planSave } from './ui/save.js'
+import { planSave } from './ui/save.js'
 import {
   componentTraces,
   errorBarLayout,
@@ -226,7 +235,7 @@ export function App() {
   const save = () => {
     if (!savePlan) return
     if (savePlan.file.ok) {
-      downloadText(savePlan.file.text, 'MAGFit.param')
+      downloadText('MAGFit.param', savePlan.file.text)
       setSaveStatus({ ok: true, text: savePlan.file.summary })
     } else {
       setSaveStatus({ ok: false, text: savePlan.file.error })

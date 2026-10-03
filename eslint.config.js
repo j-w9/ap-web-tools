@@ -13,6 +13,9 @@ export default tseslint.config(
       '**/node_modules/**',
       'upstream/**',
       'vendor/**',
+      // Emscripten glue kept verbatim from upstream.
+      'apps/scurve-tool/src/wasm/*.js',
+      'apps/kinematic-tool/src/wasm/*.js',
       'scripts/**',
       '**/*.d.ts',
       'eslint.config.js',

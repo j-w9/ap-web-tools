@@ -7,7 +7,7 @@ import { airspeedParamNames } from './airspeed.js'
 import { baroParamNames } from './baro.js'
 import { insParamNames, MAX_NUM_INS } from './ins.js'
 import type { ParamValues } from './params.js'
-import { compassParamNames, paramDownloadText, paramNameVector3 } from './shared/param-helpers.js'
+import { compassParamNames, paramFileText, paramNameVector3 } from '@apwt/ardupilot'
 
 /**
  * A group of parameters the user can opt in to the minimal configuration (one checkbox
@@ -173,14 +173,14 @@ export function presentGroupParams(
 
 /** All parameters as `.param` text (upstream `save_all_parameters`, file suffix `.param`). */
 export function allParamsText(params: ParamValues): string {
-  return paramDownloadText(params)
+  return paramFileText(params)
 }
 
 /** Parameters that differ from (or have no) default (upstream suffix `_changed.param`). */
 export function changedParamsText(params: ParamValues, defaults: ParamValues): string {
   const changed = new Map<string, number>()
   for (const [name, value] of params) if (!isDefault(name, value, defaults)) changed.set(name, value)
-  return paramDownloadText(changed)
+  return paramFileText(changed)
 }
 
 /** Options for {@link minimalParams}. */
@@ -206,7 +206,7 @@ export function minimalParams(params: ParamValues, defaults: ParamValues, option
 
 /** Minimal configuration as `.param` text (upstream suffix `_minimal.param`). */
 export function minimalParamsText(params: ParamValues, defaults: ParamValues, options: MinimalOptions): string {
-  return paramDownloadText(minimalParams(params, defaults, options))
+  return paramFileText(minimalParams(params, defaults, options))
 }
 
 /**

@@ -7,7 +7,7 @@ import { describeDevice, type SensorDevice } from './device.js'
 import { healthByInstance } from './health.js'
 import { paramArray } from './param-arrays.js'
 import type { ParamValues } from './params.js'
-import { DeviceType } from './shared/decode-devid.js'
+import { DeviceType } from '@apwt/ardupilot'
 
 /** Number of barometer slots. */
 export const MAX_NUM_BARO = 3

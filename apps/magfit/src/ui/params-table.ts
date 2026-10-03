@@ -1,6 +1,6 @@
 /** Rows of the "parameters to save" table: what each compass would write, against what it has now. */
-import type { CalParams, CompassParamNames, ExistingCompassParams } from '../analysis/params.js'
-import { paramToString } from '../analysis/params.js'
+import { paramToString, type CompassParamNames } from '@apwt/ardupilot'
+import type { CalParams, ExistingCompassParams } from '../analysis/params.js'
 import { rotationName } from '../analysis/rotations.js'
 
 /** One parameter of one compass. */

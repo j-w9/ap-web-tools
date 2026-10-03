@@ -1,4 +1,5 @@
 /** Reading and writing `.param` files (upstream `loadParamFile` / `saveParamFile`). */
+import { paramToString, parseParamFile as parseParamText } from '@apwt/ardupilot'
 import { SAVED_PARAM_NAMES, isInputName, type InputName, type SavedParamName } from './params.js'
 
 /** What a parameter file sets. */
@@ -17,39 +18,35 @@ export interface ParamFileValues {
 }
 
 /**
- * Parse `NAME,value` lines. Names outside the tool's inputs are ignored; `MOT_THST_HOVER` is
- * recognised (it is an input upstream) but its value is not used, as it is always estimated.
+ * Parse a parameter file with the shared reader. Names outside the tool's inputs are ignored;
+ * `MOT_THST_HOVER` is recognised (it is an input upstream) but its value is not used, as it is
+ * always estimated. A recognised line whose value is missing or not a number sets NaN, as
+ * upstream's `parseFloat` empties the input.
+ *
+ * Deviation: upstream splits on commas only and does not trim, so space, tab or `=` separated
+ * and indented lines were ignored; the shared reader accepts them.
  */
 export function parseParamFile(text: string): ParamFileValues {
+  const parsed = parseParamText(text)
+  // Unreadable values still count as a recognised line (and a change event) upstream.
+  const lines = [
+    ...parsed.entries,
+    ...parsed.skipped.filter((s) => s.reason !== 'missing-name').map((s) => ({ name: s.name, value: Number.NaN, line: s.line }))
+  ].sort((a, b) => a.line - b.line)
   const values: Partial<Record<InputName, number>> = {}
   let count = 0
   let last: InputName | 'MOT_THST_HOVER' | null = null
-  for (const line of text.split('\n')) {
-    const [name = '', value = ''] = line.split(',')
+  for (const { name, value } of lines) {
     if (name === 'MOT_THST_HOVER') {
       last = name
       count++
     } else if (isInputName(name)) {
-      values[name] = parseFloat(value)
+      values[name] = value
       last = name
       count++
     }
   }
   return { values, count, expoFixed: last === 'MOT_THST_EXPO' }
-}
-
-/**
- * Shortest decimal string that round-trips through a 32-bit float (upstream
- * `Param_Helpers.js` `param_to_string`). Throws for values with no such string, e.g. NaN.
- */
-export function paramToString(value: number): string {
-  const floatVal = Math.fround(value)
-  for (const figures of [7, 8, 9]) {
-    const numberVal = Number(floatVal.toPrecision(figures))
-    if (floatVal !== Math.fround(numberVal)) continue
-    return numberVal.toString()
-  }
-  throw new Error('Could not convert ' + value.toString() + ' to float string')
 }
 
 export interface SavedParams {

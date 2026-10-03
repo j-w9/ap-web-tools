@@ -1,4 +1,4 @@
-import { paramToString } from '../analysis/param-file.js'
+import { paramToString } from '@apwt/ardupilot'
 import { PARAM_METADATA, SAVED_PARAM_NAMES, type MotorParamName } from '../analysis/params.js'
 import type { ExpoSetting } from '../analysis/linearisation.js'
 

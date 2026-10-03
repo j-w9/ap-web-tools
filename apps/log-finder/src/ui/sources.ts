@@ -145,13 +145,3 @@ export function sourceFromDrop(transfer: DataTransfer): LogSource | null {
 export function toLogFileRefs(files: readonly PickedFile[]): LogFileRef<File>[] {
   return files.map(({ file, relativePath }) => ({ relativePath, name: file.name, file, read: () => file.arrayBuffer() }))
 }
-
-/** Save text as a download (replaces upstream's FileSaver `saveAs`). */
-export function downloadText(text: string, fileName: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}

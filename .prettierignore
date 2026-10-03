@@ -3,5 +3,8 @@ dist/
 node_modules/
 package-lock.json
 **/test-fixtures/
+# Emscripten glue kept verbatim from upstream.
+apps/scurve-tool/src/wasm/*.js
+apps/kinematic-tool/src/wasm/*.js
 # Tools being ported in parallel; formatted when they land.
 vendor/

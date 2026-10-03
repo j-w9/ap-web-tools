@@ -6,7 +6,7 @@ import type { CanInventory } from './can.js'
 import { describeDevice, type SensorDevice } from './device.js'
 import { healthByInstance } from './health.js'
 import type { ParamValues } from './params.js'
-import { DeviceType } from './shared/decode-devid.js'
+import { DeviceType } from '@apwt/ardupilot'
 
 /** Number of airspeed slots. */
 export const MAX_NUM_AIRSPEED = 6

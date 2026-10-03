@@ -8,8 +8,12 @@ interface LoadingContextValue {
 
 const LoadingContext = createContext<LoadingContextValue | null>(null)
 
-/** Wait two animation frames so the overlay is painted before heavy synchronous work. */
+/**
+ * Wait two animation frames so the overlay is painted before heavy synchronous work. Hidden
+ * tabs get no animation frames, so there the work starts on the next task instead.
+ */
 function nextPaint(): Promise<void> {
+  if (document.hidden) return new Promise((resolve) => setTimeout(resolve, 0))
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 }
 

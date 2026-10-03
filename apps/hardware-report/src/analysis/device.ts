@@ -3,7 +3,7 @@
  */
 import type { CanInventory } from './can.js'
 import { canNameForDevice } from './can.js'
-import { decodeDevId, type DecodedDevId, type DeviceType } from './shared/decode-devid.js'
+import { decodeDevId, describeDevId, type DecodedDevId, type DeviceType } from '@apwt/ardupilot'
 
 /** A sensor's device id, decoded. */
 export interface SensorDevice {
@@ -24,11 +24,6 @@ export function describeDevice(devId: number, type: DeviceType, can: CanInventor
 
 /** Display lines for a device, exactly as upstream `print_device` writes them. */
 export function deviceLines(device: SensorDevice): readonly string[] {
-  const d = device.decoded
-  if (d.kind === 'dronecan') {
-    const lines = [`${d.busType} bus: ${d.bus} node id: ${d.address} sensor: ${d.sensorId}`]
-    if (device.canName !== undefined) lines.push('Name: ' + device.canName)
-    return lines
-  }
-  return [`${d.name} via ${d.busType}`]
+  const line = describeDevId(device.decoded)
+  return device.canName === undefined ? [line] : [line, 'Name: ' + device.canName]
 }

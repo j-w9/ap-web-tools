@@ -1,6 +1,6 @@
 /**
  * Small presentational helpers shared by the report sections: status badges, yes/no cells,
- * number formatting and Blob downloads.
+ * number formatting and download buttons.
  */
 import type { ReactNode } from 'react'
 
@@ -57,23 +57,6 @@ export function bytes(value: number): string {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`
   return `${(value / (1024 * 1024)).toFixed(2)} MiB`
-}
-
-/** Offer a Blob to the user as a file download. */
-export function saveBlob(name: string, blob: Blob): void {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 0)
-}
-
-/** Offer text as a UTF-8 file download. */
-export function saveText(name: string, text: string): void {
-  saveBlob(name, new Blob([text], { type: 'text/plain;charset=utf-8' }))
 }
 
 /** A button that downloads something when clicked. */

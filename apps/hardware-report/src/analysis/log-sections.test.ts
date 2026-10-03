@@ -9,7 +9,7 @@ import { readInternalErrors } from './internal-errors.js'
 import { readIomcu } from './iomcu.js'
 import { readMissions, waypointFileText } from './missions.js'
 import { buildLogReport } from './report.js'
-import { DeviceType } from './shared/decode-devid.js'
+import { DeviceType } from '@apwt/ardupilot'
 import { decodeIcsr, faultName, readWatchdogs, taskName, watchdogDecodeLine } from './watchdog.js'
 
 describe('CAN nodes', () => {

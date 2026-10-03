@@ -7,8 +7,7 @@ import { describeDevice, type SensorDevice } from './device.js'
 import { healthByInstance } from './health.js'
 import { paramArray, paramArrayConfigured } from './param-arrays.js'
 import type { ParamValues } from './params.js'
-import { DeviceType } from './shared/decode-devid.js'
-import { compassParamNames } from './shared/param-helpers.js'
+import { compassParamNames, DeviceType } from '@apwt/ardupilot'
 
 /** Number of compass slots the report fills (3 priority slots plus extra detected ids). */
 export const MAX_NUM_COMPASS = 7

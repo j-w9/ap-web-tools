@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_PARAM_IGNORE_KEYS, isIgnoredChange, paramDiff, paramDiffCount } from './param-diff.js'
-import { compareParamNames, paramFileName, paramFileText } from './param-format.js'
+import { paramFileName } from './param-format.js'
 
 describe('paramDiff', () => {
   const prev = new Map([
@@ -42,17 +42,7 @@ describe('paramDiff', () => {
   })
 })
 
-describe('param file', () => {
-  it('sorts naturally and formats as float32', () => {
-    const params = new Map([
-      ['SERVO10_MIN', 1000],
-      ['SERVO2_MIN', 0.1],
-      ['ATC_RAT_RLL_P', 0.135]
-    ])
-    expect(paramFileText(params)).toBe('ATC_RAT_RLL_P,0.135\nSERVO2_MIN,0.1\nSERVO10_MIN,1000\n')
-    expect(['B10', 'B2'].sort(compareParamNames)).toEqual(['B2', 'B10'])
-  })
-
+describe('paramFileName', () => {
   it('names the file after the log', () => {
     expect(paramFileName('logs/00000012.BIN')).toBe('00000012.param')
     expect(paramFileName('C:\\x\\a.b.bin')).toBe('a.b.param')

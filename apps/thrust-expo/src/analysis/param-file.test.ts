@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildParamFile, invalidSavedParams, paramToString, parseParamFile } from './param-file.js'
+import { buildParamFile, invalidSavedParams, parseParamFile } from './param-file.js'
 import { loadUpstreamPage } from './test-support/upstream.js'
 
 describe('parseParamFile', () => {
@@ -34,17 +34,17 @@ describe('parseParamFile', () => {
     expect(page.api.params.MOT_THST_EXPO!.value).toBe(0.58)
   })
 
-  it('marks a non-numeric value as NaN', () => {
+  it('marks a non-numeric or missing value as NaN', () => {
     expect(parseParamFile('MOT_PWM_MIN,abc').values.MOT_PWM_MIN).toBeNaN()
+    const r = parseParamFile('MOT_PWM_MAX,\nMOT_THST_EXPO')
+    expect(r.values.MOT_PWM_MAX).toBeNaN()
+    expect(r.values.MOT_THST_EXPO).toBeNaN()
+    expect(r.count).toBe(2)
+    expect(r.expoFixed).toBe(true)
   })
-})
 
-describe('paramToString', () => {
-  it('gives the shortest float32 round-trip string', () => {
-    expect(paramToString(0.65)).toBe('0.65')
-    expect(paramToString(1000)).toBe('1000')
-    expect(paramToString(-0.30000000000000027)).toBe('-0.3')
-    expect(() => paramToString(Number.NaN)).toThrow()
+  it('accepts the separators the shared reader does', () => {
+    expect(parseParamFile('  MOT_PWM_MIN 1100\nMOT_PWM_MAX=1900\tx\n').values).toEqual({ MOT_PWM_MIN: 1100, MOT_PWM_MAX: 1900 })
   })
 })
 

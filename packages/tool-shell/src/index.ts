@@ -1,7 +1,7 @@
 /**
  * @apwt/tool-shell — the frame every tool shares, styled after ArduPilot CustomBuild:
- * page layout, cards, controls, log input, busy overlay, theme, error reporting and the
- * "Open in" hand-off between tools.
+ * page layout, cards, controls, log input, busy overlay, theme, error reporting, file
+ * downloads and the "Open in" hand-off between tools.
  */
 export {
   ToolPage,
@@ -20,6 +20,7 @@ export { initialTheme, applyTheme, chooseTheme, currentTheme, onThemeChange, css
 export { LoadingProvider, useLoading } from './loading.js'
 export { installGlobalErrorReporter } from './errors.js'
 export { readFileAsArrayBuffer, isDataflashFileName } from './file.js'
+export { downloadText, downloadBytes } from './download.js'
 export {
   OPEN_IN_DESTINATIONS,
   openInDestinations,

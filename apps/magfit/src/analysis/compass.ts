@@ -1,8 +1,9 @@
 // Per-compass data loading, ported from upstream MAGFit/magfit.js (MAG section of `load`).
 
+import { compassParamNames, type CompassParamNames } from '@apwt/ardupilot'
 import { timeUsToSeconds, type DataflashLog } from '@apwt/dataflash'
 import { removeCalibration } from './calibration.js'
-import { compassParamNames, readCompassParams, type CompassParamNames, type ExistingCompassParams } from './params.js'
+import { readCompassParams, type ExistingCompassParams } from './params.js'
 import { vec3SeriesFrom, type Vec3Series } from './vector.js'
 
 /** Maximum number of compasses MAGFit handles. */

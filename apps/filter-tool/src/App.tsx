@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { PlotlyChart } from '@apwt/plot'
-import { ErrorBanner, Section, ToolPage } from '@apwt/tool-shell'
+import { downloadText, ErrorBanner, Section, ToolPage } from '@apwt/tool-shell'
 import { gyroBode, gyroFilters, pidBode, type GyroComponentKey } from './analysis/bode.js'
 import { trackingSourcesInUse } from './analysis/config.js'
 import { formatParamFile, parseParamFile } from './analysis/param-file.js'
@@ -9,7 +9,7 @@ import type { BodeSettings, PidSettings, ToolState } from './analysis/settings.j
 import { notchStatus } from './analysis/summary.js'
 import { gyroRateProblem, loopRateProblem } from './analysis/validate.js'
 import { BodeChips, FilteringChips } from './ui/BodeChips.js'
-import { downloadText, initialState, saveState, shareLink } from './ui/persist.js'
+import { initialState, saveState, shareLink } from './ui/persist.js'
 import { AXIS_LABELS, Rail, type FileStatus } from './ui/Rail.js'
 import { bodeLayout, bodeTraces, type BodeSeries } from './ui/traces.js'
 
@@ -127,7 +127,7 @@ export function App() {
           onAxis={(axis) => setPidSettings({ ...state.pid, axis })}
           fileStatus={fileStatus}
           onLoadFile={loadFile}
-          onSaveFile={() => downloadText(formatParamFile(state.inputs), 'filter.param')}
+          onSaveFile={() => downloadText('filter.param', formatParamFile(state.inputs))}
           linkCopied={linkCopied}
           onCopyLink={canCopy ? copyLink : null}
         />

@@ -2,8 +2,7 @@
  * Firmware and flight controller section (upstream `load_log()` "VER" and "FC" output).
  */
 import type { DataflashLog } from '@apwt/dataflash'
-import { boardName } from './board-types.js'
-import { getVersionAndBoard, type VersionAndBoard } from './shared/log-helpers.js'
+import { boardName, getVersionAndBoard, type VersionAndBoard } from '@apwt/ardupilot'
 
 /** Firmware and board identification with the board id resolved to a name. */
 export interface FirmwareInfo extends VersionAndBoard {

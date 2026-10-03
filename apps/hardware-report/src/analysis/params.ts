@@ -2,6 +2,7 @@
  * Parameter sources for the report: the PARM records of a log or a `.param` file.
  * Mirrors upstream HardwareReport.js `load_log()` (PARM loop) and `load_param_file()`.
  */
+import { parseParamFile as parseParamText } from '@apwt/ardupilot'
 import { US_TO_S, type DataflashLog } from '@apwt/dataflash'
 
 /** Parameter values by name. */
@@ -79,26 +80,15 @@ export function readLogParams(log: DataflashLog): ParamData | undefined {
 }
 
 /**
- * Parse a `.param`/`.parm` file: each line is a name and value separated by whitespace,
- * commas, `=` or tabs (upstream `load_param_file`).
+ * Parse a `.param`/`.parm` file (upstream `load_param_file`); see `@apwt/ardupilot`
+ * `parseParamFile` for the accepted syntax.
  *
  * Deviation: upstream stores every line with two tokens, so comment lines become junk
- * entries such as `"#"` → `NaN`. Here lines starting with `#`, lines with an empty name and
- * values that do not parse as numbers are skipped, and lines are trimmed first so leading
- * whitespace does not produce an empty name.
+ * entries such as `"#"` → `NaN`. Here comments, lines with an empty name and values that do
+ * not parse as numbers are skipped, and lines are trimmed first.
  */
 export function parseParamFile(text: string): ParamData {
-  const values = new Map<string, number>()
-  for (const line of text.split('\n')) {
-    const v = line.trim().split(/[\s,=\t]+/)
-    if (v.length < 2) continue
-    const name = v[0] as string
-    if (name === '' || name.startsWith('#')) continue
-    const value = parseFloat(v[1] as string)
-    if (Number.isNaN(value)) continue
-    values.set(name, value)
-  }
-  return { values, defaults: new Map(), changes: [] }
+  return { values: parseParamText(text).values, defaults: new Map(), changes: [] }
 }
 
 /**

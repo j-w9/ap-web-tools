@@ -1,7 +1,7 @@
 import { Download } from 'lucide-react'
-import { Section } from '@apwt/tool-shell'
+import { Section, downloadText } from '@apwt/tool-shell'
 import { waypointFileText, type MissionData, type MissionSet } from '../analysis/missions.js'
-import { Badge, saveText } from './common.js'
+import { Badge } from './common.js'
 
 function SetLinks({ label, prefix, sets }: { label: string; prefix: string; sets: readonly MissionSet[] }) {
   if (sets.length === 0) return null
@@ -13,7 +13,7 @@ function SetLinks({ label, prefix, sets }: { label: string; prefix: string; sets
           const file = waypointFileText(set)
           const name = `${prefix}_${i}.txt`
           return (
-            <button key={name} type="button" className="apwt-btn" onClick={() => saveText(name, file.text)}>
+            <button key={name} type="button" className="apwt-btn" onClick={() => downloadText(name, file.text)}>
               <Download />
               {name}
               {!file.complete && <Badge tone="bad">incomplete</Badge>}

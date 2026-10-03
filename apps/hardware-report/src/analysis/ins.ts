@@ -7,8 +7,7 @@ import { describeDevice, type SensorDevice } from './device.js'
 import { healthByInstance } from './health.js'
 import { paramArray, paramArrayConfigured, paramVector3, type ParamVector3 } from './param-arrays.js'
 import type { ParamValues } from './params.js'
-import { DeviceType } from './shared/decode-devid.js'
-import { paramNameVector3, type Vector3Names } from './shared/param-helpers.js'
+import { DeviceType, paramNameVector3, type Vector3Names } from '@apwt/ardupilot'
 
 /** Maximum number of IMUs the report looks for. */
 export const MAX_NUM_INS = 5

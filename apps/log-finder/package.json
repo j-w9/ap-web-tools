@@ -5,6 +5,7 @@
   "license": "GPL-3.0-only",
   "type": "module",
   "dependencies": {
+    "@apwt/ardupilot": "*",
     "@apwt/dataflash": "*",
     "@apwt/plot": "*",
     "@apwt/tool-shell": "*",

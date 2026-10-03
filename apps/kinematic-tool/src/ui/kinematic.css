@@ -1,0 +1,29 @@
+/* Kinematic Tool additions to the shared shell styles. */
+.kt-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.apwt-field .kt-input input[type='number'] {
+  width: 84px;
+}
+
+.kt-unit {
+  width: 52px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgb(var(--g500));
+}
+
+.kt-param {
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.kt-help {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: rgb(var(--g500));
+}

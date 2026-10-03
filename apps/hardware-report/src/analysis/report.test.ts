@@ -1,6 +1,6 @@
 import { DataflashLog } from '@apwt/dataflash'
 import { describe, expect, it } from 'vitest'
-import { readFixture } from '../test-utils/upstream.js'
+import { readFixture } from '../test-utils/fixtures.js'
 import { buildLogReport, buildParamFileReport, loadHardwareReport, type LogReport } from './report.js'
 import { allParamsText } from './minimal-params.js'
 

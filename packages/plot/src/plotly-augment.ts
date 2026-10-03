@@ -15,6 +15,9 @@ declare module 'plotly.js' {
     sizemode: 'scaled' | 'absolute' | 'raw'
     sizeref: number
     anchor: 'tip' | 'tail' | 'cm' | 'center'
+    // Bar grouping attributes, missing from the typings.
+    offsetgroup: string
+    alignmentgroup: string
   }
 
   interface PlotlyHTMLElement {

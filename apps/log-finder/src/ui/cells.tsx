@@ -1,9 +1,9 @@
 import { AlertTriangle, Download, ExternalLink } from 'lucide-react'
-import { openInDestinations, sendLogTo } from '@apwt/tool-shell'
+import { compareParamNames, paramFileText, paramToString } from '@apwt/ardupilot'
+import { downloadText, openInDestinations, sendLogTo } from '@apwt/tool-shell'
 import { paramDiffCount, type ParamDiff } from '../analysis/param-diff.js'
-import { compareParamNames, paramFileName, paramFileText, paramToString } from '../analysis/param-format.js'
+import { paramFileName } from '../analysis/param-format.js'
 import { logWarnings, warningLevel, type LogSummary, type LogWarning } from '../analysis/summary.js'
-import { downloadText } from './sources.js'
 import { PopoverButton } from './Popover.js'
 
 const LINK_BUTTON = 'apwt-btn apwt-btn--ghost'
@@ -107,7 +107,7 @@ export function ParamDownloadButton({ name, params }: { name: string; params: Re
       disabled={params.size === 0}
       title={params.size === 0 ? 'No parameters in this log' : 'Save parameters as a .param file'}
       aria-label="Save parameters"
-      onClick={() => downloadText(paramFileText(params), paramFileName(name))}
+      onClick={() => downloadText(paramFileName(name), paramFileText(params))}
     >
       <Download />
     </button>

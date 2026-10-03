@@ -3,7 +3,7 @@
  * `param_array_configured`).
  */
 import type { ParamValues } from './params.js'
-import type { Vector3Names } from './shared/param-helpers.js'
+import type { Vector3Names } from '@apwt/ardupilot'
 
 /** X/Y/Z parameter values; `undefined` where a parameter is missing. */
 export type ParamVector3 = readonly [number | undefined, number | undefined, number | undefined]

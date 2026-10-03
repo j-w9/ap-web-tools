@@ -1,8 +1,8 @@
 import { Download } from 'lucide-react'
-import { Section } from '@apwt/tool-shell'
+import { Section, downloadBytes } from '@apwt/tool-shell'
 import type { EmbeddedFile } from '../analysis/files.js'
 import type { SysFilesReport } from '../analysis/sys-files.js'
-import { Badge, SubHeading, Table, bytes, saveBlob } from './common.js'
+import { Badge, SubHeading, Table, bytes } from './common.js'
 
 /** Files embedded in the log, as downloads. */
 export function FilesSection({ files }: { files: readonly EmbeddedFile[] }) {
@@ -20,7 +20,7 @@ export function FilesSection({ files }: { files: readonly EmbeddedFile[] }) {
               <button
                 type="button"
                 className="apwt-btn"
-                onClick={() => saveBlob(f.name.replace(/^.*[/@]/, ''), new Blob([f.data.slice()]))}
+                onClick={() => downloadBytes(f.name.replace(/^.*[/@]/, ''), f.data)}
                 title={`Download ${f.name}`}
               >
                 <Download />
