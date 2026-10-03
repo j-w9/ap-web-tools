@@ -12,9 +12,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Fetch the upstream parser used by oracle tests
-        # Only this nested submodule is needed; a recursive checkout would pull all of ArduPilot.
-        run: git -C upstream submodule update --init --depth 1 modules/JsDataflashParser
+      - name: Fetch the upstream modules used by oracle tests
+        # Only these nested submodules are needed; a recursive checkout would pull all of ArduPilot.
+        run: git -C upstream submodule update --init --depth 1 modules/JsDataflashParser modules/tabulator modules/luxon
       - uses: actions/setup-node@v4
         with:
           node-version: 22
