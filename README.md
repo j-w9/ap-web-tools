@@ -25,15 +25,16 @@ See `docs/architecture.md`, `docs/typescript-standard.md` and `docs/design.md`.
 
 ## Porting status
 
-Ported tools are checked against the original JavaScript in oracle tests, which run the upstream code
-and compare results exactly. Tools not yet ported link to the original site from the landing page.
+The port keeps the original maths and changes the code: see [`docs/porting-policy.md`](docs/porting-policy.md).
+Each ported tool is checked against the original JavaScript in oracle tests that run the upstream
+code side by side, and has an audit record in [`docs/audit/`](docs/audit). Bugs found in the
+original are reproduced and listed in [`docs/upstream-bugs.md`](docs/upstream-bugs.md).
 
-| Tool                                                                                                                | Status                                  |
-| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| PID Review, MAGFit, Hardware Report, Log Finder, Filter Tool, Stream Stats, DFU Loader, Rotation Check, Thrust Expo | Ported                                  |
-| Filter Review, Airspeed Fit, Kinematic Tool, S-Curve Tool, Geofence Generator, Analytic Tune                        | In progress                             |
-| Telemetry Dashboard, Simple GCS, Video Overlay                                                                      | Planned, on a generated MAVLink package |
-| SysID, AI Log Analyzer                                                                                              | Planned                                 |
+| Tool                                                                                                                                                                                                  | Status                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| PID Review, MAGFit, Hardware Report, Log Finder, Filter Tool, Filter Review, Stream Stats, Rotation Check, Thrust Expo, Airspeed Fit, Kinematic Tool, S-Curve Tool, Geofence Generator, Analytic Tune | Ported and audited        |
+| DFU Loader, AI Log Analyzer, Simple GCS, Telemetry Dashboard, Video Overlay                                                                                                                           | Ported, audit in progress |
+| SysID                                                                                                                                                                                                 | In progress               |
 
 ## Development
 
