@@ -6,10 +6,18 @@ only of them. The maths stays the same; the code gets better.
 ## The maths must not change
 
 For the same inputs, a ported tool produces the same numbers, parsed values, decisions (defaults,
-which data is used, what is accepted or rejected) and output files as the original. This includes
-the original's maths bugs: they are reproduced and recorded in [`upstream-bugs.md`](upstream-bugs.md)
-with a reproduction, so a fix can be made deliberately later. Oracle tests that run the upstream
-JavaScript side by side are the proof.
+which data is used, what is accepted or rejected) and output files as the original. Oracle tests that
+run the upstream JavaScript side by side are the proof.
+
+## Upstream bugs: fixed only when proven
+
+Every bug found in the original is recorded in [`upstream-bugs.md`](upstream-bugs.md). A bug is fixed
+in the port only when it is **proven** to the standard in [`bug-proofs/README.md`](bug-proofs/README.md):
+a reproduction that runs the original code (in `proofs/`) plus a hard reference showing the result is
+wrong (the original fails, contradicts itself, contradicts ArduPilot's source at the pinned commit, or
+contradicts a specification it implements). Each fix changes only the proven case: tests show the
+original's result, the corrected result, and identical results everywhere else. Bugs that are not
+proven stay reproduced exactly. Verdicts and fix status are in `docs/bug-proofs/<tool>.md`.
 
 ## The code should improve
 
@@ -33,10 +41,10 @@ handling. See [`typescript-standard.md`](typescript-standard.md).
   may show an error instead. `alert()`/`confirm()` become in-page messages with the same text and
   choices.
 
-## Deliberate fixes
+## Deliberate decisions
 
-An upstream bug is fixed in the port only by an explicit decision, recorded here and in
-[`upstream-bugs.md`](upstream-bugs.md), with a test that pins the original behaviour.
+Changes made by explicit decision rather than proof, recorded here with a test that pins the original
+behaviour.
 
 | Tool        | Upstream bug                                                                                                                                                                                                                                                                                                                         | Port behaviour                                                                     | Decided    |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ---------- |
