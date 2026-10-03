@@ -101,3 +101,8 @@
   letter-spacing: 0;
   color: rgb(var(--g400));
 }
+
+/* Wide enough for the unrounded start and end times the analysis window starts with. */
+.magfit-time input[type='number'] {
+  width: 170px;
+}

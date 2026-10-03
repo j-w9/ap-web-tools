@@ -3,6 +3,7 @@
  *
  * - `PlotlyChart`: React component driven by immutable `data`/`layout` props.
  * - `linkAxisRanges` / `linkAutorangeReset`: keep several plots' zoom in step.
+ * - `useNarrowScreen`, `withEmptyNote`: phone-width checks and empty-plot notes.
  * - `defaultColor`: Plotly's default colour cycle, for colouring things outside plots.
  */
 export { Plotly, DEFAULT_CONFIG } from './plotly.js'
@@ -10,4 +11,12 @@ export type { Data, Layout, Config, PlotData, PlotRelayoutEvent, PlotlyHTMLEleme
 export { DEFAULT_COLORS, defaultColor, withAlpha } from './colors.js'
 export { linkAxisRanges, linkAutorangeReset, relayoutRange, type LinkedAxis } from './link.js'
 export { PlotlyChart, type PlotlyChartProps } from './PlotlyChart.js'
-export { readPlotTheme, themeLayout, onRootClassChange, type PlotTheme } from './theme.js'
+export { useNarrowScreen, withEmptyNote } from './layout-helpers.js'
+export {
+  readPlotTheme,
+  themeLayout,
+  onRootClassChange,
+  NARROW_PLOT_WIDTH,
+  type PlotTheme,
+  type ThemeLayoutOptions
+} from './theme.js'

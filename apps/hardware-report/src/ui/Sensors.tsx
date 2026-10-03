@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { PlotlyChart as Chart } from '@apwt/plot'
+import { Chart } from './Chart.js'
 import { Section } from '@apwt/tool-shell'
 import type { AirspeedReport } from '../analysis/airspeed.js'
 import type { BaroReport } from '../analysis/baro.js'
@@ -55,7 +55,7 @@ export function InsSection({ ins }: { ins: readonly (InsSensor | undefined)[] })
         {present(ins).map((s) => (
           <tr key={s.number}>
             <td>{s.number}</td>
-            <td style={{ textAlign: 'left' }}>
+            <td>
               {s.combined ? (
                 <Device device={s.gyro} />
               ) : (
@@ -117,7 +117,7 @@ export function CompassSection({ compass }: { compass: CompassReport }) {
           return (
             <tr key={s.number}>
               <td>{s.number}</td>
-              <td style={{ textAlign: 'left' }}>
+              <td>
                 <Device device={s.device} />
               </td>
               <td>{c ? <YesNo value={Boolean(c.use)} /> : '–'}</td>
@@ -147,7 +147,7 @@ export function BaroSection({ baro }: { baro: BaroReport }) {
         {present(baro.sensors).map((s) => (
           <tr key={s.number}>
             <td>{s.number}</td>
-            <td style={{ textAlign: 'left' }}>
+            <td>
               <Device device={s.device} />
             </td>
             <td>
@@ -176,7 +176,7 @@ export function AirspeedSection({ airspeed }: { airspeed: AirspeedReport }) {
         {present(airspeed.sensors).map((s) => (
           <tr key={s.number}>
             <td>{s.number}</td>
-            <td style={{ textAlign: 'left' }}>
+            <td>
               <Device device={s.device} />
             </td>
             <td>

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { PlotlyChart as Chart } from '@apwt/plot'
+import { Chart } from './Chart.js'
 import { Section } from '@apwt/tool-shell'
 import type { CanInventory } from '../analysis/can.js'
 import { CAN_LIMIT_NOTE, type CanRate, type UartRate } from '../analysis/data-rates.js'
@@ -20,11 +20,11 @@ export function CanSection({ can }: { can: CanInventory }) {
           <tr key={i}>
             {can.haveDriverNum && <td>{n.driver}</td>}
             <td>{n.nodeId}</td>
-            <td style={{ textAlign: 'left' }}>{n.name}</td>
+            <td>{n.name}</td>
             <td>
               {n.version} ({n.hash})
             </td>
-            <td style={{ textAlign: 'left' }}>{n.isArduPilot ? <ReleaseInfo hash={n.hash} /> : '–'}</td>
+            <td className="hr-wrap">{n.isArduPilot ? <ReleaseInfo hash={n.hash} /> : '–'}</td>
             <td>
               {hex(n.uid1)} {hex(n.uid2)}
             </td>

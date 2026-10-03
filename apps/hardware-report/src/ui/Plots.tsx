@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { PlotlyChart as Chart } from '@apwt/plot'
+import { Chart } from './Chart.js'
 import { Section } from '@apwt/tool-shell'
 import type { LogStats } from '../analysis/log-stats.js'
 import type { PlotData } from '../analysis/report.js'

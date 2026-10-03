@@ -79,3 +79,25 @@ with the upstream parser; `src/analysis/test-utils/tabulator.ts` drives upstream
 | Tabulator `string` sorter on "Name"          | Logs `9.BIN` and `10.BIN` sorted by name                               | `10.BIN` sorts before `9.BIN` (no natural ordering)                                                                                                                                 |
 | `size_format`                                | A log of 1024 TB or more                                               | The unit prints as `undefined`                                                                                                                                                      |
 | `setup_table` board grouping                 | A board whose boot line is an array index, e.g. `123`                  | That table is listed before boards found earlier in the scan                                                                                                                        |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in both themes, empty and with eight
+logs on five boards: the two repository fixtures and six new small logs in `test-fixtures/` (three
+CubeOrange copter flights with parameter changes and arming checks off, two MatekH743 plane flights
+with a watchdog, one Pixhawk6X), built by `src/ui-fixture.test.ts`. Sorting buttons, chips, filters
+and row buttons were checked with the keyboard. The harness reports no findings.
+
+Changed (presentation only):
+
+- The board tables fit beside the rail at 1440 px: date and firmware take two lines (breaking only
+  between date and time, and before the hash), cell padding is tighter, the warning icon sits
+  beside the log name, and the row's Open in button drops its text (keeping its icon and tooltip)
+  when the table is narrower than 1100 px. Before, the parameter changes and actions were off the
+  right edge.
+- The vehicle filter chips are labelled; the search box is wide enough for its placeholder.
+
+Remaining known issues:
+
+- The row popovers (parameter changes, flight map, Open in) close on resize, which a full-page
+  capture triggers, so the harness cannot capture them; they were checked by hand.

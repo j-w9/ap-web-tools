@@ -118,7 +118,8 @@ function paramSetShapes(data: PidAxisData | null, log: { startTime: number; endT
     x0: Math.max(log.startTime, set.startTime),
     x1: Math.min(log.endTime, set.endTime),
     fillcolor: defaultColor(i),
-    opacity: 0.4,
+    // Faint enough that traces of the same colour stay readable on both themes
+    opacity: 0.15,
     label: { text: String(i + 1), textposition: 'top left' },
     layer: 'below'
   }))

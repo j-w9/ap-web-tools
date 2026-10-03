@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
 import { CheckChips, ChipLabel, RadioChips, Section, downloadText } from '@apwt/tool-shell'
 import {
@@ -93,7 +93,7 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
         Configuration without calibrations, IDs, flight modes and the like, for sharing and comparing similar vehicles. Tick the
         groups to include anyway; statistics and read-only values are always left out.
       </p>
-      <div className="apwt-section__tools" style={{ margin: '10px 0' }}>
+      <div className="hr-groups">
         <ChipLabel>Start from</ChipLabel>
         <RadioChips
           name="param-base"
@@ -104,20 +104,20 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
             { value: 'changed', label: 'Changed from defaults', disabled: !haveDefaults }
           ]}
         />
+        {SECTIONS.map((section) => (
+          <Fragment key={section}>
+            <ChipLabel>{section}</ChipLabel>
+            <CheckChips
+              value={included}
+              onChange={setChosen}
+              options={PARAM_GROUPS.filter((g) => g.section === section).map((g) => {
+                const list = present.get(g.id) ?? []
+                return { value: g.id, label: g.label, disabled: list.length === 0, title: list.join(', ') }
+              })}
+            />
+          </Fragment>
+        ))}
       </div>
-      {SECTIONS.map((section) => (
-        <div key={section} className="apwt-section__tools" style={{ margin: '6px 0', justifyContent: 'flex-start' }}>
-          <ChipLabel>{section}</ChipLabel>
-          <CheckChips
-            value={included}
-            onChange={setChosen}
-            options={PARAM_GROUPS.filter((g) => g.section === section).map((g) => {
-              const list = present.get(g.id) ?? []
-              return { value: g.id, label: g.label, disabled: list.length === 0, title: list.join(', ') }
-            })}
-          />
-        </div>
-      ))}
       <button
         type="button"
         className="apwt-btn apwt-btn--primary"
@@ -152,7 +152,7 @@ export function ParamChangesSection({ changes }: { changes: readonly ParamHistor
         <details key={c.name} style={{ marginBottom: 6 }}>
           <summary style={{ fontFamily: 'var(--mono)' }}>{c.name}</summary>
           <div style={{ margin: '6px 0 10px' }}>
-            <Table head={['Time (s)', 'Value']}>
+            <Table head={['Time (s)', 'Value']} right={[0, 1]} compact>
               {c.changes.map((ch, i) => (
                 <tr key={i}>
                   <td>{ch.time.toFixed(2)}</td>

@@ -27,7 +27,7 @@ function WatchdogTable({ w }: { w: WatchdogRecord }) {
   ]
   return (
     <>
-      <Table head={['Field', 'Value']}>
+      <Table head={['Field', 'Value']} compact>
         {rows.map(([k, v]) => (
           <tr key={k}>
             <td>{k}</td>
@@ -76,10 +76,10 @@ export function InternalErrorsSection({ errors }: { errors: readonly InternalErr
   if (errors.length === 0) return null
   return (
     <Section title="Internal errors" help="Errors the firmware detected in itself, each listed when it first appeared.">
-      <Table head={['New errors', 'Mask', 'Count', 'Line']}>
+      <Table head={['New errors', 'Mask', 'Count', 'Line']} right={[1, 2, 3]}>
         {errors.map((e, i) => (
           <tr key={i}>
-            <td style={{ textAlign: 'left' }}>{e.names.join(', ')}</td>
+            <td>{e.names.join(', ')}</td>
             <td>{upstreamHex(e.maskChange)}</td>
             <td>{e.displayCount === undefined ? '' : `${e.displayCount} times`}</td>
             <td>{e.displayLine ?? ''}</td>
@@ -101,7 +101,7 @@ export function IomcuSection({ iomcu }: { iomcu: IomcuReport | undefined }) {
   ]
   return (
     <Section title="IOMCU" help="Communication errors between the flight controller and its IO co-processor; all should be zero.">
-      <Table head={['Counter', 'Maximum']}>
+      <Table head={['Counter', 'Maximum']} compact>
         {rows
           .filter(([, v]) => v !== undefined)
           .map(([k, v]) => (

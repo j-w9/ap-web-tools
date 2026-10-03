@@ -26,7 +26,26 @@ const COLUMNS: readonly { key: SortKey | 'vehicle'; label: string }[] = [
 ]
 
 const LEFT = { textAlign: 'left' } as const
+// Date and firmware may take two lines so the parameter changes and actions fit without
+// scrolling sideways: each breaks only at one place.
+const WRAP = { whiteSpace: 'normal' } as const
+const FIRMWARE = { textAlign: 'left', whiteSpace: 'normal' } as const
+const NOWRAP = { whiteSpace: 'nowrap' } as const
+
+/** `text` in two unbreakable parts, split at the space in the first `separator` (e.g. `", "`). */
+function TwoLines({ text, separator }: { text: string; separator: string }) {
+  const at = text.indexOf(separator)
+  if (at < 0) return <span style={NOWRAP}>{text}</span>
+  const space = at + separator.indexOf(' ')
+  return (
+    <>
+      <span style={NOWRAP}>{text.slice(0, space)}</span> <span style={NOWRAP}>{text.slice(space + 1)}</span>
+    </>
+  )
+}
+
 const ACTIONS = { display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' } as const
+const NAME = { display: 'flex', gap: 6, alignItems: 'center' } as const
 
 export interface LogTableProps {
   table: BoardTable<File>
@@ -38,8 +57,8 @@ export interface LogTableProps {
 /** One board's logs (upstream: one Tabulator table per board). */
 export function LogTable({ table, sort, onSort }: LogTableProps) {
   return (
-    <div className="apwt-table-wrap">
-      <table className="apwt-table">
+    <div className="apwt-table-wrap lf-table-wrap">
+      <table className="apwt-table lf-table">
         <thead>
           <tr>
             {COLUMNS.map((c) => {
@@ -85,14 +104,19 @@ export function LogTable({ table, sort, onSort }: LogTableProps) {
             const s = log.summary
             return (
               <tr key={log.relativePath}>
-                <td>{formatStartTime(s.startTime)}</td>
+                <td style={WRAP}>
+                  <TwoLines text={formatStartTime(s.startTime)} separator=" " />
+                </td>
                 <td style={LEFT} title={log.relativePath}>
-                  {log.name}
+                  <div style={NAME}>
+                    {log.name}
+                    <WarningsButton summary={s} />
+                  </div>
                 </td>
                 <td>{formatSize(s.sizeBytes)}</td>
                 <td>{s.vehicle ? VEHICLE_NAMES[s.vehicle] : '-'}</td>
-                <td style={LEFT} title={[s.version.osString, s.boardName].filter(Boolean).join(' · ') || undefined}>
-                  {s.version.fwString ?? '-'}
+                <td style={FIRMWARE} title={[s.version.osString, s.boardName].filter(Boolean).join(' · ') || undefined}>
+                  <TwoLines text={s.version.fwString ?? '-'} separator=" (" />
                 </td>
                 <td>{formatFlightTime(s.flightTimeS)}</td>
                 <td>
@@ -122,7 +146,6 @@ export function LogTable({ table, sort, onSort }: LogTableProps) {
                   <div style={ACTIONS}>
                     <ParamDownloadButton name={log.name} params={s.params} />
                     <OpenInMenu file={log.file} messageTypes={s.messageTypes} />
-                    <WarningsButton summary={s} />
                   </div>
                 </td>
               </tr>

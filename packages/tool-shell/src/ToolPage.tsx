@@ -1,7 +1,7 @@
-/// <reference types="vite/client" />
-import type { ReactNode } from 'react'
-import { ThemeToggle } from './ThemeToggle.js'
-import logoUrl from './assets/ardupilot_logo.png'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { SiteFooter, SiteHeader } from './SiteChrome.js'
+import { ControlGroupLabelContext } from './group-context.js'
 import './tool.css'
 
 export interface ToolPageProps {
@@ -26,29 +26,12 @@ const NAV = [
 
 /**
  * Shared page frame in the CustomBuild style: sticky blurred header with the ArduPilot
- * logo, a title block, a sticky control rail beside the results column, and a footer.
+ * logo (see `SiteHeader`), a title block, a sticky control rail beside the results column, and a footer.
  */
 export function ToolPage({ title, intro, readmeUrl, actions, rail, children }: ToolPageProps) {
   return (
     <>
-      <header className="apwt-header">
-        <div className="apwt-header__inner">
-          <a href="../../" aria-label="All ArduPilot web tools">
-            <img className="apwt-header__logo" src={logoUrl} alt="ArduPilot" />
-          </a>
-          <span className="apwt-header__spacer" />
-          <nav className="apwt-nav" aria-label="Site">
-            {NAV.map((l) => (
-              <a key={l.href} href={l.href}>
-                {l.label}
-              </a>
-            ))}
-            {readmeUrl && <a href={readmeUrl}>Help</a>}
-          </nav>
-          {actions}
-          <ThemeToggle />
-        </div>
-      </header>
+      <SiteHeader links={readmeUrl ? [...NAV, { href: readmeUrl, label: 'Help' }] : NAV} homeHref="../../" actions={actions} />
 
       <div className="apwt-container">
         <div className="apwt-hero">
@@ -65,23 +48,12 @@ export function ToolPage({ title, intro, readmeUrl, actions, rail, children }: T
         </div>
 
         <div className={`apwt-layout${rail ? '' : ' apwt-layout--single'}`}>
-          {rail && <aside className="apwt-rail">{rail}</aside>}
+          {rail && <Rail>{rail}</Rail>}
           <main className="apwt-main">{children}</main>
         </div>
       </div>
 
-      <footer className="apwt-footer">
-        <div className="apwt-container apwt-footer__inner">
-          <span className="apwt-footer__name">ArduPilot Web Tools</span>
-          <div className="apwt-footer__links">
-            <a href="https://github.com/ArduPilot/WebTools">Original tools</a>
-            <a href="https://ardupilot.org/donate" className="apwt-donate">
-              ♥ Donate
-            </a>
-            <span>GPL-3.0</span>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </>
   )
 }
@@ -111,24 +83,71 @@ export function Section({ title, help, tools, children }: SectionProps) {
   )
 }
 
+/**
+ * The sticky rail. A rail shorter than the viewport sticks below the header; a taller one scrolls
+ * with the page until its bottom is in view and then sticks there, so every control can be reached
+ * by scrolling the page (no scroll box inside the rail). `--apwt-rail-h` feeds the CSS `top`.
+ */
+function Rail({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => el.style.setProperty('--apwt-rail-h', `${String(el.offsetHeight)}px`))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <aside ref={ref} className="apwt-rail">
+      {children}
+    </aside>
+  )
+}
+
 export interface ControlGroupProps {
   label: string
+  /** Render as a native `<details>` the user can fold away. */
+  collapsible?: boolean
+  /** Short state shown beside the label of a collapsible group, e.g. "On · Throttle". */
+  summary?: ReactNode
+  /** Whether a collapsible group starts open (default true). Later changes do not open or close it. */
+  defaultOpen?: boolean
   children: ReactNode
 }
 
-/** A labelled group of controls inside the rail. */
-export function ControlGroup({ label, children }: ControlGroupProps) {
+/** A labelled group of controls inside the rail, optionally collapsible. */
+export function ControlGroup({ label, collapsible = false, summary, defaultOpen = true, children }: ControlGroupProps) {
+  const labelId = useId()
+  const [initiallyOpen] = useState(defaultOpen)
+  if (collapsible) {
+    return (
+      <details className="apwt-group apwt-group--collapsible" open={initiallyOpen}>
+        <summary className="apwt-group__head">
+          <span className="apwt-label" id={labelId}>
+            {label}
+          </span>
+          {summary != null && <span className="apwt-group__summary">{summary}</span>}
+          <ChevronDown className="apwt-group__chevron" aria-hidden="true" />
+        </summary>
+        <div className="apwt-group__body" role="group" aria-labelledby={labelId}>
+          <ControlGroupLabelContext.Provider value={labelId}>{children}</ControlGroupLabelContext.Provider>
+        </div>
+      </details>
+    )
+  }
   return (
     <fieldset className="apwt-group">
       <legend>
-        <span className="apwt-label">{label}</span>
+        <span className="apwt-label" id={labelId}>
+          {label}
+        </span>
       </legend>
-      {children}
+      <ControlGroupLabelContext.Provider value={labelId}>{children}</ControlGroupLabelContext.Provider>
     </fieldset>
   )
 }
 
-/** The rail's card container. */
+/** The rail's card container. Several cards in one rail are spaced apart. */
 export function RailCard({ children }: { children: ReactNode }) {
   return <div className="apwt-card">{children}</div>
 }

@@ -1,0 +1,29 @@
+/* Log Finder additions to the shared tool styles. */
+
+/* Nine columns: tighter cell padding so the parameter changes and actions fit beside the rail. */
+.lf-table th,
+.lf-table td {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.lf-table th:first-child,
+.lf-table td:first-child {
+  padding-left: 12px;
+}
+
+.lf-table th:last-child,
+.lf-table td:last-child {
+  padding-right: 12px;
+}
+
+/* The row's Open in button drops its text when the table is too narrow for it. */
+.lf-table-wrap {
+  container-type: inline-size;
+}
+
+@container (max-width: 1100px) {
+  .lf-open-label {
+    display: none;
+  }
+}

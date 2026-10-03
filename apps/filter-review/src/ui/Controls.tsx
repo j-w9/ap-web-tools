@@ -1,8 +1,9 @@
-import { CheckChips, Chip, ChipLabel, RadioChips } from '@apwt/tool-shell'
+import { CheckChips, ChipGroup, RadioChips } from '@apwt/tool-shell'
 import type { AmplitudeKind } from '@apwt/signal'
 import { GYRO_AXES, type GyroAxis } from '../analysis/fft/batch-fft.js'
 import type { AliasMode } from '../analysis/plots/alias.js'
-import { SPECTRUM_KINDS, SPECTRUM_LABELS, spectrumTraceKey, type SpectrumKind, type SpectrumTraceKey } from './traces.js'
+import { SPECTRUM_KINDS, SPECTRUM_LABELS, spectrumTraceKey, type SpectrumTraceKey } from './traces.js'
+import { toggleLines } from './toggle-lines.js'
 
 /** Frequency axis settings. */
 export interface FrequencyScaleSettings {
@@ -21,9 +22,9 @@ export interface ScaleChipsProps {
 export function ScaleChips({ amplitude, onAmplitudeChange, frequency, onFrequencyChange }: ScaleChipsProps) {
   return (
     <>
-      <ChipLabel>Amplitude</ChipLabel>
       <RadioChips
         name="amplitude"
+        label="Amplitude"
         value={amplitude}
         onChange={onAmplitudeChange}
         options={[
@@ -32,25 +33,26 @@ export function ScaleChips({ amplitude, onAmplitudeChange, frequency, onFrequenc
           { value: 'PSD', label: 'PSD' }
         ]}
       />
-      <ChipLabel>Frequency</ChipLabel>
-      <RadioChips
-        name="freq-axis"
-        value={frequency.log ? 'log' : 'linear'}
-        onChange={(v) => onFrequencyChange({ ...frequency, log: v === 'log' })}
-        options={[
-          { value: 'linear', label: 'Linear' },
-          { value: 'log', label: 'Log' }
-        ]}
-      />
-      <RadioChips
-        name="freq-unit"
-        value={frequency.rpm ? 'rpm' : 'hz'}
-        onChange={(v) => onFrequencyChange({ ...frequency, rpm: v === 'rpm' })}
-        options={[
-          { value: 'hz', label: 'Hz' },
-          { value: 'rpm', label: 'RPM' }
-        ]}
-      />
+      <ChipGroup label="Frequency">
+        <RadioChips
+          name="freq-axis"
+          value={frequency.log ? 'log' : 'linear'}
+          onChange={(v) => onFrequencyChange({ ...frequency, log: v === 'log' })}
+          options={[
+            { value: 'linear', label: 'Linear' },
+            { value: 'log', label: 'Log' }
+          ]}
+        />
+        <RadioChips
+          name="freq-unit"
+          value={frequency.rpm ? 'rpm' : 'hz'}
+          onChange={(v) => onFrequencyChange({ ...frequency, rpm: v === 'rpm' })}
+          options={[
+            { value: 'hz', label: 'Hz' },
+            { value: 'rpm', label: 'RPM' }
+          ]}
+        />
+      </ChipGroup>
     </>
   )
 }
@@ -63,19 +65,17 @@ export interface AliasChipsProps {
 /** How sensor-rate noise is shown against the loop rate. */
 export function AliasChips({ value, onChange }: AliasChipsProps) {
   return (
-    <>
-      <ChipLabel>Aliasing</ChipLabel>
-      <RadioChips
-        name="aliasing"
-        value={value}
-        onChange={onChange}
-        options={[
-          { value: 'none', label: 'Off' },
-          { value: 'on', label: 'Fold to loop rate' },
-          { value: 'only', label: 'Aliased only' }
-        ]}
-      />
-    </>
+    <RadioChips
+      name="aliasing"
+      label="Aliasing"
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: 'none', label: 'Off' },
+        { value: 'on', label: 'Fold to loop rate' },
+        { value: 'only', label: 'Aliased only' }
+      ]}
+    />
   )
 }
 
@@ -88,47 +88,69 @@ export interface TraceChipsProps {
   onShownChange: (shown: ReadonlySet<SpectrumTraceKey>) => void
 }
 
-const SHORT: Readonly<Record<SpectrumKind, string>> = { pre: 'Pre', post: 'Post', est: 'Est.' }
+/** A group label that shows or hides every line in its group. */
+function GroupToggle(p: {
+  label: string
+  keys: readonly SpectrumTraceKey[]
+  available: ReadonlySet<SpectrumTraceKey>
+  shown: ReadonlySet<SpectrumTraceKey>
+  onShownChange: (shown: ReadonlySet<SpectrumTraceKey>) => void
+  title: string
+}) {
+  return (
+    <button
+      type="button"
+      className="fr-group-toggle"
+      title={p.title}
+      disabled={!p.keys.some((k) => p.available.has(k))}
+      onClick={() => p.onShownChange(toggleLines(p.keys, p.available, p.shown))}
+    >
+      {p.label}
+    </button>
+  )
+}
 
 /** Per gyro, which of the pre-filter, post-filter and estimated lines are drawn on each axis. */
 export function TraceChips({ gyros, available, shown, onShownChange }: TraceChipsProps) {
   return (
-    <div>
+    <div className="fr-trace-table">
       {gyros.map((g) => {
-        const keys = SPECTRUM_KINDS.flatMap((kind) =>
-          GYRO_AXES.map((axis) => ({ kind, axis, key: spectrumTraceKey(g.sensor, kind, axis) }))
-        )
-        const enabled = keys.filter((k) => available.has(k.key))
-        const allShown = enabled.length > 0 && enabled.every((k) => shown.has(k.key))
+        const all = SPECTRUM_KINDS.flatMap((kind) => GYRO_AXES.map((axis) => spectrumTraceKey(g.sensor, kind, axis)))
         return (
-          <div key={g.sensor} className="fr-trace-row">
-            <ChipLabel>{g.label}</ChipLabel>
-            <Chip
-              type="checkbox"
-              checked={allShown}
-              disabled={enabled.length === 0}
-              title="Show or hide every line of this gyro"
-              onChange={(on) => {
-                const next = new Set(shown)
-                for (const k of enabled) {
-                  if (on) next.add(k.key)
-                  else next.delete(k.key)
-                }
-                onShownChange(next)
-              }}
-            >
-              All
-            </Chip>
-            <CheckChips
-              options={keys.map((k) => ({
-                value: k.key,
-                label: `${SHORT[k.kind]} ${k.axis.toUpperCase()}`,
-                disabled: !available.has(k.key),
-                title: `${SPECTRUM_LABELS[k.kind]}, ${k.axis.toUpperCase()} axis`
-              }))}
-              value={shown}
-              onChange={onShownChange}
+          <div key={g.sensor} className="fr-trace-row" role="group" aria-label={g.label}>
+            <GroupToggle
+              label={g.label}
+              keys={all}
+              available={available}
+              shown={shown}
+              onShownChange={onShownChange}
+              title={`Show or hide every line of ${g.label}`}
             />
+            {SPECTRUM_KINDS.map((kind) => {
+              const keys = GYRO_AXES.map((axis) => spectrumTraceKey(g.sensor, kind, axis))
+              return (
+                <div key={kind} className="apwt-chip-group" role="group" aria-label={`${g.label} ${SPECTRUM_LABELS[kind]}`}>
+                  <GroupToggle
+                    label={SPECTRUM_LABELS[kind]}
+                    keys={keys}
+                    available={available}
+                    shown={shown}
+                    onShownChange={onShownChange}
+                    title={`Show or hide the ${SPECTRUM_LABELS[kind].toLowerCase()} lines of ${g.label}`}
+                  />
+                  <CheckChips
+                    options={GYRO_AXES.map((axis, i) => ({
+                      value: keys[i] ?? spectrumTraceKey(g.sensor, kind, axis),
+                      label: axis.toUpperCase(),
+                      disabled: !available.has(keys[i] ?? spectrumTraceKey(g.sensor, kind, axis)),
+                      title: `${SPECTRUM_LABELS[kind]}, ${axis.toUpperCase()} axis`
+                    }))}
+                    value={shown}
+                    onChange={onShownChange}
+                  />
+                </div>
+              )
+            })}
           </div>
         )
       })}
@@ -150,27 +172,25 @@ export interface NotchChipsProps {
 /** Which notch frequencies are overlaid on a plot. */
 export function NotchChips({ value, onChange, enabled, logged }: NotchChipsProps) {
   return (
-    <>
-      <ChipLabel>Notches</ChipLabel>
-      <CheckChips
-        options={[
-          { value: 'notch1', label: 'Notch 1', disabled: !enabled[0] },
-          { value: 'notch2', label: 'Notch 2', disabled: !enabled[1] },
-          ...(logged
-            ? [
-                {
-                  value: 'logged' as const,
-                  label: 'Logged',
-                  disabled: !logged.available,
-                  title: 'Notch frequencies the firmware logged'
-                }
-              ]
-            : [])
-        ]}
-        value={value}
-        onChange={onChange}
-      />
-    </>
+    <CheckChips
+      label="Notches"
+      options={[
+        { value: 'notch1', label: 'Notch 1', disabled: !enabled[0] },
+        { value: 'notch2', label: 'Notch 2', disabled: !enabled[1] },
+        ...(logged
+          ? [
+              {
+                value: 'logged' as const,
+                label: 'Logged',
+                disabled: !logged.available,
+                title: 'Notch frequencies the firmware logged'
+              }
+            ]
+          : [])
+      ]}
+      value={value}
+      onChange={onChange}
+    />
   )
 }
 
@@ -184,6 +204,7 @@ export function AxisChips({ value, onChange }: AxisChipsProps) {
   return (
     <RadioChips
       name="spec-axis"
+      label="Axis"
       value={value}
       onChange={onChange}
       options={GYRO_AXES.map((a) => ({ value: a, label: a.toUpperCase() }))}
@@ -193,16 +214,18 @@ export function AxisChips({ value, onChange }: AxisChipsProps) {
 
 export interface GyroChipsProps {
   name: string
+  label?: string
   gyros: readonly { sensor: number; label: string; disabled?: boolean }[]
   value: number
   onChange: (sensor: number) => void
 }
 
 /** Gyro (IMU) picker. */
-export function GyroChips({ name, gyros, value, onChange }: GyroChipsProps) {
+export function GyroChips({ name, label, gyros, value, onChange }: GyroChipsProps) {
   return (
     <RadioChips
       name={name}
+      label={label}
       value={`${value}`}
       onChange={(v) => onChange(Number(v))}
       options={gyros.map((g) => ({ value: `${g.sensor}`, label: g.label, disabled: g.disabled ?? false }))}

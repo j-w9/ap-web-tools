@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  PlotlyChart,
-  linkAutorangeReset,
-  linkAxisRanges,
-  relayoutRange,
-  type PlotRelayoutEvent,
-  type PlotlyHTMLElement
-} from '@apwt/plot'
+import { linkAutorangeReset, linkAxisRanges, relayoutRange, type PlotRelayoutEvent, type PlotlyHTMLElement } from '@apwt/plot'
 import { fftAmplitudeScale, fftFrequencyScale, fftWindowSizeInc, type AmplitudeKind } from '@apwt/signal'
 import { ErrorBanner, OpenInButton, Section, ToolPage, useLoading, useLogFile, type LogFact } from '@apwt/tool-shell'
 import { WINDOW_NOT_POWER_OF_TWO, computeAxisFft, parseWindowSize } from './analysis/batch-fft.js'
@@ -17,6 +10,7 @@ import { DEFAULT_SHOWN_KEYS, DEFAULT_SPECTROGRAM_KEY, enabledKeys, selectionsFor
 import { carryOverStaleMeans, stepResponses, type SetStepResponse } from './analysis/step-response.js'
 import { specLabel, type SpecKey } from './analysis/vehicle.js'
 import type { VehicleType } from '@apwt/dataflash'
+import { Chart, compactFlightLayout, withEmptyNote } from './ui/Chart.js'
 import { ParamSetTable } from './ui/ParamSetTable.js'
 import { Rail } from './ui/Rail.js'
 import { ScaleChips, SignalChips, SpectrogramChips, type FrequencyScaleSettings } from './ui/SpectrumControls.js'
@@ -35,6 +29,13 @@ import {
 } from './ui/traces.js'
 
 const STEP_LAYOUT = stepLayout()
+
+/** Why the frequency plots are empty for a loaded log, or null when they have data. */
+function fftNote(fft: FftByAxis | null, axisFft: PidAxisFft | null): string | null {
+  if (axisFft) return null
+  if (fft === null) return 'Calculate to see this plot.'
+  return 'No stretch of data is as long as the FFT window. Try a smaller window size.'
+}
 type PlotName = 'inputs' | 'outputs' | 'fft' | 'step' | 'spec'
 type FftByAxis = ReadonlyMap<SpecKey, PidAxisFft | null>
 type Range = [number, number]
@@ -212,7 +213,14 @@ export function App() {
   const shownDrawn = drawn !== null && drawn.key === selectedKey ? drawn : null
   const drawnRange = shownDrawn?.range ?? null
   const flightTraces = useMemo(() => flightDataTraces(log?.flight ?? null), [log])
-  const flightLayout = useMemo(() => flightDataLayout(log ? timeRange : null), [log, timeRange])
+  const flightLayout = useMemo(
+    () =>
+      withEmptyNote(
+        flightDataLayout(log ? timeRange : null),
+        log && Object.keys(log.flight).length === 0 ? 'No attitude, throttle or altitude in this log.' : null
+      ),
+    [log, timeRange]
+  )
   const inputTraces = useMemo(() => timeInputTraces(axis), [axis])
   const outputTraces = useMemo(() => timeOutputTraces(axis), [axis])
   const inputLayout = useMemo(
@@ -224,7 +232,9 @@ export function App() {
     () => (drawnRange ? spectrumTraces(axisFft, { amplitude, frequency, range: drawnRange, shownKeys, shownSets }) : []),
     [drawnRange, axisFft, amplitude, frequency, shownKeys, shownSets]
   )
-  const fftLayout = useMemo(() => spectrumLayout(amplitude, frequency), [amplitude, frequency])
+  const note = log ? fftNote(fft, axisFft) : null
+  const fftLayout = useMemo(() => withEmptyNote(spectrumLayout(amplitude, frequency), note), [amplitude, frequency, note])
+  const stepLayoutValue = useMemo(() => withEmptyNote(STEP_LAYOUT, note), [note])
   const steps = axisFft ? (shownDrawn?.steps ?? null) : null
   const stepData = useMemo(() => stepTraces(steps, shownSets), [steps, shownSets])
   const specTrace = useMemo(
@@ -232,7 +242,7 @@ export function App() {
     [axisFft, spectrogramKey, amplitude, frequency]
   )
   const specRange = shownDrawn?.spectrogramRange ?? null
-  const specLayout = useMemo(() => spectrogramLayout(frequency, specRange), [frequency, specRange])
+  const specLayout = useMemo(() => withEmptyNote(spectrogramLayout(frequency, specRange), note), [frequency, specRange, note])
 
   // ----- Plot linking: zooming one time or frequency axis zooms its partners -----
   const [plots, setPlots] = useState<Partial<Record<PlotName, PlotlyHTMLElement>>>({})
@@ -338,10 +348,11 @@ export function App() {
       <ErrorBanner message={error} />
 
       <Section title="Flight data" help="Zoom into part of the flight to set the analysis window, then calculate.">
-        <PlotlyChart
+        <Chart
           className="apwt-plot apwt-plot--short"
           data={flightTraces}
           layout={flightLayout}
+          compact={compactFlightLayout}
           onRelayout={onFlightRelayout}
         />
       </Section>
@@ -350,8 +361,8 @@ export function App() {
         title={axis ? `Time domain: ${specLabel(axis.spec.key)}` : 'Time domain'}
         help="Controller inputs and outputs over time. Look for tracking error, overshoot and oscillation."
       >
-        <PlotlyChart className="apwt-plot" data={inputTraces} layout={inputLayout} onReady={ready('inputs')} />
-        <PlotlyChart className="apwt-plot" data={outputTraces} layout={outputLayout} onReady={ready('outputs')} />
+        <Chart className="apwt-plot" data={inputTraces} layout={inputLayout} onReady={ready('inputs')} />
+        <Chart className="apwt-plot" data={outputTraces} layout={outputLayout} onReady={ready('outputs')} />
       </Section>
 
       <Section
@@ -374,14 +385,14 @@ export function App() {
       >
         <SignalChips enabled={enabled} shown={shownKeys} onShownChange={setShownKeys} />
         {axis && <ParamSetTable paramSets={axis.paramSets} valid={tableValid} shown={shownSets} onShownChange={setShownSets} />}
-        {log ? <PlotlyChart className="apwt-plot" data={fftTraces} layout={fftLayout} onReady={ready('fft')} /> : empty}
+        {log ? <Chart className="apwt-plot" data={fftTraces} layout={fftLayout} onReady={ready('fft')} /> : empty}
       </Section>
 
       <Section
         title="Step response"
         help="Estimated closed-loop response to a unit step in target rate. Look at rise time, overshoot and settling."
       >
-        {log ? <PlotlyChart className="apwt-plot" data={stepData} layout={STEP_LAYOUT} onReady={ready('step')} /> : empty}
+        {log ? <Chart className="apwt-plot" data={stepData} layout={stepLayoutValue} onReady={ready('step')} /> : empty}
       </Section>
 
       <Section
@@ -399,7 +410,7 @@ export function App() {
           />
         }
       >
-        {log ? <PlotlyChart className="apwt-plot" data={specTrace} layout={specLayout} onReady={ready('spec')} /> : empty}
+        {log ? <Chart className="apwt-plot" data={specTrace} layout={specLayout} onReady={ready('spec')} /> : empty}
       </Section>
     </ToolPage>
   )

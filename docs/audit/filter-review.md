@@ -158,3 +158,36 @@ port now keeps the same strings (`page-values.ts`), so it reads, saves and links
 | Batch window size written into the raw window size input                      | `calculate()` sets `FFTWindow_size` from the first IMU                                                                                     | Batch log with 3 windows per batch (512), then a raw log (`page.test.ts`)                   | The raw log is analysed with 512-sample windows instead of the user's 1024                                                       |
 | Single-window range shifts the wrapped phase band twice                       | `redraw_post_estimate_and_bode`: `Phase_max` and `Phase_min` are the same array when one window is averaged; `phase_scale` shifts in place | Range holding one window with "wrap" (`pipeline.test.ts`)                                   | Band drawn 360 deg off the mean                                                                                                  |
 | Empty, zero or negative loop rate crashes the redraw with aliasing on         | `get_alias_obj`: `new Array(NaN)` / negative                                                                                               | `misc.test.ts` "aliasHelper"                                                                | Plots not redrawn (port: error message)                                                                                          |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in both themes, in three states: empty,
+the new `test-fixtures/ui-batch.bin`, and the same log with log frequency axis, wrapped phase and
+the estimated post-filter spectrogram. The fixture is a small synthetic batch sampling log (two
+gyros logged pre and post filter, attitude, throttle and altitude, a throttle notch and an FFT
+notch with logged notch frequencies) built by `src/analysis/test-utils/ui-fixture.ts` and kept in
+step by `src/analysis/ui-fixture.test.ts`; the repository fixtures have no gyro data. Every section
+was read from the captures; keyboard use of the chips, group toggles and rail inputs was checked in
+Chromium. The harness reports no findings.
+
+Changed (presentation only):
+
+- Spectrum line chips are laid out like upstream's fieldsets: per gyro, Pre-filter, Post-filter and
+  Estimated post groups of X, Y, Z. The gyro and group labels are buttons that do what
+  double-clicking a fieldset legend did upstream (when fewer than half of the enabled lines are
+  shown, show them all, else hide them; unavailable lines untouched). This replaces the port's
+  "All" chip, which used a different rule, and restores the per-group toggle. Unit test:
+  `ui/toggle-lines.test.ts`.
+- Chip groups carry labels that stay with their chips when a toolbar wraps (Amplitude, Frequency,
+  Aliasing, Notches, Gyro, Phase, Source, Axis); "Notches" no longer ends a line on its own.
+- The Bode amplitude and phase bands are mid grey at 35 % opacity; they were drawn black, which hid
+  the phase line's surroundings in dark mode.
+- "No attitude, throttle or altitude in this log." on an empty flight data plot.
+- Phone width: legends above the plots, and the flight data plot keeps only the roll and throttle
+  axes (`ui/Chart.tsx`).
+
+Remaining known issues:
+
+- The fixture shows upstream's "Sequence incomplete ..." warning, which upstream raises whenever the
+  last batch ends the log, and "at ? Hz" for the gyros because it has no IMU messages.
+- At phone width the plots keep the shell's fixed heights.

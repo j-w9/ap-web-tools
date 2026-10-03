@@ -1,17 +1,9 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
-import {
-  PlotlyChart,
-  linkAutorangeReset,
-  linkAxisRanges,
-  relayoutRange,
-  type PlotRelayoutEvent,
-  type PlotlyHTMLElement
-} from '@apwt/plot'
+import { linkAutorangeReset, linkAxisRanges, relayoutRange, type PlotRelayoutEvent, type PlotlyHTMLElement } from '@apwt/plot'
 import { DataflashLog } from '@apwt/dataflash'
 import { wrapPhase } from '@apwt/filters'
 import { fftAmplitudeScale, fftFrequencyScale, type AmplitudeKind } from '@apwt/signal'
 import {
-  ChipLabel,
   downloadText,
   ErrorBanner,
   OpenInButton,
@@ -56,6 +48,7 @@ import {
   type FrequencyScaleSettings,
   type NotchToggle
 } from './ui/Controls.js'
+import { Chart, compactFlightLayout, withEmptyNote } from './ui/Chart.js'
 import { Rail, type FftSettings } from './ui/Rail.js'
 import {
   bodeLayout,
@@ -303,7 +296,14 @@ export function App() {
 
   // ----- Flight data -----
   const flightTraces = useMemo(() => flightDataTraces(loaded?.flight ?? null), [loaded])
-  const flightLayout = useMemo(() => flightDataLayout(loaded ? timeRange : null), [loaded, timeRange])
+  const flightLayout = useMemo(
+    () =>
+      withEmptyNote(
+        flightDataLayout(loaded ? timeRange : null),
+        loaded && Object.keys(loaded.flight).length === 0 ? 'No attitude, throttle or altitude in this log.' : null
+      ),
+    [loaded, timeRange]
+  )
   const onFlightRelayout = useCallback(
     (event: PlotRelayoutEvent) => {
       if (!loaded) return
@@ -474,10 +474,11 @@ export function App() {
       )}
 
       <Section title="Flight data" help="Zoom into part of the flight to set the analysis window.">
-        <PlotlyChart
+        <Chart
           className="apwt-plot apwt-plot--short"
           data={flightTraces}
           layout={flightLayout}
+          compact={compactFlightLayout}
           onRelayout={onFlightRelayout}
         />
       </Section>
@@ -508,7 +509,7 @@ export function App() {
             <div className="fr-trace-row">
               <NotchChips value={fftNotches} onChange={setFftNotches} enabled={notchEnabled} />
             </div>
-            <PlotlyChart className="apwt-plot" data={fftData} layout={fftLayout} onReady={ready('fft')} />
+            <Chart className="apwt-plot" data={fftData} layout={fftLayout} onReady={ready('fft')} />
           </>
         ) : (
           empty
@@ -520,16 +521,16 @@ export function App() {
         help="Magnitude and phase of the configured filters, averaged over the analysis window; the band shows the range as notches track."
         tools={
           <>
-            <ChipLabel>Gyro</ChipLabel>
             <GyroChips
               name="bode-gyro"
+              label="Gyro"
               gyros={bodeGyros}
               value={selections.bodeGyro}
               onChange={(bodeGyro) => setSelections((s) => ({ ...s, bodeGyro }))}
             />
-            <ChipLabel>Phase</ChipLabel>
             <RadioChips
               name="phase"
+              label="Phase"
               value={phaseMode}
               onChange={setPhaseMode}
               options={[
@@ -541,7 +542,7 @@ export function App() {
         }
       >
         {loaded ? (
-          <PlotlyChart className="apwt-plot fr-plot--tall" data={bodeData} layout={bodeLayoutValue} onReady={ready('bode')} />
+          <Chart className="apwt-plot fr-plot--tall" data={bodeData} layout={bodeLayoutValue} onReady={ready('bode')} />
         ) : (
           empty
         )}
@@ -552,15 +553,16 @@ export function App() {
         help="How the noise changes through the analysis window, with the notch frequencies overlaid."
         tools={
           <>
-            <ChipLabel>Gyro</ChipLabel>
             <GyroChips
               name="spec-gyro"
+              label="Gyro"
               gyros={gyros}
               value={selections.specGyro}
               onChange={(specGyro) => setSelections((s) => ({ ...s, specGyro }))}
             />
             <RadioChips
               name="spec-kind"
+              label="Source"
               value={selections.specKind}
               onChange={(specKind) => setSelections((s) => ({ ...s, specKind }))}
               options={[
@@ -569,7 +571,6 @@ export function App() {
                 { value: 'est', label: 'Estimated post', disabled: !(loaded?.havePre ?? false) }
               ]}
             />
-            <ChipLabel>Axis</ChipLabel>
             <AxisChips value={specAxis} onChange={setSpecAxis} />
             <NotchChips
               value={specNotches}
@@ -583,7 +584,7 @@ export function App() {
         {loaded ? (
           <>
             {!specSelection && <p className="fr-hint">No data for this gyro and source.</p>}
-            <PlotlyChart className="apwt-plot" data={specData} layout={specLayout} onReady={ready('spec')} />
+            <Chart className="apwt-plot" data={specData} layout={specLayout} onReady={ready('spec')} />
           </>
         ) : (
           empty

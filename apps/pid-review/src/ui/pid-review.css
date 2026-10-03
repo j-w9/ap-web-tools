@@ -1,0 +1,43 @@
+/* PID Review additions to the shared tool styles. */
+
+.pr-signal-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+/* A group label that toggles its chips, as double-clicking a group legend did upstream. */
+.pr-group-toggle {
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgb(var(--g500));
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.pr-group-toggle:hover:not(:disabled) {
+  color: rgb(var(--g200));
+}
+
+.pr-group-toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.pr-group-toggle:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.pr-hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g500));
+}

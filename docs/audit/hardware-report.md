@@ -154,3 +154,33 @@ magnitudes, blended instance, invalid fixes).
 | `processFiles()` (via Hardware Report FILES) | A log that writes `@SYS/uarts.txt` twice, e.g. `copter-files.bin`             | The downloaded file holds both copies (1664 bytes instead of 832)                                                      |
 | `processFiles()`                             | A binary file such as `crash_dump.bin` whose 64-byte chunks end in zero bytes | Trailing zeros of each chunk are dropped, so the downloaded dump is shorter and misaligned                             |
 | `log.stats()` pie                            | Any log: FMT defines types never written                                      | Zero-size types appear as pie labels (zero slices)                                                                     |
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in both themes, in five states: empty,
+`copter-files.bin` (real H743 board: files, data rates, performance), `copter-sitl.bin` (compasses,
+two barometers, parameter changes, clock drift), the new `test-fixtures/ui-faults.bin` (watchdog,
+internal errors, IOMCU, DroneCAN nodes, GPS boot messages, missions, fences and rally points) and
+`test-fixtures/ui-params.param` (airspeed sensors and sensor positions). Both fixtures are built by
+`src/ui-fixture.test.ts`. The audit configuration answers the GitHub release check from canned data
+(Copter-4.6.3 is a tag, any other hash heads master), because GitHub rate-limits unauthenticated
+requests long before a full run is done. Every section was read from the captures. The harness
+reports no findings.
+
+Changed (presentation only):
+
+- Report tables are left-aligned, with numbers and actions right-aligned per column (`Table`'s
+  `right`); device names no longer sat under right-aligned headings.
+- Field and value tables (watchdog, IOMCU, parameter change history) size to their content instead
+  of spreading two columns across the card.
+- The DroneCAN release column wraps, so the release check text and the UID column are visible
+  without scrolling sideways.
+- Minimal configuration groups are a two-column grid, labels aligned beside their chips (one
+  column on phones).
+- Phone width: legends above the plots (`ui/Chart.tsx`).
+
+Remaining known issues:
+
+- "Primary: NaN" when `BARO_PRIMARY` or `ARSPD_PRIMARY` is missing is upstream's text (kept).
+- Sensor tables scroll sideways on phones; their columns are all needed.
+- In light mode, unticked and unavailable minimal configuration chips look alike (shell chip style).

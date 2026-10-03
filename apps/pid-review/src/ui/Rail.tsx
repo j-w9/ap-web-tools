@@ -74,9 +74,7 @@ export function Rail(p: RailProps) {
             onCommit={(raw) => p.onTimeRangeChange([p.timeRange[0], parseFloat(raw)])}
           />
         </label>
-        <p className="apwt-section__help" style={{ fontSize: 13 }}>
-          Or zoom the flight data plot to pick a window.
-        </p>
+        <p className="pr-hint">Or zoom the flight data plot to pick a window.</p>
       </ControlGroup>
 
       <ControlGroup label="FFT">

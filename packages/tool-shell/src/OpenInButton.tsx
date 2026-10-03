@@ -35,16 +35,16 @@ export function OpenInButton({ file, messageTypes }: OpenInButtonProps) {
     <div ref={wrapper} style={{ position: 'relative' }}>
       <button
         type="button"
-        className="apwt-btn"
+        className="apwt-btn apwt-header__action"
         disabled={!canOpen}
         aria-expanded={open}
         aria-haspopup="menu"
         title={file == null ? 'Open a log first' : canOpen ? undefined : 'Only .bin logs can be opened in other tools'}
         onClick={() => setOpen((o) => !o)}
       >
-        <ExternalLink />
-        Open in
-        <ChevronDown />
+        <ExternalLink aria-hidden="true" />
+        <span className="apwt-header__action-label">Open in</span>
+        <ChevronDown aria-hidden="true" />
       </button>
       {open && file && canOpen && (
         <div className="apwt-popover" role="menu">

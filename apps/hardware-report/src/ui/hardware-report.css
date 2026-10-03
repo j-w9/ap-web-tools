@@ -1,0 +1,51 @@
+/* Hardware Report additions to the shared tool styles. */
+
+/* Report tables hold names, devices and status badges: left-aligned unless a column is numeric. */
+.hr-table th,
+.hr-table td {
+  text-align: left;
+}
+
+.hr-table[data-right~='0'] :is(th, td):nth-child(1),
+.hr-table[data-right~='1'] :is(th, td):nth-child(2),
+.hr-table[data-right~='2'] :is(th, td):nth-child(3),
+.hr-table[data-right~='3'] :is(th, td):nth-child(4),
+.hr-table[data-right~='4'] :is(th, td):nth-child(5),
+.hr-table[data-right~='5'] :is(th, td):nth-child(6) {
+  text-align: right;
+}
+
+/* Field and value tables read across a short distance rather than the full card. */
+.hr-table--compact {
+  width: auto;
+  min-width: min(100%, 420px);
+}
+
+.hr-table-wrap--compact {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.hr-table td.hr-wrap {
+  min-width: 24ch;
+  white-space: normal;
+}
+
+/* Minimal configuration groups: labels in one column, their chips beside them. */
+.hr-groups {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+  align-items: center;
+  margin: 10px 0;
+}
+
+@media (max-width: 560px) {
+  .hr-groups {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .hr-groups > .apwt-chip-label:not(:first-child) {
+    margin-top: 8px;
+  }
+}

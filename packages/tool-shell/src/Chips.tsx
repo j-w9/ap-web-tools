@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useContext, useId, type ReactNode } from 'react'
+import { ControlGroupLabelContext } from './group-context.js'
 
 export interface ChipProps {
   type: 'radio' | 'checkbox'
@@ -25,15 +26,26 @@ export function Chip({ type, name, checked, disabled, onChange, children, swatch
 
 export interface RadioChipsProps<T extends string> {
   name: string
+  /** Optional label shown before the chips and kept with them when a toolbar wraps. */
+  label?: ReactNode
   options: readonly { value: T; label: ReactNode; disabled?: boolean }[]
   value: T
   onChange: (value: T) => void
 }
 
-/** A row of mutually exclusive chips. */
-export function RadioChips<T extends string>({ name, options, value, onChange }: RadioChipsProps<T>) {
+/**
+ * A row of mutually exclusive chips. Named by `label`, else by the enclosing `ControlGroup`.
+ */
+export function RadioChips<T extends string>({ name, label, options, value, onChange }: RadioChipsProps<T>) {
+  const labelId = useId()
+  const groupLabelId = useContext(ControlGroupLabelContext)
   return (
-    <div className="apwt-chips" role="radiogroup">
+    <div
+      className={label != null ? 'apwt-chips apwt-chip-group' : 'apwt-chips'}
+      role="radiogroup"
+      aria-labelledby={label != null ? labelId : groupLabelId}
+    >
+      {label != null && <ChipLabel id={labelId}>{label}</ChipLabel>}
       {options.map((o) => (
         <Chip
           key={o.value}
@@ -51,15 +63,28 @@ export function RadioChips<T extends string>({ name, options, value, onChange }:
 }
 
 export interface CheckChipsProps<T extends string> {
+  /** Optional label shown before the chips and kept with them when a toolbar wraps. */
+  label?: ReactNode
   options: readonly { value: T; label: ReactNode; disabled?: boolean; title?: string }[]
   value: ReadonlySet<T>
   onChange: (value: ReadonlySet<T>) => void
 }
 
-/** A row of independent toggle chips over a set of values. */
-export function CheckChips<T extends string>({ options, value, onChange }: CheckChipsProps<T>) {
+/**
+ * A row of independent toggle chips over a set of values. Named by `label`, else by the
+ * enclosing `ControlGroup`.
+ */
+export function CheckChips<T extends string>({ label, options, value, onChange }: CheckChipsProps<T>) {
+  const labelId = useId()
+  const groupLabelId = useContext(ControlGroupLabelContext)
+  const name = label != null ? labelId : groupLabelId
   return (
-    <div className="apwt-chips">
+    <div
+      className={label != null ? 'apwt-chips apwt-chip-group' : 'apwt-chips'}
+      role={name !== undefined ? 'group' : undefined}
+      aria-labelledby={name}
+    >
+      {label != null && <ChipLabel id={labelId}>{label}</ChipLabel>}
       {options.map((o) => (
         <Chip
           key={o.value}
@@ -81,7 +106,30 @@ export function CheckChips<T extends string>({ options, value, onChange }: Check
   )
 }
 
-/** Small label introducing a chip group in a section toolbar. */
-export function ChipLabel({ children }: { children: ReactNode }) {
-  return <span className="apwt-chip-label">{children}</span>
+/** Small label introducing a chip group in a section toolbar. Prefer `ChipGroup` or the `label` prop. */
+export function ChipLabel({ id, children }: { id?: string; children: ReactNode }) {
+  return (
+    <span id={id} className="apwt-chip-label">
+      {children}
+    </span>
+  )
+}
+
+export interface ChipGroupProps {
+  label: ReactNode
+  children: ReactNode
+}
+
+/**
+ * A labelled cluster of chips for a section toolbar. The label and its chips form one unit, so
+ * when the toolbar wraps on a narrow screen the label never ends up separated from its chips.
+ */
+export function ChipGroup({ label, children }: ChipGroupProps) {
+  const labelId = useId()
+  return (
+    <div className="apwt-chip-group" role="group" aria-labelledby={labelId}>
+      <ChipLabel id={labelId}>{label}</ChipLabel>
+      {children}
+    </div>
+  )
 }

@@ -136,3 +136,26 @@ selection and save priority across a recalculation; motor source series compared
 `bins.test.ts`: `get_weights` with undefined bins, NaN field binning, NaN window inputs.
 `wmm.test.ts`: NaN location throws like upstream. `load.test.ts`: compass 1 requirement for current
 fits. `ui.test.ts`: stale data of invalid fits, error bar visibility, confirm/decline save steps.
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in both themes, in three states: empty,
+`copter-sitl.bin` and the new `test-fixtures/ui-three-compasses.bin` (three compasses with known
+errors and battery current, so every fit has a result; built by `src/ui-fixture.test.ts` from the
+existing synthetic log builder). Every section was read from the captures; keyboard use of the
+compass cards' chips and the rail was checked. The harness reports no findings.
+
+Changed (presentation only):
+
+- "No attitude, throttle or altitude in this log. Set the analysis window in the panel." on an
+  empty flight data plot (the synthetic log has none, so there was nothing to zoom).
+- The analysis window inputs are wider (170 px): they hold the unrounded log start and end times
+  upstream writes, which were cut off at 110 px.
+- Phone width: legends above the plots, and the flight data plot keeps only the roll and throttle
+  axes (`ui/Chart.tsx`).
+
+Remaining known issues:
+
+- The start time can still be longer than the input (e.g. `1.0999999999999999`); it is upstream's
+  value and is not rounded, since the input's text is what the calculation parses.
+- The rail is taller than a laptop screen and scrolls inside its sticky card (shell behaviour).

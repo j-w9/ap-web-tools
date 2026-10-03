@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  PlotlyChart,
   defaultColor,
   linkAutorangeReset,
   linkAxisRanges,
@@ -33,6 +32,7 @@ import {
   type CalibrationId,
   type CompassSelection
 } from './ui/calibrations.js'
+import { Chart, compactFlightLayout, withEmptyNote } from './ui/Chart.js'
 import { CompassCard } from './ui/CompassCard.js'
 import { ParamTable } from './ui/ParamTable.js'
 import { paramRows } from './ui/params-table.js'
@@ -199,7 +199,16 @@ export function App() {
   // ----- Plot data -----
   const range = applied?.range ?? null
   const flightTraces = useMemo(() => flightDataTraces(data?.flight ?? null), [data])
-  const flightLayout = useMemo(() => flightDataLayout(data ? plotRange : null), [data, plotRange])
+  const flightLayout = useMemo(
+    () =>
+      withEmptyNote(
+        flightDataLayout(data ? plotRange : null),
+        data && Object.keys(data.flight).length === 0
+          ? 'No attitude, throttle or altitude in this log. Set the analysis window in the panel.'
+          : null
+      ),
+    [data, plotRange]
+  )
   const component = useMemo(
     () => AXES.map((axis) => componentTraces(axis, applied?.prepared ?? null, entries)),
     [applied, entries]
@@ -309,12 +318,8 @@ export function App() {
       ]
     : null
   const empty = <div className="apwt-empty">Open a log to see this plot</div>
-  const chart = (
-    name: PlotName,
-    traces: Parameters<typeof PlotlyChart>[0]['data'],
-    layout: Parameters<typeof PlotlyChart>[0]['layout']
-  ) =>
-    applied ? <PlotlyChart className="apwt-plot apwt-plot--short" data={traces} layout={layout} onReady={ready(name)} /> : empty
+  const chart = (name: PlotName, traces: Parameters<typeof Chart>[0]['data'], layout: Parameters<typeof Chart>[0]['layout']) =>
+    applied ? <Chart className="apwt-plot apwt-plot--short" data={traces} layout={layout} onReady={ready(name)} /> : empty
 
   return (
     <ToolPage
@@ -362,10 +367,11 @@ export function App() {
       {applied && dirty && <p className="magfit-warning">Settings changed: Calculate to update the results.</p>}
 
       <Section title="Flight data" help="Zoom into the flying part of the log to set the analysis window, then Calculate.">
-        <PlotlyChart
+        <Chart
           className="apwt-plot apwt-plot--short"
           data={flightTraces}
           layout={flightLayout}
+          compact={compactFlightLayout}
           onRelayout={onFlightRelayout}
         />
       </Section>
@@ -475,7 +481,7 @@ export function App() {
         title="Mean field error"
         help="Weighted RMS difference between measured and expected field over the analysis window."
       >
-        {applied ? <PlotlyChart className="apwt-plot apwt-plot--short" data={bars} layout={barLayout} /> : empty}
+        {applied ? <Chart className="apwt-plot apwt-plot--short" data={bars} layout={barLayout} /> : empty}
       </Section>
 
       <Section

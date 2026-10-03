@@ -220,7 +220,15 @@ export function bodeTraces(
   amplitude: AmplitudeScale,
   frequency: FrequencyScale
 ): Partial<Data>[] {
-  const band = { line: { color: 'transparent' }, fill: 'toself', type: 'scatter', showlegend: false, hoverinfo: 'none' } as const
+  // Mid grey at low opacity reads on both the light and dark plot themes
+  const band = {
+    line: { color: 'transparent' },
+    fill: 'toself',
+    fillcolor: 'rgba(128, 128, 128, 0.35)',
+    type: 'scatter',
+    showlegend: false,
+    hoverinfo: 'none'
+  } as const
   if (!bode || !phase) {
     return [
       band,

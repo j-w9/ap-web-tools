@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoadingProvider, applyTheme, initialTheme, installGlobalErrorReporter } from '@apwt/tool-shell'
 import { App } from './App.js'
+import './ui/hardware-report.css'
 
 applyTheme(initialTheme())
 installGlobalErrorReporter()

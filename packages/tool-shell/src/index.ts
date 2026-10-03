@@ -12,8 +12,10 @@ export {
   type SectionProps,
   type ControlGroupProps
 } from './ToolPage.js'
+export { SiteHeader, SiteFooter, type SiteHeaderProps, type SiteLink } from './SiteChrome.js'
 export { LogInput, type LogInputProps, type LogFact } from './LogStrip.js'
 export { ErrorBanner } from './ErrorBanner.js'
+export { Notice, type NoticeProps, type NoticeVariant } from './Notice.js'
 export { ThemeToggle } from './ThemeToggle.js'
 export { useTheme } from './useTheme.js'
 export { initialTheme, applyTheme, chooseTheme, currentTheme, onThemeChange, cssVar, type Theme } from './theme.js'
@@ -33,7 +35,17 @@ export {
 export { OpenInButton, type OpenInButtonProps } from './OpenInButton.js'
 export { useLogFile, type LogFileState } from './useLogFile.js'
 export { useLatest } from './useLatest.js'
-export { Chip, RadioChips, CheckChips, ChipLabel, type ChipProps, type RadioChipsProps, type CheckChipsProps } from './Chips.js'
+export {
+  Chip,
+  RadioChips,
+  CheckChips,
+  ChipLabel,
+  ChipGroup,
+  type ChipProps,
+  type RadioChipsProps,
+  type CheckChipsProps,
+  type ChipGroupProps
+} from './Chips.js'
 export {
   TOOLS,
   TOOL_IDS,

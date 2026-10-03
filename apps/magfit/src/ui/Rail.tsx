@@ -45,7 +45,7 @@ export function Rail(p: RailProps) {
       </ControlGroup>
 
       <ControlGroup label="Analysis window">
-        <label className="apwt-field">
+        <label className="apwt-field magfit-time">
           <span>Start (s)</span>
           <input
             type="number"
@@ -56,7 +56,7 @@ export function Rail(p: RailProps) {
             onChange={(e) => p.onTimeRangeChange([e.target.value, p.timeRange[1]])}
           />
         </label>
-        <label className="apwt-field">
+        <label className="apwt-field magfit-time">
           <span>End (s)</span>
           <input
             type="number"

@@ -68,11 +68,24 @@ export function DownloadButton({ onClick, children, title }: { onClick: () => vo
   )
 }
 
-/** A scrolling `.apwt-table`. */
-export function Table({ head, children }: { head: readonly ReactNode[]; children: ReactNode }) {
+/**
+ * A scrolling `.apwt-table`. Columns are left-aligned except those listed in `right` (numbers and
+ * actions); `compact` sizes a two-column field/value table to its content instead of the card.
+ */
+export function Table({
+  head,
+  children,
+  right = [],
+  compact = false
+}: {
+  head: readonly ReactNode[]
+  children: ReactNode
+  right?: readonly number[]
+  compact?: boolean
+}) {
   return (
-    <div className="apwt-table-wrap">
-      <table className="apwt-table">
+    <div className={compact ? 'apwt-table-wrap hr-table-wrap--compact' : 'apwt-table-wrap'}>
+      <table className={compact ? 'apwt-table hr-table hr-table--compact' : 'apwt-table hr-table'} data-right={right.join(' ')}>
         <thead>
           <tr>
             {head.map((h, i) => (

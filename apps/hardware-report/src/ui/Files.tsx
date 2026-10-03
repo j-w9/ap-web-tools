@@ -8,7 +8,7 @@ export function FilesSection({ files }: { files: readonly EmbeddedFile[] }) {
   if (files.length === 0) return null
   return (
     <Section title="Embedded files" help="Files the flight controller wrote into the log.">
-      <Table head={['File', 'Size', '']}>
+      <Table head={['File', 'Size', '']} right={[1, 2]}>
         {files.map((f) => (
           <tr key={f.name}>
             <td>

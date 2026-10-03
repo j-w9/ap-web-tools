@@ -209,7 +209,7 @@ export function Rail(p: RailProps) {
           <input
             type="text"
             placeholder="Name, firmware, board"
-            style={{ width: 170 }}
+            style={{ width: 200 }}
             value={f.text}
             onChange={(e) => set({ text: e.target.value })}
           />
@@ -219,7 +219,7 @@ export function Rail(p: RailProps) {
           <input
             type="date"
             className="apwt-input"
-            style={{ width: 170 }}
+            style={{ width: 200 }}
             value={f.from}
             onChange={(e) => set({ from: e.target.value })}
           />
@@ -229,13 +229,14 @@ export function Rail(p: RailProps) {
           <input
             type="date"
             className="apwt-input"
-            style={{ width: 170 }}
+            style={{ width: 200 }}
             value={f.to}
             onChange={(e) => set({ to: e.target.value })}
           />
         </label>
         {p.vehicles.length > 1 && (
           <CheckChips
+            label="Vehicles"
             options={p.vehicles.map((v) => ({ value: v, label: vehicleLabel(v) }))}
             value={new Set(p.vehicles.filter((v) => !f.hiddenVehicles.has(v)))}
             onChange={(shown) => set({ hiddenVehicles: new Set(p.vehicles.filter((v) => !shown.has(v))) })}

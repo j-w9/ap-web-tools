@@ -11,7 +11,13 @@ export interface LinkedAxis {
 
 type RelayoutHandler = (event: PlotRelayoutEvent) => void
 
+/**
+ * Remove a relayout listener. `Plotly.purge` (run when a `PlotlyChart` unmounts) deletes the
+ * element's emitter methods along with its listeners, so a link torn down after its plot is
+ * gone has nothing left to remove.
+ */
 function off(element: PlotlyHTMLElement, handler: RelayoutHandler): void {
+  if (typeof (element as Partial<PlotlyHTMLElement>).removeListener !== 'function') return
   element.removeListener('plotly_relayout', handler)
 }
 

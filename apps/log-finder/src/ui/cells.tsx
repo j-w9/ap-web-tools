@@ -121,7 +121,7 @@ export function OpenInMenu({ file, messageTypes }: { file: File; messageTypes: r
       label={
         <>
           <ExternalLink />
-          Open in
+          <span className="lf-open-label">Open in</span>
         </>
       }
       title={`Open ${file.name} in another tool`}

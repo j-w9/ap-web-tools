@@ -23,7 +23,9 @@
   --g200: 229 231 235;
   --g300: 209 213 219;
   --g400: 156 163 175;
-  --g500: 107 114 128;
+  /* Lighter than Tailwind gray-500 (107 114 128) so muted text meets WCAG AA (4.5:1) on every
+     dark surface up to --s3. */
+  --g500: 134 141 154;
   --g600: 75 85 99;
   --g700: 55 65 81;
 
@@ -34,6 +36,12 @@
   --hover-fill: rgba(250, 204, 21, 0.05);
   --red-text: #f87171;
   --green-text: #34d399;
+  --blue-text: #60a5fa;
+  /* Warning notice text: the accent in dark mode, a deeper amber on light surfaces. */
+  --warning-text: #facc15;
+  /* Focus ring and form-field borders, chosen for 3:1 non-text contrast (WCAG 1.4.11). */
+  --focus-ring: rgba(250, 204, 21, 0.6);
+  --field-border: rgb(107 114 128);
   --scrollbar-track: #111111;
   --scrollbar-thumb: #2a2a2a;
   --card-border: rgb(var(--s4));
@@ -57,7 +65,8 @@ html.light {
   --g200: 30 41 59;
   --g300: 51 65 85;
   --g400: 71 85 105;
-  --g500: 100 116 139;
+  /* Slightly darker than slate-500 so muted text meets WCAG AA on the --s page background. */
+  --g500: 93 108 131;
   --g600: 100 116 139;
   --g700: 148 163 184;
 
@@ -65,6 +74,10 @@ html.light {
   --hover-fill: rgba(250, 204, 21, 0.08);
   --red-text: #991b1b;
   --green-text: #065f46;
+  --blue-text: #1d4ed8;
+  --warning-text: #854d0e;
+  --focus-ring: #a16207;
+  --field-border: rgb(125 139 158);
   --scrollbar-track: #f4f5f7;
   --scrollbar-thumb: #cbd5e1;
   --card-border: #cbd5e1;
@@ -77,11 +90,17 @@ html.light {
 /* The header and footer stay dark in light mode, as on CustomBuild. */
 html.light .apwt-header,
 html.light .apwt-footer {
+  --focus-ring: rgba(250, 204, 21, 0.6);
   --g100: 243 244 246;
+  --g200: 229 231 235;
   --g300: 209 213 219;
   --g400: 156 163 175;
   --g500: 130 138 153;
   --yellow-text: #facc15;
+  /* Dark surfaces too, for the "Open in" popover and the mobile menu that open from the header. */
+  --s1: 17 17 17;
+  --s2: 24 24 24;
+  --s3: 34 34 34;
   --s4: 42 42 42;
   background-color: #111111;
   border-color: #2a2a2a;
@@ -136,7 +155,7 @@ code {
 }
 
 :focus-visible {
-  outline: 2px solid rgba(250, 204, 21, 0.6);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -200,6 +219,12 @@ code {
   gap: 16px;
 }
 
+.apwt-header__home {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
 .apwt-header__logo {
   height: 32px;
   width: auto;
@@ -217,29 +242,56 @@ code {
   flex: 1;
 }
 
+.apwt-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Header actions share the icon button's 36 px height. */
+.apwt-header .apwt-btn {
+  height: 36px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 .apwt-nav {
   display: flex;
   align-items: center;
   gap: 24px;
 }
 
-.apwt-nav a {
+.apwt-nav a,
+.apwt-header__menu a {
   font-size: 14px;
   color: rgb(var(--g500));
   text-decoration: none;
   transition: color 0.15s;
 }
 
-.apwt-nav a:hover {
+.apwt-nav a:hover,
+.apwt-header__menu a:hover {
   color: rgb(var(--g300));
+}
+
+/* Narrow screens: links move into a panel under the header (CustomBuild's mobile menu). */
+.apwt-header .apwt-header__menu-btn {
+  display: none;
+}
+
+.apwt-header__menu {
+  display: none;
 }
 
 .apwt-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 36px;
   height: 36px;
+  padding: 0;
   border-radius: 8px;
   border: 1px solid #3a3a3a;
   background: #222222;
@@ -260,6 +312,61 @@ code {
   height: 16px;
 }
 
+@media (max-width: 1000px) {
+  .apwt-nav {
+    display: none;
+  }
+  .apwt-header .apwt-header__menu-btn {
+    display: inline-flex;
+  }
+  .apwt-header__menu:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 8px 12px 12px;
+    border-top: 1px solid rgb(var(--s4));
+  }
+  .apwt-header__menu a {
+    padding: 10px 12px;
+    border-radius: 8px;
+  }
+  .apwt-header__menu a:hover {
+    background: var(--hover-fill);
+  }
+}
+
+/* Phones: header actions become icon buttons; their label stays for screen readers. */
+@media (max-width: 560px) {
+  .apwt-header__inner {
+    gap: 8px;
+  }
+  .apwt-header__logo {
+    height: 28px;
+  }
+  .apwt-header__actions {
+    gap: 8px;
+  }
+  .apwt-header .apwt-header__action {
+    gap: 2px;
+    padding: 0 8px;
+  }
+  /* Visually hidden; clip-path alone hides it, so no overflow clipping is needed. */
+  .apwt-header__action-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .apwt-header .apwt-header__action svg:last-child {
+    width: 14px;
+    height: 14px;
+  }
+}
+
 /* ---------- Page ---------- */
 .apwt-hero {
   padding: 28px 0 20px;
@@ -275,6 +382,7 @@ code {
 
 .apwt-hero__intro {
   margin: 10px 0 0;
+  overflow-wrap: break-word;
   max-width: 78ch;
   color: rgb(var(--g500));
   font-size: 16px;
@@ -292,11 +400,17 @@ code {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/*
+ * Short rails stick 88 px from the top (header + gap). Taller rails get a negative top, so they
+ * scroll with the page until their bottom is 16 px above the viewport's bottom and stick there.
+ * `--apwt-rail-h` is the rail's height, set by ToolPage.
+ */
 .apwt-rail {
   position: sticky;
-  top: 88px;
-  max-height: calc(100vh - 104px);
-  overflow-y: auto;
+  top: min(88px, calc(100vh - var(--apwt-rail-h, 0px) - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .apwt-main {
@@ -312,10 +426,6 @@ code {
   }
   .apwt-rail {
     position: static;
-    max-height: none;
-  }
-  .apwt-nav {
-    display: none;
   }
   .apwt-hero__title {
     font-size: 28px;
@@ -327,6 +437,19 @@ code {
   .apwt-container {
     padding: 0 16px;
   }
+  .apwt-hero {
+    padding: 20px 0 16px;
+  }
+  .apwt-hero__title {
+    font-size: 26px;
+  }
+  .apwt-hero__intro {
+    font-size: 15px;
+  }
+  .apwt-layout,
+  .apwt-main {
+    gap: 16px;
+  }
 }
 
 /* ---------- Cards and sections ---------- */
@@ -335,6 +458,8 @@ code {
   border: 1px solid var(--card-border);
   border-radius: 12px;
   box-shadow: var(--card-shadow);
+  /* Long URLs and file names in card text wrap instead of widening the page on phones. */
+  overflow-wrap: break-word;
 }
 
 .apwt-section {
@@ -375,6 +500,12 @@ code {
   margin-top: 16px;
 }
 
+@media (max-width: 560px) {
+  .apwt-section {
+    padding: 16px 16px 20px;
+  }
+}
+
 /* Small mono label above a group of controls: CustomBuild's `.section-title`. */
 .apwt-label {
   display: block;
@@ -395,11 +526,32 @@ code {
   height: 320px;
 }
 
+/* Phones: plot height follows the width (about 4:5 and 2:3) so plots are not taller than wide. */
+@media (max-width: 560px) {
+  .apwt-plot {
+    height: clamp(260px, 80vw, 420px);
+  }
+  .apwt-plot--short {
+    height: clamp(220px, 62vw, 320px);
+  }
+}
+
+/*
+ * Plotly paints range-slider masks inline with fixed black alphas, heavy on light surfaces; the
+ * override needs !important to beat the inline style.
+ */
+html.light .js-plotly-plot .rangeslider-mask-min,
+html.light .js-plotly-plot .rangeslider-mask-max {
+  fill: rgba(15, 23, 42, 0.12) !important;
+}
+
 .apwt-empty {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 160px;
+  padding: 16px;
+  text-align: center;
   color: rgb(var(--g500));
   border: 1px dashed rgb(var(--s4));
   border-radius: 10px;
@@ -408,6 +560,12 @@ code {
 /* ---------- Rail controls ---------- */
 .apwt-rail .apwt-card {
   padding: 20px;
+}
+
+@media (max-width: 560px) {
+  .apwt-rail .apwt-card {
+    padding: 16px;
+  }
 }
 
 .apwt-group {
@@ -433,6 +591,73 @@ code {
   clear: left;
 }
 
+/* Collapsible group: a native <details> whose summary carries the label and a short state. */
+.apwt-group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.apwt-group__head::-webkit-details-marker {
+  display: none;
+}
+
+.apwt-group__head:focus-visible {
+  outline-offset: 4px;
+}
+
+.apwt-group__head .apwt-label {
+  margin: 0;
+}
+
+.apwt-group__head:hover .apwt-label {
+  color: rgb(var(--g300));
+}
+
+.apwt-group__summary {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgb(var(--g400));
+  text-align: right;
+}
+
+.apwt-group__chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  color: rgb(var(--g500));
+  transition: transform 0.15s;
+}
+
+.apwt-group__summary + .apwt-group__chevron {
+  margin-left: 0;
+}
+
+.apwt-group--collapsible:not([open]) .apwt-group__chevron {
+  transform: rotate(-90deg);
+}
+
+.apwt-group__body {
+  margin-top: 10px;
+}
+
+/* Small explanatory text under a control or in a card. */
+.apwt-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgb(var(--g400));
+}
+
+.apwt-note--warning {
+  color: var(--warning-text);
+}
+
 .apwt-field {
   display: flex;
   align-items: center;
@@ -448,24 +673,32 @@ code {
 .apwt-field input[type='text'],
 .apwt-field select {
   width: 110px;
+  min-height: 36px;
   padding: 8px 10px;
   font-family: var(--mono);
   font-size: 13px;
   color: rgb(var(--g100));
   background: rgb(var(--s3));
-  border: 1px solid rgb(var(--s4));
+  border: 1px solid var(--field-border);
   border-radius: 8px;
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
 }
 
+.apwt-input::placeholder,
+.apwt-field input::placeholder,
+.apwt-field textarea::placeholder {
+  color: rgb(var(--g500));
+  opacity: 1;
+}
+
 .apwt-input:focus,
 .apwt-field input:focus,
 .apwt-field select:focus {
   outline: none;
-  border-color: rgba(250, 204, 21, 0.5);
-  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.5);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .apwt-input:disabled,
@@ -517,13 +750,18 @@ code {
 }
 
 .apwt-chip:has(input:focus-visible) {
-  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.5);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
+/* Disabled chips: faded, dashed and without a fill, so they differ from unticked ones. */
 .apwt-chip:has(input:disabled) {
-  opacity: 0.35;
+  opacity: 0.5;
   cursor: not-allowed;
-  border-color: rgb(var(--s4));
+  background: transparent;
+  border-style: dashed;
+  border-color: rgb(var(--g600));
+  color: rgb(var(--g500));
 }
 
 .apwt-chip__swatch {
@@ -629,6 +867,13 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
   background: var(--hover-fill);
 }
 
+/* The drop zone and "Open another log" are labels around a visually hidden file input. */
+.apwt-drop:has(input:focus-visible),
+.apwt-btn:has(> input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .apwt-drop--over {
   border-color: var(--yellow);
   background: rgba(250, 204, 21, 0.1);
@@ -710,10 +955,32 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
 }
 
 /* ---------- Tables ---------- */
+/*
+ * Wide tables scroll inside their card. Edge shadows show there is more to either side: the
+ * covers scroll with the content (local) and hide the shadows (scroll) at each end.
+ */
 .apwt-table-wrap {
   overflow-x: auto;
   border: 1px solid rgb(var(--s4));
   border-radius: 10px;
+  background:
+    linear-gradient(to right, rgb(var(--s2)) 30%, rgb(var(--s2) / 0)) left center / 40px 100% no-repeat local,
+    linear-gradient(to left, rgb(var(--s2)) 30%, rgb(var(--s2) / 0)) right center / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.45), transparent) left center / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.45), transparent) right center / 14px 100% no-repeat scroll;
+  scrollbar-width: thin;
+}
+
+html.light .apwt-table-wrap {
+  background:
+    linear-gradient(to right, rgb(var(--s2)) 30%, rgb(var(--s2) / 0)) left center / 40px 100% no-repeat local,
+    linear-gradient(to left, rgb(var(--s2)) 30%, rgb(var(--s2) / 0)) right center / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(15, 23, 42, 0.2), transparent) left center / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(15, 23, 42, 0.2), transparent) right center / 14px 100% no-repeat scroll;
+}
+
+.apwt-table-wrap:focus-visible {
+  outline-offset: 0;
 }
 
 .apwt-table {
@@ -734,12 +1001,12 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
   border-bottom: 0;
 }
 
+/* Headings keep their case: uppercasing would mangle units such as "µs" or "s". */
 .apwt-table th {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   color: rgb(var(--g500));
   white-space: normal;
   vertical-align: bottom;
@@ -749,6 +1016,7 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
 .apwt-table td {
   font-family: var(--mono);
   color: rgb(var(--g200));
+  font-variant-numeric: tabular-nums;
 }
 
 .apwt-table th:first-child,
@@ -775,6 +1043,8 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
 .apwt-error {
   display: flex;
   align-items: center;
+  margin: 0;
+  overflow-wrap: anywhere;
   gap: 8px;
   padding: 10px 14px;
   font-size: 14px;
@@ -790,6 +1060,65 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
   flex-shrink: 0;
 }
 
+/* Notice: CustomBuild's tinted banners. Info is blue, warning yellow, success green. */
+.apwt-notice {
+  --notice-rgb: 96 165 250;
+  --notice-text: var(--blue-text);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: rgb(var(--g300));
+  background: rgb(var(--notice-rgb) / 0.08);
+  border: 1px solid rgb(var(--notice-rgb) / 0.3);
+  border-radius: 8px;
+}
+
+.apwt-notice--warning {
+  --notice-rgb: 250 204 21;
+  --notice-text: var(--warning-text);
+}
+
+.apwt-notice--success {
+  --notice-rgb: 52 211 153;
+  --notice-text: var(--green-text);
+}
+
+.apwt-notice > svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  color: var(--notice-text);
+}
+
+.apwt-notice__body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.apwt-notice__body > * {
+  margin: 0;
+}
+
+.apwt-notice__body > * + * {
+  margin-top: 4px;
+}
+
+.apwt-notice__title {
+  display: block;
+  font-weight: 600;
+  color: var(--notice-text);
+}
+
+/* A notice without a title is a single coloured line, like ErrorBanner. */
+.apwt-notice:not(:has(.apwt-notice__title)) .apwt-notice__body {
+  color: var(--notice-text);
+}
+
 .apwt-loading {
   position: fixed;
   inset: 0;
@@ -801,7 +1130,8 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
 }
 
 .apwt-loading__panel {
-  min-width: 260px;
+  min-width: min(260px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   padding: 18px 22px;
 }
 
@@ -880,6 +1210,8 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
 .apwt-footer {
   border-top: 1px solid rgb(var(--s4));
   padding: 28px 0;
+  /* Set here, not inherited from html, so the licence text follows the footer's dark tokens. */
+  color: rgb(var(--g500));
 }
 
 .apwt-footer__inner {
@@ -930,6 +1262,14 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Without the shimmer, show a steady half-strength bar so the overlay still reads as busy. */
+  .apwt-progress::after {
+    left: 0;
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
   }
 }
 
@@ -961,6 +1301,7 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
   font-family: var(--mono);
   font-size: 12px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: rgb(var(--s3));
   border-radius: 6px;
 }
@@ -972,4 +1313,17 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: rgb(var(--g500));
+  white-space: nowrap;
+}
+
+/* A label and its chips as one unit, so a wrapping toolbar never separates them. */
+.apwt-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.apwt-chip-group > .apwt-chip-label {
+  margin-right: 4px;
 }

@@ -8,7 +8,7 @@ import {
   type PlotRelayoutEvent,
   type PlotlyHTMLElement
 } from './plotly.js'
-import { onRootClassChange, readPlotTheme, themeLayout } from './theme.js'
+import { NARROW_PLOT_WIDTH, onRootClassChange, readPlotTheme, themeLayout } from './theme.js'
 
 export interface PlotlyChartProps {
   data: readonly Partial<Data>[]
@@ -19,6 +19,12 @@ export interface PlotlyChartProps {
   onRelayout?: (event: PlotRelayoutEvent) => void
   /** Called once, when the plot element first exists, for imperative linking. */
   onReady?: (element: PlotlyHTMLElement) => void
+  /**
+   * Extra phone layout for this chart, applied before theming while the chart is narrower than
+   * `NARROW_PLOT_WIDTH` (e.g. hide secondary y axes). The shared legend and margin adjustments
+   * apply either way. Keep the function stable (module level or memoised).
+   */
+  compact?: (layout: Partial<Layout>) => Partial<Layout>
 }
 
 /** Keep a ref pointing at the latest value without re-running effects that read it. */
@@ -30,12 +36,28 @@ function useLatest<T>(value: T): { readonly current: T } {
   return ref
 }
 
+/** Whether the element is narrower than `NARROW_PLOT_WIDTH`, tracked with a ResizeObserver. */
+function useNarrow(ref: { readonly current: HTMLElement | null }): boolean {
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const update = () => setNarrow(el.clientWidth > 0 && el.clientWidth < NARROW_PLOT_WIDTH)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref])
+  return narrow
+}
+
 /**
  * A Plotly chart as a React component. `data` and `layout` are the source of truth and are
  * pushed with `Plotly.react` whenever they change; the component never mutates them. The
- * layout is themed from the page's CSS tokens and re-themed when light/dark mode changes.
+ * layout is themed from the page's CSS tokens and re-themed when light/dark mode changes, and
+ * switches to a phone layout (legend below, tight margins) when the chart is narrow.
  */
-export function PlotlyChart({ data, layout, config, style, className, onRelayout, onReady }: PlotlyChartProps) {
+export function PlotlyChart({ data, layout, config, style, className, onRelayout, onReady, compact }: PlotlyChartProps) {
   const divRef = useRef<HTMLDivElement>(null)
   const [plot, setPlot] = useState<PlotlyHTMLElement | null>(null)
   const relayoutRef = useLatest(onRelayout)
@@ -43,7 +65,11 @@ export function PlotlyChart({ data, layout, config, style, className, onRelayout
 
   const [theme, setTheme] = useState(readPlotTheme)
   useEffect(() => onRootClassChange(() => setTheme(readPlotTheme())), [])
-  const themed = useMemo(() => themeLayout(layout, theme), [layout, theme])
+  const narrow = useNarrow(divRef)
+  const themed = useMemo(
+    () => themeLayout(narrow && compact ? compact(layout) : layout, theme, { narrow }),
+    [layout, theme, narrow, compact]
+  )
 
   // Draw or update. Plotly.react creates the plot on first call and diffs afterwards.
   useEffect(() => {
