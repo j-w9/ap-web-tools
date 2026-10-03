@@ -116,16 +116,40 @@ export function App() {
               onClick={() => void session.flash()}
             >
               <Zap />
-              Flash Bootloader
+              Flash bootloader
             </button>
           </div>
         </RailCard>
       }
     >
       {state.status?.kind === 'error' ? (
-        <ErrorBanner message={state.status.text} />
+        <ErrorBanner
+          message={
+            state.webUsb ? state.status.text : `${state.status.text} Open this page in Chrome or Edge on a desktop computer.`
+          }
+        />
       ) : (
         state.status && <p className="dfu-status">{state.status.text}</p>
+      )}
+
+      {(state.log.length > 0 || state.flashing) && (
+        <Section
+          title="Firmware download"
+          help="Progress of writing the bootloader to the board (firmware download to the USB device)."
+        >
+          <FlashLog entries={state.log} />
+        </Section>
+      )}
+      {state.connected && (
+        <Section title="Device" help="What the board reports about its USB DFU interface.">
+          <DeviceInfo info={state.connected} interfaces={state.interfaces} />
+        </Section>
+      )}
+
+      {!state.connected && state.strandedDfuInfo !== '' && (
+        <Section title="Device" help="What the board reported before connecting stopped.">
+          <pre className="dfu-pre">{state.strandedDfuInfo.replace(/^\n/, '')}</pre>
+        </Section>
       )}
 
       <Section title="Instructions" help="To install an ArduPilot bootloader follow these steps.">
@@ -141,7 +165,7 @@ export function App() {
           </li>
           <li>Press Connect and select your DFU interface.</li>
           <li>Choose the bootloader file.</li>
-          <li>Press Flash Bootloader to flash the bootloader to your device.</li>
+          <li>Press Flash bootloader to flash the bootloader to your device.</li>
           <li>
             On completion power cycle your flight controller and load the main firmware with Mission Planner or another ArduPilot
             compatible GCS.
@@ -155,24 +179,6 @@ export function App() {
           for the DFU code!
         </p>
       </Section>
-
-      {state.connected && (
-        <Section title="Device" help="What the board reports about its USB DFU interface.">
-          <DeviceInfo info={state.connected} interfaces={state.interfaces} />
-        </Section>
-      )}
-
-      {!state.connected && state.strandedDfuInfo !== '' && (
-        <Section title="Device" help="What the board reported before connecting stopped.">
-          <pre className="dfu-pre">{state.strandedDfuInfo.replace(/^\n/, '')}</pre>
-        </Section>
-      )}
-
-      {(state.log.length > 0 || state.flashing) && (
-        <Section title="Firmware download" help="Writing to the USB device.">
-          <FlashLog entries={state.log} />
-        </Section>
-      )}
     </ToolPage>
   )
 }

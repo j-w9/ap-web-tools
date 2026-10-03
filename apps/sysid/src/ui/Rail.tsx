@@ -1,5 +1,5 @@
 import { Play } from 'lucide-react'
-import { Chip, ControlGroup, LogInput, RailCard, type LogFact } from '@apwt/tool-shell'
+import { ControlGroup, LogInput, RadioChips, RailCard, type LogFact } from '@apwt/tool-shell'
 import type { ModelType, Setup } from '../analysis/setup.js'
 
 export type PythonStatus = 'loading' | 'ready' | 'failed'
@@ -37,7 +37,7 @@ export interface RailProps {
 /** The control rail: log, analysis time, model type, frequency range and Submit. */
 export function Rail(p: RailProps) {
   const number = (key: TextKey, label: string, step?: number) => (
-    <label className="apwt-field">
+    <label className={step === undefined ? 'apwt-field' : 'apwt-field sysid-time'}>
       <span>{label}</span>
       <input
         type="number"
@@ -61,19 +61,14 @@ export function Rail(p: RailProps) {
       </ControlGroup>
 
       <ControlGroup label="Model">
-        <div className="apwt-chips" role="radiogroup">
-          {MODEL_OPTIONS.map((o) => (
-            <Chip
-              key={o.value}
-              type="radio"
-              name="model"
-              checked={p.setup.model === o.value}
-              onChange={() => p.onModelChange(o.value)}
-            >
-              {o.label}
-            </Chip>
-          ))}
-        </div>
+        <RadioChips<ModelType | ''>
+          name="model"
+          options={MODEL_OPTIONS}
+          value={p.setup.model ?? ''}
+          onChange={(model) => {
+            if (model !== '') p.onModelChange(model)
+          }}
+        />
       </ControlGroup>
 
       <ControlGroup label="Frequency (rad/s)">

@@ -4,26 +4,19 @@
   font-size: 13px;
 }
 
-.sysid-alert {
-  padding: 10px 14px;
-  font-size: 14px;
-  color: var(--yellow-text);
-  background: rgba(250, 204, 21, 0.08);
-  border: 1px solid rgba(250, 204, 21, 0.25);
-  border-radius: 8px;
-}
-
 .sysid-status {
   margin: 0 0 10px;
+}
+
+/* ---------- Analysis time: long times from the log must stay readable ---------- */
+
+.sysid-time input[type='number'] {
+  width: 160px;
 }
 
 /* ---------- Output console ---------- */
 
 .sysid-console {
-  position: relative;
-}
-
-.sysid-console__text {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -41,15 +34,15 @@
   overflow: auto;
 }
 
-.sysid-console__text:focus {
-  outline: none;
-  border-color: rgba(250, 204, 21, 0.5);
+.sysid-console::placeholder {
+  color: rgb(var(--g500));
+  white-space: normal;
 }
 
-.sysid-console__clear {
-  position: absolute;
-  top: 8px;
-  right: 18px;
+.sysid-console:focus-visible {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* ---------- Setup forms ---------- */
@@ -109,9 +102,33 @@
 
 .sysid-sizes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  align-items: center;
-  gap: 4px 18px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+
+.sysid-sizes .apwt-field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0;
+}
+
+.sysid-sizes .apwt-field input[type='number'] {
+  width: 100%;
+}
+
+.sysid-sizes .apwt-btn {
+  white-space: nowrap;
+}
+
+.apwt-table.sysid-params {
+  width: auto;
+}
+
+.apwt-table.sysid-params th,
+.apwt-table.sysid-params td {
+  text-align: left;
 }
 
 .sysid-params .apwt-input {
@@ -158,5 +175,24 @@
 @media (max-width: 600px) {
   .sysid-wide-field input[type='text'] {
     width: 100%;
+  }
+
+  .sysid-sizes .apwt-btn {
+    grid-column: 1 / -1;
+  }
+
+  /* Param, name and both bounds fit a phone without scrolling. */
+  .apwt-table.sysid-params th,
+  .apwt-table.sysid-params td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .sysid-params .apwt-input {
+    width: 76px;
+  }
+
+  .sysid-matrix .apwt-input {
+    width: 60px;
   }
 }

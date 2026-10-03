@@ -126,3 +126,40 @@ Listed in `docs/upstream-bugs.md`:
 6. Cutoff converted with `2 * 3.14`.
 7. Ticked but empty multiplier ignored.
 8. Instanced messages listed but unreadable.
+
+## UI audit
+
+Captured with `node scripts/ui-audit.mjs sysid` (states in `scripts/ui-audit-misc.mjs`) at 1440, 1024
+and 390 px in both themes: empty, Python loading, log loaded with Python ready, transfer function with
+signals, model and a result, state space with manual sizes, the Multirotor roll and yaw presets, and the
+"Please enter valid numbers" alert. The `pyodide` module is replaced in the harness by a stand-in that
+resolves on demand and answers the transfer function script with a canned response (no 20 MB download;
+the plotted numbers are not a real fit). The log is `test-fixtures/ui-sid.bin`, built from
+`src/test-utils/synthetic-sid.ts` and kept in step by `src/ui-fixture.test.ts`. No input to Python,
+value or decision changed; the oracle tests pass unchanged.
+
+Findings and fixes:
+
+- The analysis start time from the log (`5.000999999999999`) was cut off in its field: the time fields
+  are wide enough for the full value.
+- The output console's Clear button floated over the text (on phones it covered the first lines): it is
+  a "Clear output" button in the Output card's header. The empty console has a placeholder saying what
+  will appear there and that loading Python takes a while.
+- The Output card sat between the flight data and the model form. It now follows the model form and
+  precedes the frequency response, in the order of the workflow. It stays mounted in one place, because
+  Python writes into it by id.
+- The output count / sizes alert was a tool-local yellow box at the top of the page, far from Generate
+  fields: it is a shared `Notice` (warning) inside the State space card.
+- Chip groups are labelled: the model chips use `RadioChips` (labelled by the rail group "Model"), the
+  presets have the label "Preset" (upstream's "Enter fields or select to pre-populate fields" is covered
+  by the card's help), and the gravity compensation axis chips have the label "Axis".
+- The state space sizes are compact labelled fields in a grid; Generate fields no longer wraps and takes
+  its own row on phones.
+- The parameter table hugs its content with left-aligned headings; on phones its inputs and padding
+  shrink so Param, Name and both bounds fit without scrolling. Matrix cells are narrower on phones.
+- The result plots' legend sat inside the amplitude plot over the curves (upstream position): it is a
+  horizontal legend above the plots.
+
+Remaining: on a phone the flight data plot keeps upstream's four y axes (Roll, Pitch, Throttle,
+Altitude), which leaves a narrow plot area; zooming still works, and the axes are part of the
+information the original shows.

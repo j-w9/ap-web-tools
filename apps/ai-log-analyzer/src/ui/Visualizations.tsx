@@ -31,7 +31,7 @@ export function Visualizations({ images, showLogReady }: VisualizationsProps) {
       {showLogReady && (
         <div className="ala-summary">
           <h3>Summary</h3>
-          <p>Log File Ready</p>
+          <p>Log file ready</p>
           <h3>Findings</h3>
           <p>Ask questions in the chat to analyze the log and generate visualizations.</p>
         </div>

@@ -193,3 +193,28 @@ Each is also listed in [`../upstream-bugs.md`](../upstream-bugs.md).
 - `waitDisconnected` passes `reject` itself to `setTimeout`, so a timeout rejects with no reason and the
   `disconnect` listener stays attached; the `onTimeout` handler it defines is never used. The page only
   logs the timeout to the console.
+
+## UI audit
+
+Captured with `node scripts/ui-audit.mjs dfu-loader` (states in `scripts/ui-audit-misc.mjs`) at 1440,
+1024 and 390 px in both themes: empty, no WebUSB, connected, file chosen, flash in progress, done, and a
+flash that fails part way. `navigator.usb` is replaced by `page.addInitScript` with the app tests' own
+scripted device (`src/test-utils/fake-usb.ts`, compiled with esbuild): an STM32F4 bootloader with four
+DFU interfaces and a poll timeout that makes the download take a few seconds. No transfer, decision or
+log line changed; the session tests pass unchanged.
+
+Findings and fixes:
+
+- Once connected, the Device and Firmware download cards sat under the long instructions, so on a
+  phone the flash log was several screens down. Firmware download (when present) and Device now come
+  first, Instructions last. Before connecting only the instructions show, as before.
+- "WebUSB not available." said nothing about what to do: the banner adds "Open this page in Chrome or
+  Edge on a desktop computer." after upstream's text.
+- "Flash Bootloader" is sentence case ("Flash bootloader"), in the button and instruction step 6.
+- The Firmware download help said "Writing to the USB device." even after "Done!": it now describes the
+  card (upstream legend "Firmware Download (write to USB device)").
+- Memory table headings no longer wrap ("Sector size" broke on phones).
+
+Remaining: on a phone the memory table's Access column is reached by scrolling the table sideways
+(the shell's scroll shadows show it); the four columns do not fit 390 px without breaking the address
+values.

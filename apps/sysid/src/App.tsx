@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PlotlyChart, relayoutRange, type PlotRelayoutEvent } from '@apwt/plot'
-import { ErrorBanner, OpenInButton, Section, ToolPage, useLoading, useLogFile, type LogFact } from '@apwt/tool-shell'
+import { ErrorBanner, Notice, OpenInButton, Section, ToolPage, useLoading, useLogFile, type LogFact } from '@apwt/tool-shell'
 import { loadLog, type SysIdLog } from './analysis/log.js'
 import { stateSpaceInputs, transferFunctionInputs } from './analysis/request.js'
 import {
@@ -25,7 +25,7 @@ import {
   type StateSpaceOutputs,
   type TransferFunctionOutputs
 } from './python/runtime.js'
-import { ConsolePanel } from './ui/ConsolePanel.js'
+import { ClearOutputButton, ConsolePanel } from './ui/ConsolePanel.js'
 import { appendOutput, clearOutput } from './ui/console.js'
 import { Rail, type PythonStatus } from './ui/Rail.js'
 import type { PickerContext } from './ui/SignalPicker.js'
@@ -237,11 +237,6 @@ export function App() {
       }
     >
       <ErrorBanner message={error} />
-      {alert && (
-        <div className="sysid-alert" role="alert">
-          {alert}
-        </div>
-      )}
 
       <Section title="Flight data" help="Zoom into the identification run to set the analysis time.">
         <PlotlyChart
@@ -252,10 +247,6 @@ export function App() {
         />
       </Section>
 
-      <Section title="Output" help="Progress and results printed by the Python identification.">
-        <ConsolePanel />
-      </Section>
-
       {setup.model === null && (
         <Section title="Model" help="Choose a transfer function or a state space model in the rail.">
           <div className="apwt-empty">Pick a model type to set up the identification</div>
@@ -263,55 +254,63 @@ export function App() {
       )}
 
       {setup.model === 'transfer-function' && tfSignals && (
-        <>
-          <Section title="Transfer function" help="Pick the input and output signals and write the model in s.">
-            <TransferFunctionSetup
-              context={context}
-              input={tfSignals.input}
-              output={tfSignals.output}
-              form={setup.tf}
-              onInputChange={(f: SignalFields) => setSetup((s) => writeSlot(s, { kind: 'input' }, (o) => ({ ...o, ...f })))}
-              onOutputChange={(f: OutputFields) => setSetup((s) => writeSlot(s, { kind: 'output', index: 0 }, () => f))}
-              onFormChange={(tf) => setSetup((s) => ({ ...s, tf }))}
-            />
-          </Section>
-          <Section title="Frequency response" help="Measured and fitted response, and the coherence of the measurement.">
-            {tfResult ? (
-              <PlotlyChart className="apwt-plot sysid-result-plot" data={tfTraces} layout={TRANSFER_FUNCTION_LAYOUT} />
-            ) : (
-              <div className="apwt-empty">Submit to identify the transfer function</div>
-            )}
-          </Section>
-        </>
+        <Section title="Transfer function" help="Pick the input and output signals and write the model in s.">
+          <TransferFunctionSetup
+            context={context}
+            input={tfSignals.input}
+            output={tfSignals.output}
+            form={setup.tf}
+            onInputChange={(f: SignalFields) => setSetup((s) => writeSlot(s, { kind: 'input' }, (o) => ({ ...o, ...f })))}
+            onOutputChange={(f: OutputFields) => setSetup((s) => writeSlot(s, { kind: 'output', index: 0 }, () => f))}
+            onFormChange={(tf) => setSetup((s) => ({ ...s, tf }))}
+          />
+        </Section>
       )}
 
       {setup.model === 'state-space' && (
-        <>
-          <Section title="State space" help="Choose a preset or enter the sizes, generate the fields, then fill in the matrices.">
-            {shared && (
-              <p className="apwt-section__help sysid-note">
-                Input 1 and Output 1 are shared with the transfer function form, as in the original tool.
-              </p>
-            )}
-            <StateSpaceSetup
-              context={context}
-              form={setup.ss}
-              input={setup.ss.signals ? ssInput : null}
-              outputs={ssOutputs}
-              onFormChange={(ss) => setSetup((s) => ({ ...s, ss }))}
-              onInputChange={(f) => setSetup((s) => writeSlot(s, { kind: 'input' }, (o) => ({ ...o, ...f })))}
-              onOutputChange={(index, f) => setSetup((s) => writeSlot(s, { kind: 'output', index }, () => f))}
-              onGenerate={generate}
-            />
-          </Section>
-          <Section title="Frequency response" help="Measured (Hs) and estimated (Hest) response, and coherence, per output.">
-            {ssResult ? (
-              <PlotlyChart className="apwt-plot sysid-result-plot" data={ssTraces} layout={STATE_SPACE_LAYOUT} />
-            ) : (
-              <div className="apwt-empty">Submit to identify the state space model</div>
-            )}
-          </Section>
-        </>
+        <Section title="State space" help="Choose a preset or enter the sizes, generate the fields, then fill in the matrices.">
+          {alert && <Notice variant="warning">{alert}</Notice>}
+          {shared && (
+            <p className="apwt-section__help sysid-note">
+              Input 1 and Output 1 are shared with the transfer function form, as in the original tool.
+            </p>
+          )}
+          <StateSpaceSetup
+            context={context}
+            form={setup.ss}
+            input={setup.ss.signals ? ssInput : null}
+            outputs={ssOutputs}
+            onFormChange={(ss) => setSetup((s) => ({ ...s, ss }))}
+            onInputChange={(f) => setSetup((s) => writeSlot(s, { kind: 'input' }, (o) => ({ ...o, ...f })))}
+            onOutputChange={(index, f) => setSetup((s) => writeSlot(s, { kind: 'output', index }, () => f))}
+            onGenerate={generate}
+          />
+        </Section>
+      )}
+
+      {/* Always mounted in the same place: Python writes into the text area by id. */}
+      <Section title="Output" help="Progress and results printed by the Python identification." tools={<ClearOutputButton />}>
+        <ConsolePanel />
+      </Section>
+
+      {setup.model === 'transfer-function' && tfSignals && (
+        <Section title="Frequency response" help="Measured and fitted response, and the coherence of the measurement.">
+          {tfResult ? (
+            <PlotlyChart className="apwt-plot sysid-result-plot" data={tfTraces} layout={TRANSFER_FUNCTION_LAYOUT} />
+          ) : (
+            <div className="apwt-empty">Submit to identify the transfer function</div>
+          )}
+        </Section>
+      )}
+
+      {setup.model === 'state-space' && (
+        <Section title="Frequency response" help="Measured (Hs) and estimated (Hest) response, and coherence, per output.">
+          {ssResult ? (
+            <PlotlyChart className="apwt-plot sysid-result-plot" data={ssTraces} layout={STATE_SPACE_LAYOUT} />
+          ) : (
+            <div className="apwt-empty">Submit to identify the state space model</div>
+          )}
+        </Section>
       )}
     </ToolPage>
   )

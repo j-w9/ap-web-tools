@@ -88,3 +88,7 @@
   height: 8px;
   accent-color: var(--yellow);
 }
+
+.apwt-table.dfu-memory th {
+  white-space: nowrap;
+}

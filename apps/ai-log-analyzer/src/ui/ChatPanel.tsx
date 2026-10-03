@@ -108,8 +108,10 @@ export function ChatPanel({ entries, thinking, blockedReason, onSend }: ChatPane
       >
         <textarea
           className="apwt-input"
+          aria-label="Message"
           rows={2}
-          placeholder={blockedReason ?? 'Ask about your flight data…'}
+          placeholder="Ask about your flight data…"
+          aria-describedby={blockedReason !== null ? 'ala-blocked' : undefined}
           disabled={blockedReason !== null}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -125,6 +127,11 @@ export function ChatPanel({ entries, thinking, blockedReason, onSend }: ChatPane
           Send
         </button>
       </form>
+      {blockedReason !== null && (
+        <p id="ala-blocked" className="ala-blocked">
+          {blockedReason}
+        </p>
+      )}
     </div>
   )
 }

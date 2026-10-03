@@ -125,6 +125,7 @@ export function OutputPicker({ label, context, fields, onChange }: OutputPickerP
         {fields.compensationOn && (
           <RadioChips
             name={`${label}-axis`}
+            label="Axis"
             options={AXES}
             value={fields.compensationAxis}
             onChange={(compensationAxis) => onChange({ ...fields, compensationAxis })}

@@ -103,3 +103,32 @@ Each is also listed in [`../upstream-bugs.md`](../upstream-bugs.md).
 7. Every `output.json` on the account is deleted, whatever its purpose or origin, without waiting; a second
    call in the same batch can list (and delete again) files whose deletion is still running.
 8. Only a 401 while connecting asks for a new key; a key revoked later keeps failing with "Sorry, …".
+
+## UI audit
+
+Captured with `node scripts/ui-audit.mjs ai-log-analyzer` (states in `scripts/ui-audit-misc.mjs`) at
+1440, 1024 and 390 px in both themes: empty, log loaded, a rejected key, a reply scrolled into view, and
+a full conversation. The OpenAI REST API is answered in the page by `page.route` with recorded-shape
+JSON and SSE (assistant list, thread, message, runs with `requires_action`, file list and upload,
+cancel, chart download from `test-fixtures/ui-chart.png`, a failed run). No real key is used and
+nothing reaches OpenAI. Presentation changes only; no request, text sent to OpenAI or tool output
+changed, and every test passes with its expected values untouched.
+
+Findings and fixes:
+
+- Code blocks in replies showed the page's inline `code` box on every line: `pre code` is reset.
+- Markdown tables squeezed their cells on phones (numbers broke across lines): tables scroll inside the
+  bubble, cells do not wrap, and headings are styled.
+- The transcript had no edge, so a reply scrolled under its top looked cut off: it is now a framed
+  scroll box. On phones assistant bubbles use the full width and padding is tighter.
+- Why the message box is disabled was only in a disabled, low-contrast placeholder: it is shown as text
+  under the box (and linked with `aria-describedby`). The box has the accessible name "Message".
+- Focus rings on the message box and the chart buttons use `--focus-ring` (readable in light mode).
+- "Log File Ready" in the Visualizations summary is now sentence case ("Log file ready").
+
+Kept on purpose: "Update Assistant" / "Updating..." / "Update Failed" and upstream's chat texts
+(including the lower-case tool failure texts) are upstream strings pinned by the oracle; the audit above
+decided they stay identical.
+
+Remaining: the rejected-key capture logs Chrome's own "Failed to load resource: 401" console line for
+the mocked response; that is the browser reporting the intended error, not a page error.

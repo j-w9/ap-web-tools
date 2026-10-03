@@ -49,10 +49,13 @@ export function StateSpaceSetup(p: StateSpaceSetupProps) {
 
   return (
     <div className="sysid-setup">
-      <div>
-        <div className="sysid-picker__label">Enter fields or select to pre-populate fields</div>
-        <RadioChips name="ss-preset" options={PRESET_OPTIONS} value={f.preset} onChange={(preset) => update({ preset })} />
-      </div>
+      <RadioChips
+        name="ss-preset"
+        label="Preset"
+        options={PRESET_OPTIONS}
+        value={f.preset}
+        onChange={(preset) => update({ preset })}
+      />
 
       <div className="sysid-sizes">
         {SIZES.map((s) => (

@@ -40,7 +40,7 @@ export function DeviceInfo({ info, interfaces }: { info: ConnectedInfo; interfac
         <>
           <p className="apwt-section__help">{regionLine}</p>
           <div className="apwt-table-wrap">
-            <table className="apwt-table">
+            <table className="apwt-table dfu-memory">
               <thead>
                 <tr>
                   <th>Start</th>

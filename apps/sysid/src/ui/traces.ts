@@ -68,7 +68,9 @@ function resultLayout(title: string, yTitles: readonly [string, string, string])
     yaxis2: { title: { text: yTitles[1] } },
     xaxis3: freqAxis,
     yaxis3: { title: { text: yTitles[2] } },
-    legend: { x: 1, xanchor: 'right', y: 1 }
+    // Above the plots rather than over the amplitude curves (upstream: inside, top right).
+    legend: { orientation: 'h', x: 0, xanchor: 'left', y: 1, yanchor: 'bottom' },
+    margin: { t: 110, l: 60, r: 20, b: 50 }
   }
 }
 
