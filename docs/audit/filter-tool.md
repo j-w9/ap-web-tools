@@ -98,8 +98,9 @@ Statuses: **identical** (same result, possibly restructured code), **code-improv
   input and no file is saved (the error alert shows). The port saves the file the function builds
   (upstream order and `param_to_string` formatting, oracle-checked with `Param_Helpers.js`
   loaded). Reproducing the crash would remove the page's only output file, which the policy's
-  "nothing removed" forbids; this is the one upstream bug not reproduced and is listed below.
-  **Flagged for review.**
+  "nothing removed" forbids. Fixed deliberately by decision on 2026-10-03 (see
+  `docs/porting-policy.md`, "Deliberate fixes"); `upstream-save-bug.test.ts` runs the page's real
+  script list and pins the upstream crash.
 - **Share-link timing.** Upstream converts `_ENABLE`/`_MODE` to selects when `params.json`
   arrives, asynchronously. If that happens before `load()` runs, a link's `_ENABLE`/`_MODE` are not
   read at all (they are no longer `<input>`s). The port always reads them, i.e. it follows the
@@ -129,7 +130,7 @@ Statuses: **identical** (same result, possibly restructured code), **code-improv
 | `filters.js` `update_hidden` vs `HarmonicNotchFilter` enable test | `_ENABLE` empty (`NaN`)                                                  | The UI tests `> 0`, the filter `!(<= 0)`: settings greyed out, notch applied. Reproduced.                                                                                                                                                 |
 | `filters.js` `update_hidden_mode`                                 | `_MODE` 1.5 (only possible before the select replaces the input)         | Visibility uses `Math.floor(mode)` (throttle input shown) while the filter compares `mode == 1` (fixed notch). Reproduced (`trackingSourcesShown`).                                                                                       |
 | `filters.js` `save_parameters` order and values                   | Save                                                                     | Number inputs first, selects (`_ENABLE`, `_MODE`) last; an empty field is written as `0` (`Math.fround("")`). Reproduced.                                                                                                                 |
-| `index.html` missing `Param_Helpers.js`                           | Save Parameters                                                          | `param_to_string is not defined`, no file. **Not reproduced** (see remaining differences).                                                                                                                                                |
+| `index.html` missing `Param_Helpers.js`                           | Save Parameters                                                          | `param_to_string is not defined`, no file. **Deliberately fixed** (see remaining differences).                                                                                                                                            |
 | `filters.js` `load_parameters` does not trim                      | Load a file with indented lines or `NAME,`                               | Indented lines are ignored (first field empty); `NAME,` empties the field (`NaN`); `5.`, `+1`, `Infinity` empty a number field; any element id can be set, including `GyroSampleRate`, `Throttle`, `RPM1`. Reproduced (`parseParamFile`). |
 | `filters.js` `load()`                                             | Link with `Throttle=Infinity`                                            | The whole URL is lowercased, so `infinity` is not a number and is skipped. Reproduced.                                                                                                                                                    |
 | `filters.js` `unwrap` of an empty array                           | Gyro Sample Rate 0                                                       | Returns `[undefined]` (writes index 0 of a length-0 array). The port's `unwrapPhase` returns `[]`; with no x values neither plots anything, so the plot is the same.                                                                      |

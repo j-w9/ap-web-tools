@@ -33,5 +33,14 @@ handling. See [`typescript-standard.md`](typescript-standard.md).
   may show an error instead. `alert()`/`confirm()` become in-page messages with the same text and
   choices.
 
+## Deliberate fixes
+
+An upstream bug is fixed in the port only by an explicit decision, recorded here and in
+[`upstream-bugs.md`](upstream-bugs.md), with a test that pins the original behaviour.
+
+| Tool        | Upstream bug                                                                                                                        | Port behaviour                                                                     | Decided    |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- |
+| Filter Tool | `index.html` never loads `Libraries/Param_Helpers.js`, so Save Parameters throws `param_to_string is not defined` and saves nothing | Saves the file `save_parameters` builds, formatted by upstream's `param_to_string` | 2026-10-03 |
+
 Every difference that is not purely code structure is listed, with its reason, in the tool's file
 under `docs/audit/`.
