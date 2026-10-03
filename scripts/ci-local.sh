@@ -20,5 +20,6 @@ run lint npm run lint
 run format npm run format:check
 run test npx vitest run
 grep -E 'Tests ' "$dir/.log-test" | tail -1
+run slow-proofs env APWT_SLOW_PROOFS=1 npx vitest run --no-file-parallelism proofs/mavlink/sha256-length.test.ts proofs/scurve-tool/scurve-tool.test.ts
 run build npx vite build
 exit $status

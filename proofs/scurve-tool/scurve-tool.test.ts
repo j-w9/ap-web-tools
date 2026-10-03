@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { replot, type Trace } from './_harness.js'
+import { SLOW_PROOFS } from '../_meta/slow.js'
 
 const DT = 1 / 400
 
@@ -16,14 +17,18 @@ describe('S-Curve Tool', () => {
     expect(Math.hypot(n - 100, e - 250, u - 80)).toBeLessThan(1)
   })
 
-  it('row 13: with WP_SPD, WP_SPD_UP and WP_SPD_DN at 0.1 the path stops at 1000 s, short of position 4', async () => {
-    const r = await replot({ WP_SPD: '0.1', WP_SPD_UP: '0.1', WP_SPD_DN: '0.1' })
-    const target = r.path[1]!
-    // Exactly Math.floor(1000 / dt) samples: the loop ran out rather than breaking at wp 4.
-    expect(target.x.length).toBe(Math.floor(1000 / DT))
-    const [n, e, u] = lastPoint(target)
-    expect(Math.hypot(n - 100, e - 250, u - 80)).toBeGreaterThan(100)
-  }, 120_000)
+  it.runIf(SLOW_PROOFS)(
+    'row 13: with WP_SPD, WP_SPD_UP and WP_SPD_DN at 0.1 the path stops at 1000 s, short of position 4',
+    async () => {
+      const r = await replot({ WP_SPD: '0.1', WP_SPD_UP: '0.1', WP_SPD_DN: '0.1' })
+      const target = r.path[1]!
+      // Exactly Math.floor(1000 / dt) samples: the loop ran out rather than breaking at wp 4.
+      expect(target.x.length).toBe(Math.floor(1000 / DT))
+      const [n, e, u] = lastPoint(target)
+      expect(Math.hypot(n - 100, e - 250, u - 80)).toBeGreaterThan(100)
+    },
+    120_000
+  )
 
   it('row 14: an empty first waypoint North is passed as NaN and the start of the target path is NaN', async () => {
     const r = await replot({ first_wp_x: '' })
@@ -34,13 +39,17 @@ describe('S-Curve Tool', () => {
     expect(target.x.filter((v) => Number.isNaN(v)).length).toBe(19842)
   })
 
-  it('row 14: an empty WP_SPD is not NaN in the path; the target crawls and is cut at 1000 s before wp 2', async () => {
-    const r = await replot({ WP_SPD: '' })
-    const target = r.path[1]!
-    expect(target.x.length).toBe(Math.floor(1000 / DT))
-    expect(target.x.some((v) => Number.isNaN(v))).toBe(false)
-    expect(r.curves).toHaveLength(1)
-  }, 120_000)
+  it.runIf(SLOW_PROOFS)(
+    'row 14: an empty WP_SPD is not NaN in the path; the target crawls and is cut at 1000 s before wp 2',
+    async () => {
+      const r = await replot({ WP_SPD: '' })
+      const target = r.path[1]!
+      expect(target.x.length).toBe(Math.floor(1000 / DT))
+      expect(target.x.some((v) => Number.isNaN(v))).toBe(false)
+      expect(r.curves).toHaveLength(1)
+    },
+    120_000
+  )
 
   it('row 15: x is north and y is east, but the Target hover labels %{y} as N and %{x} as E', async () => {
     const r = await replot({})

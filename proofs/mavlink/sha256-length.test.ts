@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { hex, loadUpstream } from './_harness.js'
+import { SLOW_PROOFS } from '../_meta/slow.js'
 
 function reference(bytes: Uint8Array): string {
   return hex(createHash('sha256').update(bytes).digest())
@@ -20,7 +21,7 @@ describe('#156 SHA-256 length block holds only 32 bits', () => {
     }
   })
 
-  it('gives a wrong digest for 2^29 bytes (bit length 2^32)', async () => {
+  it.runIf(SLOW_PROOFS)('gives a wrong digest for 2^29 bytes (bit length 2^32)', async () => {
     const u = await loadUpstream()
     const bytes = new Uint8Array(2 ** 29)
     // The length bytes upstream writes: `(bitLen >>> k) & 0xff` of 2^32 are all zero.

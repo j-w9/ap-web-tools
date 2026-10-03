@@ -28,5 +28,9 @@ jobs:
         run: npm run format:check
       - name: Tests
         run: npm test
+      - name: Slow proofs (one file at a time)
+        run: npx vitest run --no-file-parallelism proofs/mavlink/sha256-length.test.ts proofs/scurve-tool/scurve-tool.test.ts
+        env:
+          APWT_SLOW_PROOFS: '1'
       - name: Build
         run: npx vite build
