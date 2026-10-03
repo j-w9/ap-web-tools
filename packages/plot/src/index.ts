@@ -10,3 +10,4 @@ export type { Data, Layout, Config, PlotData, PlotRelayoutEvent, PlotlyHTMLEleme
 export { DEFAULT_COLORS, defaultColor, withAlpha } from './colors.js'
 export { linkAxisRanges, linkAutorangeReset, relayoutRange, type LinkedAxis } from './link.js'
 export { PlotlyChart, type PlotlyChartProps } from './PlotlyChart.js'
+export { readPlotTheme, themeLayout, onRootClassChange, type PlotTheme } from './theme.js'

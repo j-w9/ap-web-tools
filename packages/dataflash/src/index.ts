@@ -22,6 +22,8 @@ export {
   mavTypeForVehicle,
   modeName,
   modeTable,
-  vehicleTypeForMavType
+  vehicleTypeForMavType,
+  vehicleTypeForBuildType,
+  BuildType
 } from './modes.js'
 export type { ModeChange, VehicleType } from './modes.js'

@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ExternalLink } from 'lucide-react'
 import { openInDestinations, sendLogTo } from './open-in.js'
 
 export interface OpenInButtonProps {
   /** The currently loaded log file, or null when nothing is loaded. */
   file: File | null
-  /** Base message types present in the log; destinations that cannot use them are disabled. */
+  /** Message types present in the log; destinations that cannot use them are disabled. */
   messageTypes: readonly string[] | null
 }
 
-/** "Open In" button that pops up one button per destination tool. */
+/** Header button listing the other tools this log can be opened in. */
 export function OpenInButton({ file, messageTypes }: OpenInButtonProps) {
   const [open, setOpen] = useState(false)
-  const wrapper = useRef<HTMLSpanElement>(null)
+  const wrapper = useRef<HTMLDivElement>(null)
   const destinations = useMemo(openInDestinations, [])
 
   useEffect(() => {
@@ -19,21 +20,37 @@ export function OpenInButton({ file, messageTypes }: OpenInButtonProps) {
     const close = (e: MouseEvent) => {
       if (!wrapper.current?.contains(e.target as Node)) setOpen(false)
     }
+    const escape = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
     document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', escape)
+    }
   }, [open])
 
   return (
-    <span ref={wrapper} style={{ position: 'relative', display: 'inline-block' }}>
-      <button type="button" disabled={file == null} onClick={() => setOpen((o) => !o)}>
-        Open In
+    <div ref={wrapper} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="apwt-btn"
+        disabled={file == null}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        title={file == null ? 'Open a log first' : undefined}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <ExternalLink />
+        Open in
+        <ChevronDown />
       </button>
       {open && file && (
-        <div className="apwt-popover" style={{ right: '100%', top: 0 }}>
+        <div className="apwt-popover" role="menu">
           {destinations.map((d) => (
             <button
               key={d.name}
               type="button"
+              role="menuitem"
               disabled={messageTypes != null && !d.accepts(messageTypes)}
               onClick={() => {
                 setOpen(false)
@@ -45,6 +62,6 @@ export function OpenInButton({ file, messageTypes }: OpenInButtonProps) {
           ))}
         </div>
       )}
-    </span>
+    </div>
   )
 }

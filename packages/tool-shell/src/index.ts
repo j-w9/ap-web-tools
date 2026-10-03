@@ -1,8 +1,22 @@
 /**
- * @apwt/tool-shell — the chrome every tool shares: page layout, loading overlay,
- * error reporting, log file input and the "Open in" hand-off between tools.
+ * @apwt/tool-shell — the frame every tool shares, styled after ArduPilot CustomBuild:
+ * page layout, cards, controls, log input, busy overlay, theme, error reporting and the
+ * "Open in" hand-off between tools.
  */
-export { ToolPage, SectionTitle, type ToolPageProps, type SectionTitleProps } from './ToolPage.js'
+export {
+  ToolPage,
+  Section,
+  ControlGroup,
+  RailCard,
+  type ToolPageProps,
+  type SectionProps,
+  type ControlGroupProps
+} from './ToolPage.js'
+export { LogInput, type LogInputProps, type LogFact } from './LogStrip.js'
+export { ErrorBanner } from './ErrorBanner.js'
+export { ThemeToggle } from './ThemeToggle.js'
+export { useTheme } from './useTheme.js'
+export { initialTheme, applyTheme, chooseTheme, currentTheme, onThemeChange, cssVar, type Theme } from './theme.js'
 export { LoadingProvider, useLoading } from './loading.js'
 export { installGlobalErrorReporter } from './errors.js'
 export { readFileAsArrayBuffer, isDataflashFileName } from './file.js'

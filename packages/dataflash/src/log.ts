@@ -13,7 +13,7 @@ import {
   detectVehicleType,
   mavTypeForVehicle,
   modeName,
-  vehicleTypeForMavType,
+  vehicleTypeForBuildType,
   type MavType,
   type ModeChange,
   type VehicleType
@@ -282,9 +282,12 @@ export class DataflashLog {
    */
   vehicleType(): VehicleType | undefined {
     if (this.vehicleCache === undefined) {
+      // VER.BU (build type) is authoritative. Note VER.FWT is the release type (dev, beta,
+      // official), not a MAV_TYPE, so it must not be used here. Fall back to the MSG banner
+      // for logs from firmware that predates BU.
       let detected: VehicleType | undefined
-      const fwt = this.getNumbers(VER, 'FWT')
-      if (fwt !== undefined && fwt.length > 0) detected = vehicleTypeForMavType(fwt[0] as number)
+      const bu = this.getNumbers(VER, 'BU')
+      if (bu?.[0] !== undefined) detected = vehicleTypeForBuildType(bu[0])
       detected ??= detectVehicleType(this.textMessages())
       this.vehicleCache = detected ?? null
     }

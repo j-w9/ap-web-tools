@@ -73,4 +73,8 @@ export interface LoadedLog {
   endTime: number
   /** Base message types in the log, for the "Open in" buttons. */
   messageTypes: readonly string[]
+  /** Vehicle family, e.g. `copter`. */
+  vehicle: string
+  /** Firmware version string, when the log records one. */
+  firmware: string | null
 }

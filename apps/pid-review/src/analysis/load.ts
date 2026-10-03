@@ -68,7 +68,22 @@ export function loadLog(buffer: ArrayBuffer): LoadedLog {
   if (throttle) flight.throttle = throttle
   if (altitude) flight.altitude = altitude
 
-  return { axes, flight, startTime, endTime, messageTypes: [...log.messageTypes().keys()] }
+  return {
+    axes,
+    flight,
+    startTime,
+    endTime,
+    messageTypes: [...log.messageTypes().keys()],
+    vehicle: log.vehicleType() ?? 'unknown',
+    firmware: firmwareString(log)
+  }
+}
+
+/** Firmware banner from VER, else the first MSG that looks like one. */
+function firmwareString(log: DataflashLog): string | null {
+  const fws = log.getStrings('VER', 'FWS')?.[0]
+  if (fws) return fws
+  return log.textMessages().find((m) => /^Ardu\w+ V\d/.test(m)) ?? null
 }
 
 function loadAxis(log: DataflashLog, spec: PidMessageSpec, paramSets: ParamSets): PidAxisData | null {

@@ -233,15 +233,60 @@ export function mavTypeForVehicle(vehicle: VehicleType): MavType {
  *
  * @returns the family, or `undefined` when no banner is recognised.
  */
+/**
+ * ArduPilot build type as logged in `VER.BU` (`APM_BUILD_*` in AP_Common/AP_FWVersion):
+ * the authoritative vehicle identity, present even when a custom firmware string
+ * replaces the usual "ArduCopter V4.x" banner.
+ */
+export const BuildType = {
+  ROVER: 1,
+  COPTER: 2,
+  PLANE: 3,
+  TRACKER: 4,
+  SUB: 7,
+  BLIMP: 12
+} as const
+
+/** Vehicle family for a `VER.BU` build type; `undefined` for non-vehicle builds (periph, iofirmware, replay). */
+export function vehicleTypeForBuildType(buildType: number): VehicleType | undefined {
+  switch (buildType) {
+    case BuildType.ROVER:
+      return 'rover'
+    case BuildType.COPTER:
+      return 'copter'
+    case BuildType.PLANE:
+      return 'plane'
+    case BuildType.TRACKER:
+      return 'tracker'
+    case BuildType.SUB:
+      return 'sub'
+    case BuildType.BLIMP:
+      return 'blimp'
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Vehicle family from the firmware banner in MSG text, using upstream `get_version_and_board`'s
+ * pattern: a build name followed by a parenthesised git hash, e.g. "ArduCopter V4.6.3 (3fc7011a)".
+ * Upstream additionally requires the banner to be followed three messages later by
+ * "Param space used:"; that bracketing is not required here.
+ */
+const BANNER = /(ArduRover|ArduCopter|ArduPlane|AntennaTracker|ArduSub|Blimp).+\((.+)\)/
+const BANNER_VEHICLE: Readonly<Record<string, VehicleType>> = {
+  ArduRover: 'rover',
+  ArduCopter: 'copter',
+  ArduPlane: 'plane',
+  AntennaTracker: 'tracker',
+  ArduSub: 'sub',
+  Blimp: 'blimp'
+}
+
 export function detectVehicleType(messages: Iterable<string>): VehicleType | undefined {
-  for (const raw of messages) {
-    const text = raw.toLowerCase()
-    if (text.includes('arduplane')) return 'plane'
-    if (text.includes('arducopter')) return 'copter'
-    if (text.includes('ardusub')) return 'sub'
-    if (text.includes('blimp')) return 'blimp'
-    if (text.includes('rover')) return 'rover'
-    if (text.includes('tracker')) return 'tracker'
+  for (const text of messages) {
+    const name = BANNER.exec(text)?.[1]
+    if (name !== undefined) return BANNER_VEHICLE[name]
   }
   return undefined
 }

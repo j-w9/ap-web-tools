@@ -3,10 +3,18 @@
   "private": true,
   "license": "GPL-3.0-only",
   "type": "module",
-  "repository": { "type": "git", "url": "https://github.com/j-w9/ap-web-tools.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/j-w9/ap-web-tools.git"
+  },
   "packageManager": "npm@11.12.1",
-  "engines": { "node": ">=22" },
-  "workspaces": ["packages/*", "apps/*"],
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "npm run typecheck && vite build",
@@ -22,6 +30,8 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.39.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.9",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.46.0",
     "vite": "^8.0.12",

@@ -1,4 +1,5 @@
-import { useEffect, useImperativeHandle, useRef, forwardRef, type CSSProperties } from 'react'
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef, type CSSProperties } from 'react'
+import { onRootClassChange, readPlotTheme, themeLayout } from './theme.js'
 import {
   Plotly,
   DEFAULT_CONFIG,
@@ -36,13 +37,18 @@ export const PlotlyChart = forwardRef<PlotlyHTMLElement, PlotlyChartProps>(funct
 
   useImperativeHandle(ref, () => divRef.current as unknown as PlotlyHTMLElement, [])
 
+  // Follow the page theme: re-read colours whenever the root class changes.
+  const [theme, setTheme] = useState(readPlotTheme)
+  useEffect(() => onRootClassChange(() => setTheme(readPlotTheme())), [])
+  const themed = useMemo(() => themeLayout(layout, theme), [layout, theme])
+
   // Create once, purge on unmount.
   useEffect(() => {
     const el = divRef.current
     if (!el) return
     const plot = el as unknown as PlotlyHTMLElement
     let cancelled = false
-    void Plotly.newPlot(el, data as Data[], layout as Partial<Layout>, { ...DEFAULT_CONFIG, ...config }).then(() => {
+    void Plotly.newPlot(el, data as Data[], themed, { ...DEFAULT_CONFIG, ...config }).then(() => {
       if (cancelled) return
       plot.on('plotly_relayout', (event) => relayoutRef.current?.(event))
       onReady?.(plot)
@@ -63,8 +69,8 @@ export const PlotlyChart = forwardRef<PlotlyHTMLElement, PlotlyChartProps>(funct
     }
     const el = divRef.current
     if (!el) return
-    void Plotly.react(el, data as Data[], layout as Partial<Layout>, { ...DEFAULT_CONFIG, ...config })
-  }, [data, layout, config])
+    void Plotly.react(el, data as Data[], themed, { ...DEFAULT_CONFIG, ...config })
+  }, [data, themed, config])
 
   return <div ref={divRef} style={style} className={className} />
 })

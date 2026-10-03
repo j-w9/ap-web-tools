@@ -4,8 +4,18 @@
   "private": true,
   "license": "GPL-3.0-only",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "types": "./src/index.ts",
-  "dependencies": { "@apwt/dataflash": "*" },
-  "peerDependencies": { "react": "^19", "react-dom": "^19" }
+  "dependencies": {
+    "@apwt/dataflash": "*",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/space-grotesk": "^5.3.0",
+    "lucide-react": "^1.51.0"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  }
 }
