@@ -1,0 +1,49 @@
+/* Filter Review additions to the shared tool styles. */
+
+.fr-warnings {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 14px 10px 36px;
+  font-size: 14px;
+  color: rgb(var(--g200));
+  background: rgba(250, 204, 21, 0.08);
+  border: 1px solid rgba(250, 204, 21, 0.25);
+  border-radius: 8px;
+}
+
+.fr-hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g500));
+}
+
+.fr-subgroup {
+  margin-top: 10px;
+}
+
+.fr-subgroup > .apwt-chip-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.fr-trace-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.fr-trace-row > .apwt-chip-label {
+  min-width: 120px;
+}
+
+.fr-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.apwt-plot.fr-plot--tall {
+  height: 560px;
+}

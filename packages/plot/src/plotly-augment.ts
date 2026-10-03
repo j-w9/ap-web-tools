@@ -1,6 +1,8 @@
+// Imported for its types by plotly.ts, so every program that uses @apwt/plot sees these
+// augmentations (an ambient .d.ts is only visible inside this package's own project).
 // Plotly plot elements are Node-style event emitters at runtime, but @types/plotly.js only
 // declares `on` and `removeAllListeners`. Declare the per-listener removal we rely on.
-import 'plotly.js'
+import type {} from 'plotly.js'
 
 declare module 'plotly.js' {
   // `meta` is a valid trace attribute (referenced in hovertemplates as %{meta}) missing from the typings.
@@ -19,3 +21,5 @@ declare module 'plotly.js' {
     removeListener(event: 'plotly_relayout', handler: (event: PlotRelayoutEvent) => void): void
   }
 }
+
+export {}

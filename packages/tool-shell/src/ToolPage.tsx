@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type { ReactNode } from 'react'
 import { ThemeToggle } from './ThemeToggle.js'
 import logoUrl from './assets/ardupilot_logo.png'

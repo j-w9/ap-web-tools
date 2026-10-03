@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * The registry of every tool: one place describing what a tool is, where it lives and which
  * logs it can open. The landing page and the "Open in" menu are both derived from it.
@@ -92,7 +93,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'See the gyro noise profile from raw or batch IMU logs and try filter settings without flying again.',
     category: 'logs',
     stable: true,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'FilterReview',
     opens: messages('GYR', 'ISBD')
   },

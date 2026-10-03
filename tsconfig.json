@@ -42,6 +42,9 @@
     },
     {
       "path": "apps/thrust-expo"
+    },
+    {
+      "path": "apps/filter-review"
     }
   ]
 }
