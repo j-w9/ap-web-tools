@@ -52,7 +52,6 @@ export const PlotlyChart = forwardRef<PlotlyHTMLElement, PlotlyChartProps>(funct
       Plotly.purge(el)
     }
     // Initial render only; updates go through Plotly.react below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Push updates. Plotly.react diffs internally, so this is cheap when nothing changed.

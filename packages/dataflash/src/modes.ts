@@ -111,7 +111,8 @@ const copterModes: ReadonlyMap<number, string> = new Map([
   [25, 'SYSTEMID'],
   [26, 'AUTOROTATE'],
   [27, 'AUTO_RTL'],
-  [28, 'TURTLE']
+  [28, 'TURTLE'],
+  [29, 'VALT']
 ])
 
 const roverModes: ReadonlyMap<number, string> = new Map([

@@ -11,8 +11,8 @@ import { readNumber, type TypeCode } from './format.js'
  * @param offsets Body offsets of every record of the type.
  * @param fieldOffset Byte offset of the instance field within the body.
  * @param type Type code of the instance field (normally `B`).
- * @returns Map from instance number to that instance's offsets, in the order
- * the instances first appear in the log.
+ * @returns Map from instance number to that instance's offsets, keyed in
+ * ascending instance order.
  */
 export function splitInstances(
   view: DataView,
@@ -31,7 +31,7 @@ export function splitInstances(
 
   const result = new Map<number, Uint32Array>()
   const cursors = new Map<number, number>()
-  for (const [instance, count] of counts) {
+  for (const [instance, count] of [...counts].sort((a, b) => a[0] - b[0])) {
     result.set(instance, new Uint32Array(count))
     cursors.set(instance, 0)
   }

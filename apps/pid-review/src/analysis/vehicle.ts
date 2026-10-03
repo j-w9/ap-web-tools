@@ -3,17 +3,7 @@
  * Mirrors the tables in upstream PIDReview.js `load()` and `get_PID_param_names()`.
  */
 
-/** ArduPilot build types as logged in VER.BU. */
-export const BUILD_TYPE = {
-  rover: 1,
-  copter: 2,
-  plane: 3,
-  tracker: 4,
-  sub: 7,
-  blimp: 12
-} as const
-
-export type BuildType = (typeof BUILD_TYPE)[keyof typeof BUILD_TYPE]
+import type { VehicleType } from '@apwt/dataflash'
 
 const RAD2DEG = 180 / Math.PI
 const DEG_PER_SEC = 'deg / s'
@@ -51,14 +41,14 @@ export const ALL_SPEC_KEYS = [
 ] as const
 
 /** Controller specs available for a vehicle type, or null when the vehicle is unsupported. */
-export function pidSpecsForVehicle(buildType: number | undefined): readonly PidMessageSpec[] | null {
-  switch (buildType) {
-    case BUILD_TYPE.rover:
+export function pidSpecsForVehicle(vehicle: VehicleType | undefined): readonly PidMessageSpec[] | null {
+  switch (vehicle) {
+    case 'rover':
       return [
         { id: ['PIDS'], prefixes: ['ATC_STR_RAT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
         { id: ['PIDA'], prefixes: ['ATC_SPEED_'], unitScale: 1, units: 'm / s' }
       ]
-    case BUILD_TYPE.copter:
+    case 'copter':
       return [
         { id: ['PIDR'], prefixes: ['ATC_RAT_RLL_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
         { id: ['PIDP'], prefixes: ['ATC_RAT_PIT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
@@ -67,7 +57,7 @@ export function pidSpecsForVehicle(buildType: number | undefined): readonly PidM
         { id: ['RATE', 'P'], prefixes: ['ATC_RAT_PIT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
         { id: ['RATE', 'Y'], prefixes: ['ATC_RAT_YAW_'], unitScale: RAD2DEG, units: DEG_PER_SEC }
       ]
-    case BUILD_TYPE.plane:
+    case 'plane':
       return [
         { id: ['PIDR'], prefixes: ['RLL_RATE_'], unitScale: 1, units: DEG_PER_SEC },
         { id: ['PIDP'], prefixes: ['PTCH_RATE_'], unitScale: 1, units: DEG_PER_SEC },
