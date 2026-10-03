@@ -49,6 +49,7 @@ export interface ScaleChipsProps {
 export function ScaleChips({ amplitude, onAmplitudeChange, frequency, onFrequencyChange }: ScaleChipsProps) {
   return (
     <>
+      <span className="apwt-chip-label">Amplitude</span>
       <RadioChips
         name="amplitude"
         value={amplitude}
@@ -59,6 +60,7 @@ export function ScaleChips({ amplitude, onAmplitudeChange, frequency, onFrequenc
           { value: 'PSD', label: 'PSD' }
         ]}
       />
+      <span className="apwt-chip-label">Frequency</span>
       <RadioChips
         name="freq-axis"
         value={frequency.log ? 'log' : 'linear'}

@@ -947,3 +947,12 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
   background: rgb(var(--s3));
   border-radius: 6px;
 }
+
+/* Label introducing a chip group in a section toolbar. */
+.apwt-chip-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgb(var(--g500));
+}
