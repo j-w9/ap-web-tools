@@ -27,3 +27,4 @@ export {
   BuildType
 } from './modes.js'
 export type { ModeChange, VehicleType } from './modes.js'
+export { US_TO_S, timeUsToSeconds } from './time.js'

@@ -1,3 +1,4 @@
+import { US_TO_S } from '@apwt/dataflash'
 import { PID_PARAM_KEYS, pidParamName, type PidParamKey } from './vehicle.js'
 
 /** PARM message columns needed to track parameter changes through a log. */
@@ -22,8 +23,6 @@ export interface ParamSets {
   prefix: string
   sets: readonly ParamSet[]
 }
-
-const US_TO_S = 1e-6
 
 /**
  * Walk PARM messages and split the log into spans of constant PID parameters.

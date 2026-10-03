@@ -1,10 +1,8 @@
-import { DataflashLog, type NumericColumn } from '@apwt/dataflash'
+import { DataflashLog, type NumericColumn, US_TO_S } from '@apwt/dataflash'
 import { splitIntoBatches } from './batches.js'
 import type { FlightData, LoadedLog, PidAxisData, PidBatch } from './data.js'
 import { splitParamSets, type ParamSets } from './param-sets.js'
 import { pidSpecsForVehicle, type PidMessageSpec } from './vehicle.js'
-
-const US_TO_S = 1e-6
 
 /** Copy `[start, end]` (inclusive) of a column into a scaled Float64Array. */
 function slice(column: NumericColumn, start: number, end: number, scale = 1): Float64Array {
