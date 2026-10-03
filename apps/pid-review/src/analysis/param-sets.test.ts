@@ -52,7 +52,13 @@ describe('splitParamSets', () => {
   })
 
   it('ignores a re-write of the same value', () => {
-    const r = splitParamSets(parm([['ATC_RAT_RLL_P', 1, 0.1], ['ATC_RAT_RLL_P', 30, 0.1]]), ['ATC_RAT_RLL_'])
+    const r = splitParamSets(
+      parm([
+        ['ATC_RAT_RLL_P', 1, 0.1],
+        ['ATC_RAT_RLL_P', 30, 0.1]
+      ]),
+      ['ATC_RAT_RLL_']
+    )
     expect(r?.sets).toHaveLength(1)
   })
 })

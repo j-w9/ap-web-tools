@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   PlotlyChart,
   linkAutorangeReset,
@@ -8,29 +8,17 @@ import {
   type PlotlyHTMLElement
 } from '@apwt/plot'
 import { fftAmplitudeScale, fftFrequencyScale, type AmplitudeKind } from '@apwt/signal'
-import {
-  ErrorBanner,
-  OpenInButton,
-  Section,
-  ToolPage,
-  useLoading,
-  useLogFile,
-  type LogFact
-} from '@apwt/tool-shell'
+import { ErrorBanner, OpenInButton, Section, ToolPage, useLoading, useLogFile, type LogFact } from '@apwt/tool-shell'
 import { computeAxisFft } from './analysis/batch-fft.js'
 import { availableKeys, type LoadedLog, type PidAxisData, type PidAxisFft } from './analysis/data.js'
 import { FULL_PID_ONLY_KEYS, type FftKey } from './analysis/keys.js'
 import { loadLog } from './analysis/load.js'
 import { stepResponses } from './analysis/step-response.js'
-import { specKey, specLabel } from './analysis/vehicle.js'
+import { specLabel, type SpecKey } from './analysis/vehicle.js'
+import type { VehicleType } from '@apwt/dataflash'
 import { ParamSetTable } from './ui/ParamSetTable.js'
 import { Rail } from './ui/Rail.js'
-import {
-  ScaleChips,
-  SignalChips,
-  SpectrogramChips,
-  type FrequencyScaleSettings
-} from './ui/SpectrumControls.js'
+import { ScaleChips, SignalChips, SpectrogramChips, type FrequencyScaleSettings } from './ui/SpectrumControls.js'
 import {
   flightDataLayout,
   flightDataTraces,
@@ -46,10 +34,11 @@ import {
 } from './ui/traces.js'
 
 const DEFAULT_SHOWN: readonly FftKey[] = ['Tar', 'Act', 'Out']
+const STEP_LAYOUT = stepLayout()
 type PlotName = 'inputs' | 'outputs' | 'fft' | 'step' | 'spec'
-type FftByAxis = Readonly<Record<string, PidAxisFft | null>>
+type FftByAxis = ReadonlyMap<SpecKey, PidAxisFft | null>
 
-const VEHICLE_NAMES: Readonly<Record<string, string>> = {
+const VEHICLE_NAMES: Readonly<Record<VehicleType, string>> = {
   copter: 'Copter',
   plane: 'Plane',
   rover: 'Rover',
@@ -65,7 +54,7 @@ export function App() {
   const [log, setLog] = useState<LoadedLog | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [selectedKey, setSelectedKey] = useState<SpecKey | null>(null)
   const [windowSize, setWindowSize] = useState(512)
   /** Editable analysis window; applied to the plots on Recalculate. */
   const [timeRange, setTimeRange] = useState<[number, number]>([0, 0])
@@ -75,9 +64,10 @@ export function App() {
   // ----- Display settings -----
   const [amplitudeKind, setAmplitudeKind] = useState<AmplitudeKind>('dB')
   const [frequencySettings, setFrequencySettings] = useState<FrequencyScaleSettings>({ log: false, rpm: false })
-  const [shownKeys, setShownKeys] = useState<ReadonlySet<FftKey>>(new Set(DEFAULT_SHOWN))
-  const [shownSets, setShownSets] = useState<readonly boolean[]>([])
-  const [spectrogramKey, setSpectrogramKey] = useState<FftKey>('Out')
+  const [chosenKeys, setShownKeys] = useState<ReadonlySet<FftKey>>(new Set(DEFAULT_SHOWN))
+  /** Per-controller test visibility the user has chosen; unset controllers show every valid test. */
+  const [chosenSets, setChosenSets] = useState<ReadonlyMap<SpecKey, readonly boolean[]>>(new Map())
+  const [chosenSpectrogramKey, setSpectrogramKey] = useState<FftKey>('Out')
 
   const amplitude = useMemo(
     () => fftAmplitudeScale({ dB: amplitudeKind === 'dB', psd: amplitudeKind === 'PSD' }),
@@ -85,21 +75,31 @@ export function App() {
   )
   const frequency = useMemo(() => fftFrequencyScale(frequencySettings), [frequencySettings])
 
-  const axis: PidAxisData | null = useMemo(
-    () => log?.axes.find((a) => specKey(a.spec) === selectedKey) ?? null,
-    [log, selectedKey]
-  )
-  const axisFft = (selectedKey !== null && applied?.fft[selectedKey]) || null
+  const axis: PidAxisData | null = useMemo(() => log?.axes.find((a) => a.spec.key === selectedKey) ?? null, [log, selectedKey])
+  const axisFft = (selectedKey !== null && applied?.fft.get(selectedKey)) || null
   const keysWithData = useMemo(() => (axis ? availableKeys(axis) : new Set<FftKey>()), [axis])
   const enabledKeys = useMemo(() => {
-    const full = axis ? axis.spec.id[0] !== 'RATE' : false
+    const full = axis ? axis.spec.source.message !== 'RATE' : false
     return new Set([...keysWithData].filter((k) => full || !FULL_PID_ONLY_KEYS.includes(k)))
   }, [axis, keysWithData])
 
+  // Effective selections: the user's choices, limited to what the current controller has.
+  const shownKeys = useMemo(() => new Set([...chosenKeys].filter((k) => enabledKeys.has(k))), [chosenKeys, enabledKeys])
+  const spectrogramKey: FftKey = enabledKeys.has(chosenSpectrogramKey) ? chosenSpectrogramKey : 'Out'
+  const shownSets = useMemo(
+    () =>
+      (selectedKey !== null ? chosenSets.get(selectedKey) : undefined) ??
+      axis?.sets.map((_, i) => axisFft?.sets[i] != null) ??
+      [],
+    [chosenSets, selectedKey, axis, axisFft]
+  )
+  const setShownSets = (sets: readonly boolean[]) => {
+    if (selectedKey !== null) setChosenSets((m) => new Map(m).set(selectedKey, sets))
+  }
+
   // ----- Calculation -----
   const calculate = useCallback((target: LoadedLog, size: number, range: [number, number]) => {
-    const fft: Record<string, PidAxisFft | null> = {}
-    for (const a of target.axes) fft[specKey(a.spec)] = computeAxisFft(a.sets, size)
+    const fft = new Map(target.axes.map((a) => [a.spec.key, computeAxisFft(a.sets, size)] as const))
     setApplied({ range, fft })
     setDirty(false)
   }, [])
@@ -114,8 +114,9 @@ export function App() {
         setFileName(name)
         setTimeRange(range)
         const first = loaded.axes[0]
-        setSelectedKey(first ? specKey(first.spec) : null)
+        setSelectedKey(first ? first.spec.key : null)
         setShownKeys(new Set(DEFAULT_SHOWN))
+        setChosenSets(new Map())
         document.title = name ? `PID Review: ${name}` : 'PID Review'
         calculate(loaded, windowSize, range)
       } catch (e) {
@@ -123,14 +124,6 @@ export function App() {
       }
     }, 'Reading log')
   })
-
-  // When the controller changes, reset per-set visibility and drop keys it lacks.
-  useEffect(() => {
-    if (!axis) return
-    setShownSets(axis.sets.map((_, i) => axisFft?.sets[i] != null))
-    setShownKeys((prev) => new Set([...prev].filter((k) => enabledKeys.has(k))))
-    setSpectrogramKey((k) => (enabledKeys.has(k) ? k : 'Out'))
-  }, [axis, axisFft, enabledKeys])
 
   const steps = useMemo(
     () => (axis && axisFft && applied ? stepResponses(axis.sets, axisFft.axis, applied.range) : null),
@@ -149,13 +142,11 @@ export function App() {
   )
   const outputLayout = useMemo(() => timeDomainLayout('Output', appliedRange, axis, log), [axis, appliedRange, log])
   const fftTraces = useMemo(
-    () =>
-      applied ? spectrumTraces(axisFft, { amplitude, frequency, range: applied.range, shownKeys, shownSets }) : [],
+    () => (applied ? spectrumTraces(axisFft, { amplitude, frequency, range: applied.range, shownKeys, shownSets }) : []),
     [applied, axisFft, amplitude, frequency, shownKeys, shownSets]
   )
   const fftLayout = useMemo(() => spectrumLayout(amplitude, frequency), [amplitude, frequency])
   const stepData = useMemo(() => stepTraces(steps, shownSets), [steps, shownSets])
-  const stepLayoutMemo = useMemo(stepLayout, [])
   const specTrace = useMemo(
     () => spectrogramTrace(axisFft, spectrogramKey, amplitude, frequency),
     [axisFft, spectrogramKey, amplitude, frequency]
@@ -163,14 +154,13 @@ export function App() {
   const specLayout = useMemo(() => spectrogramLayout(frequency, appliedRange), [frequency, appliedRange])
 
   // ----- Plot linking: zooming one time or frequency axis zooms its partners -----
-  const plots = useRef<Partial<Record<PlotName, PlotlyHTMLElement>>>({})
-  const [readyCount, setReadyCount] = useState(0)
-  const ready = (name: PlotName) => (el: PlotlyHTMLElement) => {
-    plots.current[name] = el
-    setReadyCount((n) => n + 1)
-  }
+  const [plots, setPlots] = useState<Partial<Record<PlotName, PlotlyHTMLElement>>>({})
+  const ready = useCallback(
+    (name: PlotName) => (el: PlotlyHTMLElement) => setPlots((p) => (p[name] === el ? p : { ...p, [name]: el })),
+    []
+  )
   useEffect(() => {
-    const p = plots.current
+    const p = plots
     if (!p.inputs || !p.outputs || !p.fft || !p.step || !p.spec) return
     const unlink = [
       linkAxisRanges([
@@ -185,18 +175,14 @@ export function App() {
       linkAutorangeReset([p.inputs, p.outputs, p.fft, p.step, p.spec])
     ]
     return () => unlink.forEach((u) => u())
-  }, [readyCount])
+  }, [plots])
 
   const onFlightRelayout = useCallback(
     (event: PlotRelayoutEvent) => {
       if (!log) return
       const r = relayoutRange(event)
       if (r === undefined) return
-      setTimeRange(
-        r === 'autorange'
-          ? [Math.floor(log.startTime), Math.ceil(log.endTime)]
-          : [Math.floor(r[0]), Math.ceil(r[1])]
-      )
+      setTimeRange(r === 'autorange' ? [Math.floor(log.startTime), Math.ceil(log.endTime)] : [Math.floor(r[0]), Math.ceil(r[1])])
       setDirty(true)
     },
     [log]
@@ -205,7 +191,7 @@ export function App() {
   const facts: LogFact[] | null = log
     ? [
         { label: 'File', value: fileName ?? 'From another tool' },
-        { label: 'Vehicle', value: VEHICLE_NAMES[log.vehicle] ?? log.vehicle },
+        { label: 'Vehicle', value: VEHICLE_NAMES[log.vehicle] },
         ...(log.firmware ? [{ label: 'Firmware', value: log.firmware }] : []),
         { label: 'Duration', value: `${(log.endTime - log.startTime).toFixed(0)} s` },
         ...(axisFft
@@ -229,9 +215,9 @@ export function App() {
       readmeUrl="https://github.com/ArduPilot/WebTools/blob/main/PIDReview/Readme.md"
       intro={
         <>
-          Time and frequency content of the rate controller target, response and output from a <code>.bin</code> log.
-          Set the <b>PID</b> bit of <code>LOG_BITMASK</code> before flying to record every PID term; the default{' '}
-          <code>RATE</code> message also works.
+          Time and frequency content of the rate controller target, response and output from a <code>.bin</code> log. Set the{' '}
+          <b>PID</b> bit of <code>LOG_BITMASK</code> before flying to record every PID term; the default <code>RATE</code> message
+          also works.
         </>
       }
       actions={<OpenInButton file={file} messageTypes={log?.messageTypes ?? null} />}
@@ -250,9 +236,9 @@ export function App() {
             setTimeRange(r)
             setDirty(true)
           }}
-          availableSpecs={log?.axes.map((a) => a.spec) ?? []}
-          selectedSpecKey={selectedKey}
-          onSelectSpec={setSelectedKey}
+          availableKeys={new Set(log?.axes.map((a) => a.spec.key))}
+          selectedKey={selectedKey}
+          onSelectKey={setSelectedKey}
           calculateEnabled={log != null && dirty}
           onCalculate={() => {
             if (log) void run(() => calculate(log, windowSize, timeRange), 'Calculating')
@@ -263,11 +249,16 @@ export function App() {
       <ErrorBanner message={error} />
 
       <Section title="Flight data" help="Zoom into part of the flight to set the analysis window, then recalculate.">
-        <PlotlyChart className="apwt-plot apwt-plot--short" data={flightTraces} layout={flightLayout} onRelayout={onFlightRelayout} />
+        <PlotlyChart
+          className="apwt-plot apwt-plot--short"
+          data={flightTraces}
+          layout={flightLayout}
+          onRelayout={onFlightRelayout}
+        />
       </Section>
 
       <Section
-        title={axis ? `Time domain: ${specLabel(axis.spec)}` : 'Time domain'}
+        title={axis ? `Time domain: ${specLabel(axis.spec.key)}` : 'Time domain'}
         help="Controller inputs and outputs over time. Look for tracking error, overshoot and oscillation."
       >
         <PlotlyChart className="apwt-plot" data={inputTraces} layout={inputLayout} onReady={ready('inputs')} />
@@ -277,12 +268,17 @@ export function App() {
       <Section
         title="Frequency domain"
         help="Mean spectrum of each signal over the analysis window. Look for resonances and noise the D term amplifies."
-        tools={<ScaleChips amplitude={amplitudeKind} onAmplitudeChange={setAmplitudeKind} frequency={frequencySettings} onFrequencyChange={setFrequencySettings} />}
+        tools={
+          <ScaleChips
+            amplitude={amplitudeKind}
+            onAmplitudeChange={setAmplitudeKind}
+            frequency={frequencySettings}
+            onFrequencyChange={setFrequencySettings}
+          />
+        }
       >
         <SignalChips enabled={enabledKeys} shown={shownKeys} onShownChange={setShownKeys} />
-        {axis && (
-          <ParamSetTable paramSets={axis.paramSets} valid={validSets} shown={shownSets} onShownChange={setShownSets} />
-        )}
+        {axis && <ParamSetTable paramSets={axis.paramSets} valid={validSets} shown={shownSets} onShownChange={setShownSets} />}
         {log ? <PlotlyChart className="apwt-plot" data={fftTraces} layout={fftLayout} onReady={ready('fft')} /> : empty}
       </Section>
 
@@ -290,7 +286,7 @@ export function App() {
         title="Step response"
         help="Estimated closed-loop response to a unit step in target rate. Look at rise time, overshoot and settling."
       >
-        {log ? <PlotlyChart className="apwt-plot" data={stepData} layout={stepLayoutMemo} onReady={ready('step')} /> : empty}
+        {log ? <PlotlyChart className="apwt-plot" data={stepData} layout={STEP_LAYOUT} onReady={ready('step')} /> : empty}
       </Section>
 
       <Section

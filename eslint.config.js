@@ -5,7 +5,23 @@ import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'upstream/**', 'scripts/**', '**/*.d.ts', 'eslint.config.js', 'vite.config.ts', 'vitest.config.ts'] },
+  {
+    ignores: [
+      // Tools being ported in parallel; linted when they land.
+      'apps/filter-review/**',
+      'apps/magfit/**',
+      'apps/hardware-report/**',
+
+      '**/dist/**',
+      '**/node_modules/**',
+      'upstream/**',
+      'scripts/**',
+      '**/*.d.ts',
+      'eslint.config.js',
+      'vite.config.ts',
+      'vitest.config.ts'
+    ]
+  },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
@@ -18,7 +34,10 @@ export default tseslint.config(
 
       // No escape hatches from the type system.
       '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/ban-ts-comment': ['error', { 'ts-expect-error': 'allow-with-description', minimumDescriptionLength: 10 }],
+      '@typescript-eslint/ban-ts-comment': [
+        'error',
+        { 'ts-expect-error': 'allow-with-description', minimumDescriptionLength: 10 }
+      ],
       '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'as', objectLiteralTypeAssertions: 'never' }],
       // `!` is allowed only on indexed access (`a[i]!`), where `noUncheckedIndexedAccess` cannot see
       // that a loop bound already proves the index valid. Anywhere else, narrow the value instead.

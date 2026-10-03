@@ -53,8 +53,7 @@ export function ToolPage({ title, intro, readmeUrl, actions, rail, children }: T
           <h1 className="apwt-hero__title">
             {title.split(' ').length > 1 ? (
               <>
-                {title.split(' ').slice(0, -1).join(' ')}{' '}
-                <span className="apwt-logo-gradient">{title.split(' ').slice(-1)}</span>
+                {title.split(' ').slice(0, -1).join(' ')} <span className="apwt-logo-gradient">{title.split(' ').slice(-1)}</span>
               </>
             ) : (
               <span className="apwt-logo-gradient">{title}</span>

@@ -14,12 +14,12 @@
 
 ## Packages
 
-| Package | Depends on | Contents |
-| --- | --- | --- |
-| `@apwt/signal` | `fft.js` | complex and array math, windows, batch FFT, amplitude/frequency scaling |
-| `@apwt/dataflash` | – | DataFlash `.bin` parser: lazy, columnar typed arrays, per-instance access, params, modes |
-| `@apwt/plot` | `plotly.js`, react | `PlotlyChart` component, axis-range linking, default colours |
-| `@apwt/tool-shell` | `@apwt/dataflash`, react | page chrome, loading overlay, error reporter, file input, "Open in" hand-off |
+| Package            | Depends on               | Contents                                                                                 |
+| ------------------ | ------------------------ | ---------------------------------------------------------------------------------------- |
+| `@apwt/signal`     | `fft.js`                 | complex and array math, windows, batch FFT, amplitude/frequency scaling                  |
+| `@apwt/dataflash`  | –                        | DataFlash `.bin` parser: lazy, columnar typed arrays, per-instance access, params, modes |
+| `@apwt/plot`       | `plotly.js`, react       | `PlotlyChart` component, axis-range linking, default colours                             |
+| `@apwt/tool-shell` | `@apwt/dataflash`, react | page chrome, loading overlay, error reporter, file input, "Open in" hand-off             |
 
 ## Apps
 

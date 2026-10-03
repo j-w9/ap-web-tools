@@ -22,14 +22,14 @@ Below 900 px the rail stacks above the content. Plots fill the column width.
 
 ## Tokens
 
-| Token | Light | Dark | Use |
-| --- | --- | --- | --- |
-| `--bg` | `#EEF1F4` | `#11161C` | page, the "bench" |
-| `--surface` | `#FFFFFF` | `#192029` | main column, rail |
-| `--ink` | `#18212B` | `#E3E8ED` | text |
-| `--muted` | `#5A6675` | `#93A0AE` | secondary text, axis titles |
-| `--rule` | `#D5DBE2` | `#2B343F` | hairlines between sections |
-| `--amber` | `#C98A0B` | `#F0B64A` | active, selected, analysis range only |
+| Token       | Light     | Dark      | Use                                   |
+| ----------- | --------- | --------- | ------------------------------------- |
+| `--bg`      | `#EEF1F4` | `#11161C` | page, the "bench"                     |
+| `--surface` | `#FFFFFF` | `#192029` | main column, rail                     |
+| `--ink`     | `#18212B` | `#E3E8ED` | text                                  |
+| `--muted`   | `#5A6675` | `#93A0AE` | secondary text, axis titles           |
+| `--rule`    | `#D5DBE2` | `#2B343F` | hairlines between sections            |
+| `--amber`   | `#C98A0B` | `#F0B64A` | active, selected, analysis range only |
 
 Plot traces keep Plotly's default categorical colours so users of the original tools read them the
 same way; plot backgrounds are transparent and grids use `--rule`.

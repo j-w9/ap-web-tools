@@ -46,7 +46,7 @@ export const BUILTIN_MULTIPLIERS: Readonly<Record<string, number>> = {
   '?': 1,
   '2': 1e2,
   '1': 1e1,
-  '0': 1e0,
+  '0': 1,
   A: 1e-1,
   B: 1e-2,
   C: 1e-3,

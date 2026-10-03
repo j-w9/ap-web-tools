@@ -3,3 +3,7 @@ dist/
 node_modules/
 package-lock.json
 **/test-fixtures/
+# Tools being ported in parallel; formatted when they land.
+apps/filter-review/
+apps/magfit/
+apps/hardware-report/

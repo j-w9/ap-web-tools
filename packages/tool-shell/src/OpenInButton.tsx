@@ -13,7 +13,7 @@ export interface OpenInButtonProps {
 export function OpenInButton({ file, messageTypes }: OpenInButtonProps) {
   const [open, setOpen] = useState(false)
   const wrapper = useRef<HTMLDivElement>(null)
-  const destinations = useMemo(openInDestinations, [])
+  const destinations = useMemo(() => openInDestinations(), [])
 
   useEffect(() => {
     if (!open) return

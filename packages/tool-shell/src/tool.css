@@ -110,9 +110,11 @@ body {
   background-color: rgb(var(--s));
   background-image:
     radial-gradient(ellipse 70% 260px at 50% 0%, rgba(250, 204, 21, 0.07), transparent 70%),
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 100% 100%, 40px 40px, 40px 40px;
+    linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    40px 40px,
+    40px 40px;
   background-repeat: no-repeat, repeat, repeat;
 }
 
@@ -238,7 +240,9 @@ code {
   background: #222222;
   color: #9ca3af;
   cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
 }
 
 .apwt-icon-btn:hover {
@@ -446,7 +450,9 @@ code {
   background: rgb(var(--s3));
   border: 1px solid rgb(var(--s4));
   border-radius: 8px;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .apwt-input:focus,
@@ -483,7 +489,10 @@ code {
   border-radius: 8px;
   cursor: pointer;
   user-select: none;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    background 0.15s;
 }
 
 .apwt-chip input {

@@ -33,8 +33,15 @@ function series(log: DataflashLog, message: string, field: string): { time: Floa
 export function loadLog(buffer: ArrayBuffer): LoadedLog {
   const log = DataflashLog.parse(buffer)
 
-  const specs = pidSpecsForVehicle(log.vehicleType())
-  if (!specs) throw new Error('Vehicle Type not supported')
+  const vehicle = log.vehicleType()
+  const specs = vehicle === undefined ? null : pidSpecsForVehicle(vehicle)
+  if (vehicle === undefined || !specs) {
+    throw new Error(
+      vehicle === undefined
+        ? 'Could not tell which vehicle wrote this log: it has no VER build type or firmware banner.'
+        : `PID Review supports Copter, Plane and Rover logs; this log is from ${vehicle}.`
+    )
+  }
 
   const parmNames = log.getStrings('PARM', 'Name')
   const parmTime = log.getNumbers('PARM', 'TimeUS')
@@ -74,7 +81,7 @@ export function loadLog(buffer: ArrayBuffer): LoadedLog {
     startTime,
     endTime,
     messageTypes: [...log.messageTypes().keys()],
-    vehicle: log.vehicleType() ?? 'unknown',
+    vehicle,
     firmware: firmwareString(log)
   }
 }
@@ -87,7 +94,7 @@ function firmwareString(log: DataflashLog): string | null {
 }
 
 function loadAxis(log: DataflashLog, spec: PidMessageSpec, paramSets: ParamSets): PidAxisData | null {
-  const message = spec.id[0]
+  const message = spec.source.message
   const timeUs = log.getNumbers(message, 'TimeUS')
   if (!timeUs || timeUs.length === 0) return null
   const time = slice(timeUs, 0, timeUs.length - 1, US_TO_S)
@@ -103,13 +110,13 @@ function loadAxis(log: DataflashLog, spec: PidMessageSpec, paramSets: ParamSets)
   }
 
   const sets: (PidBatch[] | null)[] = paramSets.sets.map(() => null)
-  const isRate = message === 'RATE'
+  const source = spec.source
 
   for (const b of batches) {
     const take = (c: NumericColumn, scale = 1) => slice(c, b.start, b.end, scale)
     let batch: PidBatch
-    if (isRate) {
-      const axis = spec.id[1] as string
+    if (source.message === 'RATE') {
+      const axis = source.axis
       batch = {
         time: take(timeUs, US_TO_S),
         sampleRate: b.sampleRate,

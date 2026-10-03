@@ -229,11 +229,7 @@ export class DataflashLog {
    *
    * @param onProgress Called with a 0..1 fraction during decoding.
    */
-  getMessage(
-    name: string,
-    instance?: number,
-    onProgress?: (fraction: number) => void
-  ): ParsedMessage | undefined {
+  getMessage(name: string, instance?: number, onProgress?: (fraction: number) => void): ParsedMessage | undefined {
     const info = this.infos.get(name)
     if (info === undefined) return undefined
     const key = cacheKey(name, instance)
@@ -323,7 +319,7 @@ export class DataflashLog {
       out.push({
         timeUs: time[i] as number,
         mode: m,
-        reason: reason === undefined ? undefined : (reason[i] as number),
+        reason: reason === undefined ? undefined : reason[i],
         name: this.modeName(m)
       })
     }
@@ -406,9 +402,10 @@ export class DataflashLog {
     if (names === undefined || dataIdx === -1 || offsets === undefined) return out
     const dataOffset = info.format.fieldOffsets[dataIdx] as number
     const dataType = info.format.types[dataIdx] as TypeCode
-    const dataSize = info.format.fieldOffsets[dataIdx + 1] !== undefined
-      ? (info.format.fieldOffsets[dataIdx + 1] as number) - dataOffset
-      : info.format.size - dataOffset
+    const dataSize =
+      info.format.fieldOffsets[dataIdx + 1] !== undefined
+        ? (info.format.fieldOffsets[dataIdx + 1] as number) - dataOffset
+        : info.format.size - dataOffset
     const chunks = new Map<string, Uint8Array[]>()
     for (let i = 0; i < offsets.length; i++) {
       const name = names[i] as string
@@ -461,12 +458,7 @@ export class DataflashLog {
       let instances: Map<number, number> | undefined
       const instField = fields.find((f) => f.isInstance && !f.isString && f.type !== 'a')
       if (instField !== undefined) {
-        const split = splitInstances(
-          this.view,
-          offsets,
-          fmt.fieldOffsets[instField.index] as number,
-          instField.type
-        )
+        const split = splitInstances(this.view, offsets, fmt.fieldOffsets[instField.index] as number, instField.type)
         this.instanceOffsets.set(fmt.id, split)
         instanceField = instField.name
         instances = new Map([...split].map(([k, v]) => [k, v.length]))

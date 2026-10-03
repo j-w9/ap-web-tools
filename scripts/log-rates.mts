@@ -11,5 +11,7 @@ for (const f of process.argv.slice(2)) {
       out.push(`${m}:${t.length}@${hz.toFixed(0)}Hz`)
     }
     console.log(`${f}: ${log.vehicleType()} ${(log.byteLength / 1e6).toFixed(1)}MB ${out.join(' ')}`)
-  } catch (e) { console.log(`${f}: ERR ${(e as Error).message}`) }
+  } catch (e) {
+    console.log(`${f}: ERR ${(e as Error).message}`)
+  }
 }

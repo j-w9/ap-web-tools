@@ -50,7 +50,10 @@ export interface Upstream {
   ): { center: number[] } & Record<string, Pair[] | number[]>
   to_double_sided(x: Pair): Pair
   to_fft_format(target: number[], source: Pair): void
-  fft_amplitude_scale(useDb: boolean, usePsd: boolean): {
+  fft_amplitude_scale(
+    useDb: boolean,
+    usePsd: boolean
+  ): {
     fun(x: number[]): number[]
     scale(x: number[]): number[]
     label: string
@@ -58,7 +61,10 @@ export interface Upstream {
     window_correction(c: { linear: number; energy: number }, resolution: number): number
     quantization_correction(wc: number): number
   }
-  fft_frequency_scale(useRpm: boolean, log: boolean): {
+  fft_frequency_scale(
+    useRpm: boolean,
+    log: boolean
+  ): {
     fun(x: number[]): number[]
     label: string
     hover(axis: string): string
@@ -67,12 +73,41 @@ export interface Upstream {
 }
 
 const names = [
-  'complex_mul', 'complex_div', 'complex_abs', 'complex_inverse', 'complex_square', 'complex_phase',
-  'complex_conj', 'exp_jw', 'array_max', 'array_min', 'array_scale', 'array_inverse', 'array_mul',
-  'array_div', 'array_offset', 'array_add', 'array_sub', 'array_log10', 'array_all_equal',
-  'array_all_NaN', 'array_abs', 'array_sqrt', 'array_sum', 'array_mean', 'array_from_range',
-  'linear_interp', 'hanning', 'window_correction_factors', 'real_length', 'rfft_freq', 'run_fft',
-  'to_double_sided', 'to_fft_format', 'fft_amplitude_scale', 'fft_frequency_scale'
+  'complex_mul',
+  'complex_div',
+  'complex_abs',
+  'complex_inverse',
+  'complex_square',
+  'complex_phase',
+  'complex_conj',
+  'exp_jw',
+  'array_max',
+  'array_min',
+  'array_scale',
+  'array_inverse',
+  'array_mul',
+  'array_div',
+  'array_offset',
+  'array_add',
+  'array_sub',
+  'array_log10',
+  'array_all_equal',
+  'array_all_NaN',
+  'array_abs',
+  'array_sqrt',
+  'array_sum',
+  'array_mean',
+  'array_from_range',
+  'linear_interp',
+  'hanning',
+  'window_correction_factors',
+  'real_length',
+  'rfft_freq',
+  'run_fft',
+  'to_double_sided',
+  'to_fft_format',
+  'fft_amplitude_scale',
+  'fft_frequency_scale'
 ]
 
 let cached: Upstream | undefined

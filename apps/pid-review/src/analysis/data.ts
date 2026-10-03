@@ -1,3 +1,4 @@
+import type { VehicleType } from '@apwt/dataflash'
 import type { ComplexArray, WindowCorrection } from '@apwt/signal'
 import type { FftKey } from './keys.js'
 import type { ParamSets } from './param-sets.js'
@@ -73,8 +74,8 @@ export interface LoadedLog {
   endTime: number
   /** Base message types in the log, for the "Open in" buttons. */
   messageTypes: readonly string[]
-  /** Vehicle family, e.g. `copter`. */
-  vehicle: string
+  /** Vehicle family. Always a supported one: unsupported logs are rejected while loading. */
+  vehicle: VehicleType
   /** Firmware version string, when the log records one. */
   firmware: string | null
 }

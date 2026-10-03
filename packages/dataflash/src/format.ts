@@ -93,13 +93,7 @@ export interface FormatDefinition {
 }
 
 /** Built-in definition of the FMT record itself, needed to bootstrap parsing. */
-export const FMT_DEFINITION: FormatDefinition = makeFormat(
-  FMT_TYPE,
-  89,
-  'FMT',
-  'BBnNZ',
-  'Type,Length,Name,Format,Columns'
-)
+export const FMT_DEFINITION: FormatDefinition = makeFormat(FMT_TYPE, 89, 'FMT', 'BBnNZ', 'Type,Length,Name,Format,Columns')
 
 /**
  * Build a {@link FormatDefinition} from raw FMT fields.
@@ -107,13 +101,7 @@ export const FMT_DEFINITION: FormatDefinition = makeFormat(
  * @returns the definition, or `undefined` when the format string contains
  * unknown type codes (such a message can not be sized, so it is ignored).
  */
-export function makeFormat(
-  id: number,
-  length: number,
-  name: string,
-  format: string,
-  columns: string
-): FormatDefinition
+export function makeFormat(id: number, length: number, name: string, format: string, columns: string): FormatDefinition
 export function makeFormat(
   id: number,
   length: number,

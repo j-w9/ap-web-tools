@@ -52,7 +52,12 @@ describe('scales match upstream', () => {
   const x = randomArray(next, 40, 0.001, 50)
   const resolution = 0.3
 
-  for (const [dB, psd] of [[false, false], [true, false], [false, true], [true, true]] as const) {
+  for (const [dB, psd] of [
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true]
+  ] as const) {
     it(`amplitude dB=${dB} psd=${psd}`, () => {
       const mine = fftAmplitudeScale({ dB, psd })
       const theirs = up.fft_amplitude_scale(dB, psd)
@@ -66,7 +71,12 @@ describe('scales match upstream', () => {
     })
   }
 
-  for (const [rpm, log] of [[false, false], [true, false], [false, true], [true, true]] as const) {
+  for (const [rpm, log] of [
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true]
+  ] as const) {
     it(`frequency rpm=${rpm} log=${log}`, () => {
       const mine = fftFrequencyScale({ rpm, log })
       const theirs = up.fft_frequency_scale(rpm, log)

@@ -145,9 +145,30 @@ export function buildSyntheticLog(): Uint8Array {
 
   const t0 = 1_000_000
   // Unit / multiplier tables (subset).
-  const units: [string, string][] = [['-', ''], ['s', 's'], ['#', 'instance'], ['d', 'deg'], ['E', 'rad/s'], ['o', 'm/s/s'], ['O', 'degC'], ['D', 'deglatitude'], ['U', 'deglongitude'], ['m', 'm'], ['n', 'm/s'], ['h', 'degheading']]
+  const units: [string, string][] = [
+    ['-', ''],
+    ['s', 's'],
+    ['#', 'instance'],
+    ['d', 'deg'],
+    ['E', 'rad/s'],
+    ['o', 'm/s/s'],
+    ['O', 'degC'],
+    ['D', 'deglatitude'],
+    ['U', 'deglongitude'],
+    ['m', 'm'],
+    ['n', 'm/s'],
+    ['h', 'degheading']
+  ]
   for (const [id, label] of units) w.write('UNIT', [t0, id.charCodeAt(0), label])
-  const mults: [string, number][] = [['-', 0], ['?', 1], ['0', 1], ['F', 1e-6], ['B', 1e-2], ['G', 1e-7], ['C', 1e-3]]
+  const mults: [string, number][] = [
+    ['-', 0],
+    ['?', 1],
+    ['0', 1],
+    ['F', 1e-6],
+    ['B', 1e-2],
+    ['G', 1e-7],
+    ['C', 1e-3]
+  ]
   for (const [id, m] of mults) w.write('MULT', [t0, id.charCodeAt(0), m])
   w.write('FMTU', [t0, 0x87, 's#EEEoooO', 'F-00000000'])
   w.write('FMTU', [t0, 0x88, 'sddddhhdh', 'FBBBBBBBB'])

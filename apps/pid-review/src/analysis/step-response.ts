@@ -76,7 +76,7 @@ export function stepResponses(
       const [start, end] = timeRangeIndices(fftTime, range[0], range[1])
 
       for (let k = start; k < end; k++) {
-        if ((r.max!.Tar[k] as number) < MIN_TARGET_AMPLITUDE) continue
+        if (r.max.Tar[k]! < MIN_TARGET_AMPLITUDE) continue
         const X = toDoubleSided(r.spectra.Tar[k]!)
         const Y = toDoubleSided(r.spectra.Act[k]!)
         const Xcon = complexConj(X)

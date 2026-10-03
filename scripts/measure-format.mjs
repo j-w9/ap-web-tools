@@ -4,16 +4,25 @@ import { readFileSync, existsSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import * as prettier from 'prettier'
 
-const files = execSync("git ls-files -co --exclude-standard -- 'packages/**/*.ts' 'packages/**/*.tsx' 'apps/pid-review/**/*.ts' 'apps/pid-review/**/*.tsx'", { encoding: 'utf8' })
-  .split('\n').filter((f) => f && !f.includes('/dist/') && existsSync(f))
+const files = execSync(
+  "git ls-files -co --exclude-standard -- 'packages/**/*.ts' 'packages/**/*.tsx' 'apps/pid-review/**/*.ts' 'apps/pid-review/**/*.tsx'",
+  { encoding: 'utf8' }
+)
+  .split('\n')
+  .filter((f) => f && !f.includes('/dist/') && existsSync(f))
 
 function changedLines(a, b) {
-  const x = a.split('\n'), y = b.split('\n')
+  const x = a.split('\n'),
+    y = b.split('\n')
   // LCS-free approximation: count lines present in one but not the other (multiset diff).
   const count = new Map()
   for (const l of x) count.set(l, (count.get(l) ?? 0) + 1)
   let added = 0
-  for (const l of y) { const c = count.get(l) ?? 0; if (c > 0) count.set(l, c - 1); else added++ }
+  for (const l of y) {
+    const c = count.get(l) ?? 0
+    if (c > 0) count.set(l, c - 1)
+    else added++
+  }
   let removed = 0
   for (const c of count.values()) removed += c
   return added + removed

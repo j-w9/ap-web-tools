@@ -106,6 +106,9 @@ export interface RunFftOptions {
   readonly takeMax?: boolean
 }
 
+/** `runFft` options that request per-window peaks. */
+export type RunFftOptionsWithMax = RunFftOptions & { readonly takeMax: true }
+
 /** Result of `runFft`: one half-spectrum per window for every key. */
 export interface RunFftResult<K extends string> {
   /** Centre of each window as a fractional sample index (start + windowSize / 2). */
@@ -116,12 +119,30 @@ export interface RunFftResult<K extends string> {
   readonly max?: Readonly<Record<K, Float64Array>>
 }
 
+/** `runFft` result when `takeMax: true` was passed: `max` is guaranteed. */
+export type RunFftResultWithMax<K extends string> = RunFftResult<K> & { readonly max: Readonly<Record<K, Float64Array>> }
+
+/** Build a record with one entry per key. The single assertion here is sound: every key is set. */
+function recordOf<K extends string, V>(keys: readonly K[], make: (key: K) => V): Record<K, V> {
+  return Object.fromEntries(keys.map((k) => [k, make(k)])) as Record<K, V>
+}
+
 /**
  * Windowed batch FFT over the arrays `data[key]` for each key, in steps of `windowSpacing`.
  * Spectra are single-sided and amplitude-normalised (DC and Nyquist by 1/N, other bins by 2/N);
  * window gain correction (`windowCorrectionFactors`) is left to the caller, as upstream.
  * Missing keys throw; fewer samples than one window yields zero windows.
  */
+export function runFft<K extends string>(
+  data: Readonly<Record<K, ArrayLike<number>>>,
+  keys: readonly K[],
+  options: RunFftOptionsWithMax
+): RunFftResultWithMax<K>
+export function runFft<K extends string>(
+  data: Readonly<Record<K, ArrayLike<number>>>,
+  keys: readonly K[],
+  options: RunFftOptions
+): RunFftResult<K>
 export function runFft<K extends string>(
   data: Readonly<Record<K, ArrayLike<number>>>,
   keys: readonly K[],
@@ -142,12 +163,8 @@ export function runFft<K extends string>(
   const numWindows = Math.max(0, Math.floor((numPoints - windowSize) / windowSpacing) + 1)
 
   const center = new Float64Array(numWindows)
-  const spectra = {} as Record<K, ComplexArray[]>
-  const max = {} as Record<K, Float64Array>
-  for (const key of keys) {
-    spectra[key] = new Array<ComplexArray>(numWindows)
-    if (takeMax) max[key] = new Float64Array(numWindows)
-  }
+  const spectra = recordOf(keys, () => new Array<ComplexArray>(numWindows))
+  const max = recordOf(keys, () => new Float64Array(takeMax ? numWindows : 0))
 
   // Double the positive spectrum to account for the discarded negative half, except at
   // DC and Nyquist, and normalise everything by the window size.
@@ -167,7 +184,7 @@ export function runFft<K extends string>(
     for (const key of keys) {
       const windowed = arrayMul(sliceArrayLike(data[key], windowStart, windowEnd), window)
 
-      if (takeMax) max[key]![i] = maxOf(arrayAbs(windowed))
+      if (takeMax) max[key][i] = maxOf(arrayAbs(windowed))
 
       fft.realTransform(result, windowed)
 
@@ -177,7 +194,7 @@ export function runFft<K extends string>(
         spectrum.re[j] = result[index]! * scale[j]!
         spectrum.im[j] = result[index + 1]! * scale[j]!
       }
-      spectra[key]![i] = spectrum
+      spectra[key][i] = spectrum
     }
   }
 

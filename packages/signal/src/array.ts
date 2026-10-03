@@ -149,11 +149,7 @@ export function arrayFromRange(start: number, end: number, step: number): Float6
  * Piecewise-linear interpolation of `values` sampled at ascending `index`, evaluated at each
  * `queryIndex`. Queries are clamped to the end values; `queryIndex` must itself be ascending.
  */
-export function linearInterp(
-  values: ArrayLike<number>,
-  index: ArrayLike<number>,
-  queryIndex: ArrayLike<number>
-): Float64Array {
+export function linearInterp(values: ArrayLike<number>, index: ArrayLike<number>, queryIndex: ArrayLike<number>): Float64Array {
   const len = queryIndex.length
   const out = new Float64Array(len)
   const lastValueIndex = index.length - 1

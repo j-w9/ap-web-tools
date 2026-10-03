@@ -76,5 +76,5 @@ export function themeLayout(layout: Partial<Layout>, theme: PlotTheme): Partial<
       ...axis
     }
   }
-  return out as Partial<Layout>
+  return out
 }

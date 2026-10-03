@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { splitIntoBatches } from './batches.js'
+import type { ParamSet } from './param-sets.js'
+import { PID_PARAM_KEYS, type PidParamKey } from './vehicle.js'
 
-const oneSet = [{ startTime: 0, endTime: Infinity, values: {} as never }]
+const noValues = Object.fromEntries(PID_PARAM_KEYS.map((k) => [k, null])) as Record<PidParamKey, null>
+const set = (startTime: number, endTime: number): ParamSet => ({ startTime, endTime, values: noValues })
+
+const oneSet = [set(0, Infinity)]
 
 function ramp(n: number, dt: number, t0 = 0): number[] {
   return Array.from({ length: n }, (_, i) => t0 + i * dt)
@@ -30,16 +35,13 @@ describe('splitIntoBatches', () => {
   })
 
   it('splits at parameter set boundaries and tags the set', () => {
-    const sets = [
-      { startTime: 0, endTime: 0.25, values: {} as never },
-      { startTime: 0.25, endTime: Infinity, values: {} as never }
-    ]
+    const sets = [set(0, 0.25), set(0.25, Infinity)]
     const b = splitIntoBatches(ramp(400, 0.0025), sets)
     expect(b.map((x) => x.paramSet)).toEqual([0, 1])
   })
 
   it('skips samples before the first set starts', () => {
-    const sets = [{ startTime: 0.1, endTime: Infinity, values: {} as never }]
+    const sets = [set(0.1, Infinity)]
     const b = splitIntoBatches(ramp(400, 0.0025), sets)
     expect(b).toHaveLength(1)
     expect(b[0]?.start).toBe(0)

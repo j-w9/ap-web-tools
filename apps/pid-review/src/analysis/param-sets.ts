@@ -35,9 +35,10 @@ export function splitParamSets(parm: ParmColumns, prefixes: readonly string[]): 
   for (const prefix of prefixes) {
     const nameToKey = new Map<string, PidParamKey>(PID_PARAM_KEYS.map((key) => [pidParamName(prefix, key), key]))
 
-    const current: Record<PidParamKey, number | null> = Object.fromEntries(
-      PID_PARAM_KEYS.map((k) => [k, null])
-    ) as Record<PidParamKey, number | null>
+    const current: Record<PidParamKey, number | null> = Object.fromEntries(PID_PARAM_KEYS.map((k) => [k, null])) as Record<
+      PidParamKey,
+      number | null
+    >
     let startTime = 0
     let found = false
     let lastSetEnd: number | undefined

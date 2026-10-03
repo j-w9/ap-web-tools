@@ -195,9 +195,11 @@ export function stepTraces(steps: readonly (SetStepResponse | null)[] | null, sh
     // All individual estimates, joined with NaN breaks.
     const x: number[] = []
     const y: number[] = []
-    for (const s of step?.all ?? []) {
-      x.push(...step!.time, NaN)
-      y.push(...s, NaN)
+    if (step) {
+      for (const s of step.all) {
+        x.push(...step.time, NaN)
+        y.push(...s, NaN)
+      }
     }
     traces.push({
       mode: 'lines',
@@ -255,7 +257,7 @@ export function spectrogramTrace(
       y: bins,
       x: data?.x ?? [],
       z: data ? data.z.map((row) => (row ? Array.from(row) : new Array<null>(bins.length).fill(null))) : []
-    } as Partial<Data>
+    }
   ]
 }
 

@@ -6,14 +6,7 @@ import { TYPE_SIZES, readInt64, readString, readUint64, type FormatDefinition, t
 
 /** Numeric column types. Each type code maps to its natural typed array. */
 export type NumericColumn =
-  | Float64Array
-  | Float32Array
-  | Int32Array
-  | Uint32Array
-  | Int16Array
-  | Uint16Array
-  | Int8Array
-  | Uint8Array
+  Float64Array | Float32Array | Int32Array | Uint32Array | Int16Array | Uint16Array | Int8Array | Uint8Array
 
 /**
  * One decoded field across all records of a message type.
@@ -25,7 +18,9 @@ export type NumericColumn =
 export type Column = NumericColumn | string[] | Int16Array[]
 
 /** Typed array constructor used for each numeric type code. */
-export function columnConstructor(type: TypeCode):
+export function columnConstructor(
+  type: TypeCode
+):
   | Float64ArrayConstructor
   | Float32ArrayConstructor
   | Int32ArrayConstructor

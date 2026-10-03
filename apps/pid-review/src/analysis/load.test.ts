@@ -2,15 +2,13 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadLog } from './load.js'
-import { specKey } from './vehicle.js'
 
-const fixture = (name: string) =>
-  readFileSync(resolve(__dirname, '../../../../packages/dataflash/test-fixtures', name)).buffer as ArrayBuffer
+const fixture = (name: string) => readFileSync(resolve(__dirname, '../../../../packages/dataflash/test-fixtures', name)).buffer
 
 describe('loadLog', () => {
   it('loads copter rate controllers from a SITL log', () => {
     const log = loadLog(fixture('copter-sitl.bin'))
-    const keys = log.axes.map((a) => specKey(a.spec))
+    const keys = log.axes.map((a) => a.spec.key)
     expect(keys.length).toBeGreaterThan(0)
     expect(log.endTime).toBeGreaterThan(log.startTime)
     for (const axis of log.axes) {

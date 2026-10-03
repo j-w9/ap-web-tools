@@ -30,3 +30,4 @@ export {
 } from './open-in.js'
 export { OpenInButton, type OpenInButtonProps } from './OpenInButton.js'
 export { useLogFile, type LogFileState } from './useLogFile.js'
+export { useLatest } from './useLatest.js'

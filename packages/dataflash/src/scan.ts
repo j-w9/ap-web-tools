@@ -3,15 +3,7 @@
  * table. Nothing except FMT records is decoded here; the result is an index
  * of body offsets per message id that later lazy decoding reads from.
  */
-import {
-  FMT_DEFINITION,
-  FMT_TYPE,
-  HEAD1,
-  HEAD2,
-  HEADER_SIZE,
-  decodeFmtRecord,
-  type FormatDefinition
-} from './format.js'
+import { FMT_DEFINITION, FMT_TYPE, HEAD1, HEAD2, HEADER_SIZE, decodeFmtRecord, type FormatDefinition } from './format.js'
 
 /** Growable list of uint32 offsets. */
 class OffsetList {
@@ -58,11 +50,7 @@ const PROGRESS_INTERVAL = 1 << 20
  *
  * @param onProgress Called with a 0..1 fraction as the scan proceeds.
  */
-export function scanLog(
-  bytes: Uint8Array,
-  view: DataView,
-  onProgress?: (fraction: number) => void
-): ScanResult {
+export function scanLog(bytes: Uint8Array, view: DataView, onProgress?: (fraction: number) => void): ScanResult {
   const formats: (FormatDefinition | undefined)[] = new Array<FormatDefinition | undefined>(256).fill(undefined)
   formats[FMT_TYPE] = FMT_DEFINITION
   const lists: (OffsetList | undefined)[] = new Array<OffsetList | undefined>(256).fill(undefined)

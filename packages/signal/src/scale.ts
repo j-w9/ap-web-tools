@@ -41,7 +41,7 @@ export function fftAmplitudeScale(options: AmplitudeScaleOptions = {}): Amplitud
       scale: (x) => arrayScale(arrayLog10(x), 10.0),
       label: 'PSD (dB/Hz)',
       hover: (axis) => '%{' + axis + ':.2f} dB/Hz',
-      windowCorrection: (correction, resolution) => ((correction.energy ** 2) * 0.5) / resolution,
+      windowCorrection: (correction, resolution) => (correction.energy ** 2 * 0.5) / resolution,
       quantizationCorrection: (windowCorrection) => 1 / Math.sqrt(windowCorrection)
     }
   }

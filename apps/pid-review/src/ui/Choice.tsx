@@ -16,13 +16,7 @@ export interface ChipProps {
 export function Chip({ type, name, checked, disabled, onChange, children, swatch, title }: ChipProps) {
   return (
     <label className="apwt-chip" title={title}>
-      <input
-        type={type}
-        name={name}
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-      />
+      <input type={type} name={name} checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       {swatch && <span className="apwt-chip__swatch" style={{ background: swatch }} />}
       {children}
     </label>

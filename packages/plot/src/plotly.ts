@@ -2,16 +2,7 @@
 // the distribution package name. Plotly is loaded eagerly: every tool plots.
 import Plotly from 'plotly.js-dist-min'
 
-export type {
-  Data,
-  Layout,
-  Config,
-  PlotData,
-  PlotRelayoutEvent,
-  PlotlyHTMLElement,
-  Shape,
-  Annotations
-} from 'plotly.js-dist-min'
+export type { Data, Layout, Config, PlotData, PlotRelayoutEvent, PlotlyHTMLElement, Shape, Annotations } from 'plotly.js-dist-min'
 
 export { Plotly }
 

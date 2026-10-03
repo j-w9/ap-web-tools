@@ -10,13 +10,13 @@ reference for every port. Nothing in `upstream/` is imported at runtime.
 
 npm-workspaces monorepo. Shared logic lives in framework-free packages; each tool is a small app on top.
 
-| Workspace | Responsibility |
-| --- | --- |
-| `packages/dataflash` | ArduPilot DataFlash (`.bin`) log parser: lazy, instance-aware, typed columns |
-| `packages/signal` | Array / complex math, FFT windowing and spectrum helpers |
-| `packages/plot` | Typed Plotly wrappers: axis linking, colours, time-range and spectrogram patterns |
+| Workspace             | Responsibility                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| `packages/dataflash`  | ArduPilot DataFlash (`.bin`) log parser: lazy, instance-aware, typed columns          |
+| `packages/signal`     | Array / complex math, FFT windowing and spectrum helpers                              |
+| `packages/plot`       | Typed Plotly wrappers: axis linking, colours, time-range and spectrogram patterns     |
 | `packages/tool-shell` | Shared tool chrome: file loading, loading overlay, error reporting, "Open in" handoff |
-| `apps/<tool>` | One Vite entry per tool, served at the same URL path as upstream |
+| `apps/<tool>`         | One Vite entry per tool, served at the same URL path as upstream                      |
 
 ## Development
 

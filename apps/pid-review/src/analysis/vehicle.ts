@@ -8,10 +8,34 @@ import type { VehicleType } from '@apwt/dataflash'
 const RAD2DEG = 180 / Math.PI
 const DEG_PER_SEC = 'deg / s'
 
+/** Every controller the tool knows about, in display order. */
+export const ALL_SPEC_KEYS = [
+  'RATE_R',
+  'RATE_P',
+  'RATE_Y',
+  'PIDR',
+  'PIDP',
+  'PIDY',
+  'PIQR',
+  'PIQP',
+  'PIQY',
+  'PIDS',
+  'PIDA'
+] as const
+
+/** Identifies one controller, e.g. `PIDR` or `RATE_R`. */
+export type SpecKey = (typeof ALL_SPEC_KEYS)[number]
+
+type RateAxis = 'R' | 'P' | 'Y'
+type PidMessage = Exclude<SpecKey, `RATE_${RateAxis}`>
+
+/** Where a controller's data lives: its own PID message, or one axis of the combined RATE message. */
+export type PidSource = { readonly message: PidMessage } | { readonly message: 'RATE'; readonly axis: RateAxis }
+
 /** One controller the tool can show: where its data lives and how to scale it. */
 export interface PidMessageSpec {
-  /** Message name, plus the axis letter when it comes from the combined RATE message. */
-  id: readonly [string] | readonly [string, 'R' | 'P' | 'Y']
+  key: SpecKey
+  source: PidSource
   /** Parameter prefixes to try, in order, e.g. `ATC_RAT_RLL_`. */
   prefixes: readonly string[]
   /** Multiply logged target/actual/error by this to get `units`. */
@@ -20,54 +44,78 @@ export interface PidMessageSpec {
   units: string
 }
 
-/** Stable key for a spec, e.g. `PIDR` or `RATE_R`; matches upstream's element ids. */
-export function specKey(spec: PidMessageSpec): string {
-  return spec.id.join('_')
-}
+const AXIS_NAMES: Readonly<Record<RateAxis, string>> = { R: 'Roll', P: 'Pitch', Y: 'Yaw' }
 
-/** Human label for a spec, e.g. `RATE Roll`. */
-export function specLabel(spec: PidMessageSpec): string {
-  if (spec.id.length === 1) return spec.id[0]
-  const axis = { R: 'Roll', P: 'Pitch', Y: 'Yaw' }[spec.id[1]]
-  return `${spec.id[0]} ${axis}`
+/** Human label for a controller, e.g. `RATE Roll` or `PIDR`. */
+export function specLabel(key: SpecKey): string {
+  const rate = /^RATE_([RPY])$/.exec(key)
+  return rate ? `RATE ${AXIS_NAMES[rate[1] as RateAxis]}` : key
 }
-
-/** All controller specs the tool knows about, in display order. */
-export const ALL_SPEC_KEYS = [
-  'RATE_R', 'RATE_P', 'RATE_Y',
-  'PIDR', 'PIDP', 'PIDY',
-  'PIQR', 'PIQP', 'PIQY',
-  'PIDS', 'PIDA'
-] as const
 
 /** Controller specs available for a vehicle type, or null when the vehicle is unsupported. */
 export function pidSpecsForVehicle(vehicle: VehicleType | undefined): readonly PidMessageSpec[] | null {
   switch (vehicle) {
     case 'rover':
       return [
-        { id: ['PIDS'], prefixes: ['ATC_STR_RAT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['PIDA'], prefixes: ['ATC_SPEED_'], unitScale: 1, units: 'm / s' }
+        { key: 'PIDS', source: { message: 'PIDS' }, prefixes: ['ATC_STR_RAT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
+        { key: 'PIDA', source: { message: 'PIDA' }, prefixes: ['ATC_SPEED_'], unitScale: 1, units: 'm / s' }
       ]
     case 'copter':
       return [
-        { id: ['PIDR'], prefixes: ['ATC_RAT_RLL_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['PIDP'], prefixes: ['ATC_RAT_PIT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['PIDY'], prefixes: ['ATC_RAT_YAW_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['RATE', 'R'], prefixes: ['ATC_RAT_RLL_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['RATE', 'P'], prefixes: ['ATC_RAT_PIT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['RATE', 'Y'], prefixes: ['ATC_RAT_YAW_'], unitScale: RAD2DEG, units: DEG_PER_SEC }
+        { key: 'PIDR', source: { message: 'PIDR' }, prefixes: ['ATC_RAT_RLL_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
+        { key: 'PIDP', source: { message: 'PIDP' }, prefixes: ['ATC_RAT_PIT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
+        { key: 'PIDY', source: { message: 'PIDY' }, prefixes: ['ATC_RAT_YAW_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
+        {
+          key: 'RATE_R',
+          source: { message: 'RATE', axis: 'R' },
+          prefixes: ['ATC_RAT_RLL_'],
+          unitScale: RAD2DEG,
+          units: DEG_PER_SEC
+        },
+        {
+          key: 'RATE_P',
+          source: { message: 'RATE', axis: 'P' },
+          prefixes: ['ATC_RAT_PIT_'],
+          unitScale: RAD2DEG,
+          units: DEG_PER_SEC
+        },
+        {
+          key: 'RATE_Y',
+          source: { message: 'RATE', axis: 'Y' },
+          prefixes: ['ATC_RAT_YAW_'],
+          unitScale: RAD2DEG,
+          units: DEG_PER_SEC
+        }
       ]
     case 'plane':
       return [
-        { id: ['PIDR'], prefixes: ['RLL_RATE_'], unitScale: 1, units: DEG_PER_SEC },
-        { id: ['PIDP'], prefixes: ['PTCH_RATE_'], unitScale: 1, units: DEG_PER_SEC },
-        { id: ['PIDY'], prefixes: ['YAW_RATE_'], unitScale: 1, units: DEG_PER_SEC },
-        { id: ['PIQR'], prefixes: ['Q_A_RAT_RLL_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['PIQP'], prefixes: ['Q_A_RAT_PIT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['PIQY'], prefixes: ['Q_A_RAT_YAW_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['RATE', 'R'], prefixes: ['Q_A_RAT_RLL_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['RATE', 'P'], prefixes: ['Q_A_RAT_PIT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
-        { id: ['RATE', 'Y'], prefixes: ['Q_A_RAT_YAW_'], unitScale: RAD2DEG, units: DEG_PER_SEC }
+        { key: 'PIDR', source: { message: 'PIDR' }, prefixes: ['RLL_RATE_'], unitScale: 1, units: DEG_PER_SEC },
+        { key: 'PIDP', source: { message: 'PIDP' }, prefixes: ['PTCH_RATE_'], unitScale: 1, units: DEG_PER_SEC },
+        { key: 'PIDY', source: { message: 'PIDY' }, prefixes: ['YAW_RATE_'], unitScale: 1, units: DEG_PER_SEC },
+        { key: 'PIQR', source: { message: 'PIQR' }, prefixes: ['Q_A_RAT_RLL_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
+        { key: 'PIQP', source: { message: 'PIQP' }, prefixes: ['Q_A_RAT_PIT_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
+        { key: 'PIQY', source: { message: 'PIQY' }, prefixes: ['Q_A_RAT_YAW_'], unitScale: RAD2DEG, units: DEG_PER_SEC },
+        {
+          key: 'RATE_R',
+          source: { message: 'RATE', axis: 'R' },
+          prefixes: ['Q_A_RAT_RLL_'],
+          unitScale: RAD2DEG,
+          units: DEG_PER_SEC
+        },
+        {
+          key: 'RATE_P',
+          source: { message: 'RATE', axis: 'P' },
+          prefixes: ['Q_A_RAT_PIT_'],
+          unitScale: RAD2DEG,
+          units: DEG_PER_SEC
+        },
+        {
+          key: 'RATE_Y',
+          source: { message: 'RATE', axis: 'Y' },
+          prefixes: ['Q_A_RAT_YAW_'],
+          unitScale: RAD2DEG,
+          units: DEG_PER_SEC
+        }
       ]
     default:
       return null

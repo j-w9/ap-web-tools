@@ -1,7 +1,7 @@
 import { Calculator } from 'lucide-react'
 import { stepWindowSize } from '@apwt/signal'
 import { ControlGroup, LogInput, RailCard, type LogFact } from '@apwt/tool-shell'
-import { ALL_SPEC_KEYS, specKey, specLabel, type PidMessageSpec } from '../analysis/vehicle.js'
+import { ALL_SPEC_KEYS, specLabel, type SpecKey } from '../analysis/vehicle.js'
 import { Chip } from './Choice.js'
 
 export interface RailProps {
@@ -13,21 +13,16 @@ export interface RailProps {
   timeLimits: [number, number] | null
   onTimeRangeChange: (range: [number, number]) => void
   /** Controllers with data in the loaded log. */
-  availableSpecs: readonly PidMessageSpec[]
-  selectedSpecKey: string | null
-  onSelectSpec: (key: string) => void
+  availableKeys: ReadonlySet<SpecKey>
+  selectedKey: SpecKey | null
+  onSelectKey: (key: SpecKey) => void
   calculateEnabled: boolean
   onCalculate: () => void
 }
 
-function labelForKey(key: string): string {
-  const [msg, axis] = key.split('_') as [string, 'R' | 'P' | 'Y' | undefined]
-  return specLabel({ id: axis ? [msg, axis] : [msg], prefixes: [], unitScale: 1, units: '' })
-}
-
 /** The control rail: log input, controller choice, analysis window and FFT size. */
 export function Rail(p: RailProps) {
-  const available = new Set(p.availableSpecs.map(specKey))
+  const available = p.availableKeys
   const loaded = p.timeLimits != null
   return (
     <RailCard>
@@ -42,11 +37,11 @@ export function Rail(p: RailProps) {
               key={key}
               type="radio"
               name="controller"
-              checked={p.selectedSpecKey === key}
+              checked={p.selectedKey === key}
               disabled={!available.has(key)}
-              onChange={() => p.onSelectSpec(key)}
+              onChange={() => p.onSelectKey(key)}
             >
-              {labelForKey(key)}
+              {specLabel(key)}
             </Chip>
           ))}
         </div>

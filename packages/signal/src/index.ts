@@ -51,7 +51,14 @@ export {
 export type { WindowCorrection } from './window.js'
 export { hanning, windowCorrectionFactors } from './window.js'
 
-export type { NumericBuffer, InterleavedComplex, RunFftOptions, RunFftResult } from './fft.js'
+export type {
+  NumericBuffer,
+  InterleavedComplex,
+  RunFftOptions,
+  RunFftOptionsWithMax,
+  RunFftResult,
+  RunFftResultWithMax
+} from './fft.js'
 export {
   RealFft,
   realLength,
@@ -64,11 +71,5 @@ export {
   fromInterleaved
 } from './fft.js'
 
-export type {
-  AmplitudeKind,
-  AmplitudeScale,
-  AmplitudeScaleOptions,
-  FrequencyScale,
-  FrequencyScaleOptions
-} from './scale.js'
+export type { AmplitudeKind, AmplitudeScale, AmplitudeScaleOptions, FrequencyScale, FrequencyScaleOptions } from './scale.js'
 export { fftAmplitudeScale, fftFrequencyScale } from './scale.js'

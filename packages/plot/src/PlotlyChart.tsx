@@ -1,5 +1,4 @@
-import { useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef, type CSSProperties } from 'react'
-import { onRootClassChange, readPlotTheme, themeLayout } from './theme.js'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Plotly,
   DEFAULT_CONFIG,
@@ -9,6 +8,7 @@ import {
   type PlotRelayoutEvent,
   type PlotlyHTMLElement
 } from './plotly.js'
+import { onRootClassChange, readPlotTheme, themeLayout } from './theme.js'
 
 export interface PlotlyChartProps {
   data: readonly Partial<Data>[]
@@ -17,60 +17,63 @@ export interface PlotlyChartProps {
   style?: CSSProperties
   className?: string
   onRelayout?: (event: PlotRelayoutEvent) => void
-  /** Called once the plot element exists, for imperative linking. */
+  /** Called once, when the plot element first exists, for imperative linking. */
   onReady?: (element: PlotlyHTMLElement) => void
 }
 
+/** Keep a ref pointing at the latest value without re-running effects that read it. */
+function useLatest<T>(value: T): { readonly current: T } {
+  const ref = useRef(value)
+  useEffect(() => {
+    ref.current = value
+  })
+  return ref
+}
+
 /**
- * A Plotly chart as a React component. `data` and `layout` are treated as the source
- * of truth and pushed to Plotly with `Plotly.react` whenever they change; the component
- * never mutates them. Pass the same object references when nothing changed to avoid
- * redundant redraws.
+ * A Plotly chart as a React component. `data` and `layout` are the source of truth and are
+ * pushed with `Plotly.react` whenever they change; the component never mutates them. The
+ * layout is themed from the page's CSS tokens and re-themed when light/dark mode changes.
  */
-export const PlotlyChart = forwardRef<PlotlyHTMLElement, PlotlyChartProps>(function PlotlyChart(
-  { data, layout, config, style, className, onRelayout, onReady },
-  ref
-) {
+export function PlotlyChart({ data, layout, config, style, className, onRelayout, onReady }: PlotlyChartProps) {
   const divRef = useRef<HTMLDivElement>(null)
-  const relayoutRef = useRef(onRelayout)
-  relayoutRef.current = onRelayout
+  const [plot, setPlot] = useState<PlotlyHTMLElement | null>(null)
+  const relayoutRef = useLatest(onRelayout)
+  const readyRef = useLatest(onReady)
 
-  useImperativeHandle(ref, () => divRef.current as unknown as PlotlyHTMLElement, [])
-
-  // Follow the page theme: re-read colours whenever the root class changes.
   const [theme, setTheme] = useState(readPlotTheme)
   useEffect(() => onRootClassChange(() => setTheme(readPlotTheme())), [])
   const themed = useMemo(() => themeLayout(layout, theme), [layout, theme])
 
-  // Create once, purge on unmount.
+  // Draw or update. Plotly.react creates the plot on first call and diffs afterwards.
   useEffect(() => {
     const el = divRef.current
     if (!el) return
-    const plot = el as unknown as PlotlyHTMLElement
-    let cancelled = false
-    void Plotly.newPlot(el, data as Data[], themed, { ...DEFAULT_CONFIG, ...config }).then(() => {
-      if (cancelled) return
-      plot.on('plotly_relayout', (event) => relayoutRef.current?.(event))
-      onReady?.(plot)
+    let live = true
+    void Plotly.react(el, [...data] as Data[], themed, { ...DEFAULT_CONFIG, ...config }).then((element) => {
+      if (live) setPlot(element)
     })
     return () => {
-      cancelled = true
-      Plotly.purge(el)
+      live = false
     }
-    // Initial render only; updates go through Plotly.react below.
-  }, [])
-
-  // Push updates. Plotly.react diffs internally, so this is cheap when nothing changed.
-  const first = useRef(true)
-  useEffect(() => {
-    if (first.current) {
-      first.current = false
-      return
-    }
-    const el = divRef.current
-    if (!el) return
-    void Plotly.react(el, data as Data[], themed, { ...DEFAULT_CONFIG, ...config })
   }, [data, themed, config])
 
+  // Purge on unmount.
+  useEffect(() => {
+    const el = divRef.current
+    return () => {
+      if (el) Plotly.purge(el)
+    }
+  }, [])
+
+  // Wire events once the element exists.
+  useEffect(() => {
+    if (!plot) return
+    readyRef.current?.(plot)
+    const handler = (event: PlotRelayoutEvent) => relayoutRef.current?.(event)
+    plot.on('plotly_relayout', handler)
+    return () => plot.removeListener('plotly_relayout', handler)
+  }, [plot, readyRef, relayoutRef])
+
   return <div ref={divRef} style={style} className={className} />
-})
+}

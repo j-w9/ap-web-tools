@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { complexAbs, complexConj, complexDiv, complexMul } from './complex.js'
 import {
-  RealFft, fromInterleaved, isPowerOfTwo, realLength, rfftFreq, runFft, stepWindowSize,
-  toDoubleSided, toInterleaved
+  RealFft,
+  fromInterleaved,
+  isPowerOfTwo,
+  realLength,
+  rfftFreq,
+  runFft,
+  stepWindowSize,
+  toDoubleSided,
+  toInterleaved
 } from './fft.js'
 import { hanning, windowCorrectionFactors } from './window.js'
 import { fromPair, loadUpstream, randomArray, rng, toPair, upstreamFft } from './test-utils/upstream.js'
@@ -18,7 +25,12 @@ describe('realLength / rfftFreq', () => {
   })
 
   it('match upstream bit-for-bit', () => {
-    for (const [len, d] of [[8, 0.001], [1024, 1 / 400], [4096, 1 / 8000], [1000, 0.0125]]) {
+    for (const [len, d] of [
+      [8, 0.001],
+      [1024, 1 / 400],
+      [4096, 1 / 8000],
+      [1000, 0.0125]
+    ]) {
       expect(realLength(len!)).toBe(up.real_length(len!))
       expect(Array.from(rfftFreq(len!, d!))).toEqual(up.rfft_freq(len!, d!))
     }
@@ -103,9 +115,9 @@ describe('runFft', () => {
   it('takeMax records the peak of the windowed data', () => {
     const x = randomArray(next, 200)
     const res = runFft({ x }, ['x'], { windowSize, windowSpacing, window, fft: new RealFft(windowSize), takeMax: true })
-    expect(res.max?.x.length).toBe(res.center.length)
+    expect(res.max.x.length).toBe(res.center.length)
     const firstWindow = x.slice(0, windowSize).map((v, i) => Math.abs(v * window[i]!))
-    expect(res.max?.x[0]).toBe(Math.max(...firstWindow))
+    expect(res.max.x[0]).toBe(Math.max(...firstWindow))
   })
 
   it('returns zero windows when the data is shorter than one window', () => {
@@ -116,7 +128,9 @@ describe('runFft', () => {
 
   it('throws for missing keys and mismatched fft size', () => {
     const fft = new RealFft(windowSize)
-    expect(() => runFft({ x: [] } as Record<string, number[]>, ['y'], { windowSize, windowSpacing, window, fft })).toThrow(TypeError)
+    // A key missing from `data` is rejected at compile time; the runtime guard covers untyped callers.
+    // @ts-expect-error -- 'y' is not a key of data
+    expect(() => runFft({ x: [] }, ['y'], { windowSize, windowSpacing, window, fft })).toThrow(TypeError)
     expect(() => runFft({ x: [] }, ['x'], { windowSize, windowSpacing, window, fft: new RealFft(32) })).toThrow(RangeError)
   })
 

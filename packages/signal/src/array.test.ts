@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
-  arrayAbs, arrayAdd, arrayAllEqual, arrayAllNaN, arrayDiv, arrayFromRange, arrayInverse,
-  arrayLog10, arrayMax, arrayMean, arrayMin, arrayMul, arrayOffset, arrayScale, arraySqrt, arraySub,
-  arraySum, linearInterp
+  arrayAbs,
+  arrayAdd,
+  arrayAllEqual,
+  arrayAllNaN,
+  arrayDiv,
+  arrayFromRange,
+  arrayInverse,
+  arrayLog10,
+  arrayMax,
+  arrayMean,
+  arrayMin,
+  arrayMul,
+  arrayOffset,
+  arrayScale,
+  arraySqrt,
+  arraySub,
+  arraySum,
+  linearInterp
 } from './array.js'
 import { loadUpstream, randomArray, rng } from './test-utils/upstream.js'
 

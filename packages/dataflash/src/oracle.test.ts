@@ -91,7 +91,7 @@ describe.each(['copter-sitl.bin', 'copter-files.bin'])('oracle: %s', (file) => {
     expect(upstreamNames.length).toBeGreaterThan(30)
     for (const name of upstreamNames) {
       const theirs = up.messageTypes[name] as UpstreamMessageType
-      const mine = log.messageType(name) as ReturnType<DataflashLog['messageType']>
+      const mine = log.messageType(name)
       expect(mine, name).toBeDefined()
       if (mine === undefined) continue
       expect([...mine.fieldNames], name).toEqual(theirs.expressions)

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
-  complexAbs, complexArrayFrom, complexAt, complexConj, complexDiv, complexInverse, complexMul,
-  complexPhase, complexSquare, expJw
+  complexAbs,
+  complexArrayFrom,
+  complexAt,
+  complexConj,
+  complexDiv,
+  complexInverse,
+  complexMul,
+  complexPhase,
+  complexSquare,
+  expJw
 } from './complex.js'
 import { fromPair, loadUpstream, randomArray, rng, toPair } from './test-utils/upstream.js'
 
@@ -9,7 +17,10 @@ const up = loadUpstream()
 
 describe('complex scalar / construction helpers', () => {
   it('round-trips scalar values through a ComplexArray', () => {
-    const c = complexArrayFrom([{ re: 1, im: 2 }, { re: -3, im: 0.5 }])
+    const c = complexArrayFrom([
+      { re: 1, im: 2 },
+      { re: -3, im: 0.5 }
+    ])
     expect(Array.from(c.re)).toEqual([1, -3])
     expect(Array.from(c.im)).toEqual([2, 0.5])
     expect(complexAt(c, 1)).toEqual({ re: -3, im: 0.5 })
@@ -17,8 +28,14 @@ describe('complex scalar / construction helpers', () => {
 })
 
 describe('complex vector maths (hand-computed)', () => {
-  const a = complexArrayFrom([{ re: 1, im: 2 }, { re: 3, im: -1 }])
-  const b = complexArrayFrom([{ re: 2, im: -1 }, { re: 0, im: 2 }])
+  const a = complexArrayFrom([
+    { re: 1, im: 2 },
+    { re: 3, im: -1 }
+  ])
+  const b = complexArrayFrom([
+    { re: 2, im: -1 },
+    { re: 0, im: 2 }
+  ])
 
   it('complexMul', () => {
     // (1+2j)(2-j) = 4+3j ; (3-j)(2j) = 2+6j
@@ -35,9 +52,19 @@ describe('complex vector maths (hand-computed)', () => {
   })
 
   it('complexAbs / complexPhase', () => {
-    const r = complexAbs(complexArrayFrom([{ re: 3, im: 4 }, { re: 0, im: -2 }]))
+    const r = complexAbs(
+      complexArrayFrom([
+        { re: 3, im: 4 },
+        { re: 0, im: -2 }
+      ])
+    )
     expect(Array.from(r)).toEqual([5, 2])
-    const p = complexPhase(complexArrayFrom([{ re: 1, im: 1 }, { re: -1, im: 0 }]))
+    const p = complexPhase(
+      complexArrayFrom([
+        { re: 1, im: 1 },
+        { re: -1, im: 0 }
+      ])
+    )
     expect(p[0]).toBeCloseTo(Math.PI / 4, 15)
     expect(p[1]).toBeCloseTo(Math.PI, 15)
   })

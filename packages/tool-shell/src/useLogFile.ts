@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useLatest } from './useLatest.js'
 import { readFileAsArrayBuffer } from './file.js'
 import { onIncomingLog } from './open-in.js'
 
@@ -15,13 +16,15 @@ export interface LogFileState {
  */
 export function useLogFile(onBuffer: (buffer: ArrayBuffer, name: string | null) => void | Promise<void>): LogFileState {
   const [file, setFile] = useState<File | null>(null)
-  const handler = useRef(onBuffer)
-  handler.current = onBuffer
+  const handler = useLatest(onBuffer)
 
-  const openFile = useCallback((f: File) => {
-    setFile(f)
-    void readFileAsArrayBuffer(f).then((buffer) => handler.current(buffer, f.name))
-  }, [])
+  const openFile = useCallback(
+    (f: File) => {
+      setFile(f)
+      void readFileAsArrayBuffer(f).then((buffer) => handler.current(buffer, f.name))
+    },
+    [handler]
+  )
 
   useEffect(
     () =>
@@ -32,7 +35,7 @@ export function useLogFile(onBuffer: (buffer: ArrayBuffer, name: string | null) 
           void handler.current(incoming.buffer, null)
         }
       }),
-    [openFile]
+    [openFile, handler]
   )
 
   return { file, openFile }

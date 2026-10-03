@@ -11,13 +11,8 @@ export interface LinkedAxis {
 
 type RelayoutHandler = (event: PlotRelayoutEvent) => void
 
-// Plotly elements are Node-style event emitters at runtime; the typings only expose `on`.
-interface PlotlyEmitter {
-  removeListener(event: string, handler: RelayoutHandler): void
-}
-
 function off(element: PlotlyHTMLElement, handler: RelayoutHandler): void {
-  ;(element as unknown as PlotlyEmitter).removeListener('plotly_relayout', handler)
+  element.removeListener('plotly_relayout', handler)
 }
 
 function axisKey(link: LinkedAxis): string {
