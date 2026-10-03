@@ -102,6 +102,13 @@ const UNIX_GPS_OFFSET_MS = 315964800 * 1000
  * Create one with {@link DataflashLog.parse}. The source buffer is retained
  * (not copied) for the lifetime of the object; decoded columns are cached.
  */
+/** One logged value of a parameter. */
+export interface ParamChange {
+  /** Microseconds since boot. */
+  readonly timeUs: number
+  readonly value: number
+}
+
 export class DataflashLog {
   private readonly bytes: Uint8Array
   private readonly view: DataView
@@ -112,6 +119,7 @@ export class DataflashLog {
   private readonly messageCache = new Map<string, ParsedMessage>()
   private readonly columnCache = new Map<string, Column>()
   private paramCache: Map<string, number> | undefined
+  private paramHistoryCache: Map<string, ParamChange[]> | undefined
   private vehicleCache: VehicleType | null | undefined
 
   private constructor(bytes: Uint8Array, options: ParseOptions) {
@@ -266,6 +274,38 @@ export class DataflashLog {
   /** Last logged value of one parameter, or `undefined` if never logged. */
   param(name: string): number | undefined {
     return this.params().get(name)
+  }
+
+  /**
+   * Every logged value of one parameter, in log order, with its timestamp. Use it for
+   * parameters whose first value matters (e.g. logging options read at boot) or to track
+   * changes through a flight.
+   */
+  paramHistory(name: string): readonly ParamChange[] {
+    if (this.paramHistoryCache === undefined) {
+      const byName = new Map<string, ParamChange[]>()
+      const names = this.getStrings(PARM, 'Name')
+      const values = this.getNumbers(PARM, 'Value')
+      const times = this.getNumbers(PARM, 'TimeUS')
+      if (names !== undefined && values !== undefined) {
+        for (let i = 0; i < names.length; i++) {
+          const key = names[i]!
+          let list = byName.get(key)
+          if (list === undefined) {
+            list = []
+            byName.set(key, list)
+          }
+          list.push({ timeUs: times?.[i] ?? 0, value: values[i]! })
+        }
+      }
+      this.paramHistoryCache = byName
+    }
+    return this.paramHistoryCache.get(name) ?? []
+  }
+
+  /** First logged value of one parameter, or `undefined` if never logged. */
+  firstParam(name: string): number | undefined {
+    return this.paramHistory(name)[0]?.value
   }
 
   /** Text of every MSG record, in log order. */

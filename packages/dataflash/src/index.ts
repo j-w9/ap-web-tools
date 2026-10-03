@@ -9,7 +9,7 @@
  * for (const [name, info] of log.messageTypes()) console.log(name, info.count)
  * ```
  */
-export { DataflashLog, leapSecondsGps, leapSecondsTai } from './log.js'
+export { DataflashLog, type ParamChange, leapSecondsGps, leapSecondsTai } from './log.js'
 export type { FieldInfo, MessageStats, MessageTypeInfo, ParseOptions, ParsedMessage } from './log.js'
 export type { Column, NumericColumn } from './decode.js'
 export type { FormatDefinition, TypeCode } from './format.js'

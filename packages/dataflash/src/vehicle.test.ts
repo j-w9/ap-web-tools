@@ -40,3 +40,22 @@ describe('vehicleType', () => {
     expect(logWith(null, ['Mentions rover without a banner']).vehicleType()).toBeUndefined()
   })
 })
+
+describe('paramHistory', () => {
+  it('keeps every value in order, with first and last accessors', () => {
+    const w = new LogWriter()
+    w.defineFormat(0x80, 'FMT', 'BBnNZ', 'Type,Length,Name,Format,Columns')
+    w.defineFormat(12, 'PARM', 'QNf', 'TimeUS,Name,Value')
+    w.write('PARM', [100, 'INS_LOG_BAT_OPT', 1])
+    w.write('PARM', [200, 'OTHER', 5])
+    w.write('PARM', [300, 'INS_LOG_BAT_OPT', 4])
+    const log = DataflashLog.parse(w.toBytes())
+    expect(log.paramHistory('INS_LOG_BAT_OPT')).toEqual([
+      { timeUs: 100, value: 1 },
+      { timeUs: 300, value: 4 }
+    ])
+    expect(log.firstParam('INS_LOG_BAT_OPT')).toBe(1)
+    expect(log.param('INS_LOG_BAT_OPT')).toBe(4)
+    expect(log.paramHistory('MISSING')).toEqual([])
+  })
+})
