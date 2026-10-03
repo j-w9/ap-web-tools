@@ -1,0 +1,104 @@
+/* Base styling shared by every tool page. Deliberately close to upstream's plain look. */
+:root {
+  --apwt-page-width: 1200px;
+  --apwt-text: #111;
+  --apwt-muted: #555;
+  --apwt-border: #999;
+  --apwt-accent: #1f77b4;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--apwt-text);
+}
+
+body {
+  margin: 8px;
+  background: #fff;
+}
+
+.apwt-page {
+  width: var(--apwt-page-width);
+  max-width: 100%;
+}
+
+.apwt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.apwt-header__github {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.apwt-header__github img {
+  width: 60px;
+}
+
+.apwt-title {
+  text-align: center;
+  margin: 0.4em 0;
+}
+
+.apwt-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.apwt-intro {
+  text-align: justify;
+  padding: 0 30px;
+  margin: 0 0 0.5em 0;
+}
+
+.apwt-section-title {
+  text-align: center;
+  margin: 1em 0 0.3em;
+}
+
+.apwt-help {
+  width: 1em;
+  vertical-align: bottom;
+  cursor: help;
+}
+
+fieldset {
+  border: 1px solid var(--apwt-border);
+  border-radius: 3px;
+}
+
+.apwt-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.apwt-loading {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.7);
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.apwt-loading h1 {
+  margin: 0;
+}
+
+.apwt-popover {
+  position: absolute;
+  z-index: 10;
+  background: #fff;
+  border: 1px solid var(--apwt-border);
+  border-radius: 4px;
+  padding: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
