@@ -8,7 +8,7 @@ import type { FlightData } from '../analysis/flight-data.js'
 import type { MotorSource } from '../analysis/motor.js'
 import type { PreparedAttitude } from '../analysis/magfit.js'
 import { vec3Magnitude, type Vec3Series } from '../analysis/vector.js'
-import type { ValidCalibration } from './calibrations.js'
+import type { Calibration, CalibrationData } from './calibrations.js'
 
 const TIME_LABEL = 'Time (s)'
 const MARGIN = { b: 50, l: 60, r: 30, t: 20 }
@@ -78,7 +78,9 @@ export function flightDataLayout(range: readonly [number, number] | null): Parti
 export interface PlotEntry {
   /** 0-based compass index. */
   readonly compass: number
-  readonly calibration: ValidCalibration
+  readonly calibration: Calibration
+  /** What to draw (an invalid fit that is still ticked draws its stale data, as upstream). */
+  readonly data: CalibrationData
   readonly time: Float64Array
   /** Attitude yaw at the compass samples, radians. */
   readonly attitudeYaw: Float64Array
@@ -116,13 +118,13 @@ export function componentTraces(axis: keyof Vec3Series, attitude: PreparedAttitu
       y: attitude.expected[axis]
     })
   }
-  for (const e of entries) traces.push(entryTrace(e, e.calibration.field[axis], GAUSS_HOVER))
+  for (const e of entries) traces.push(entryTrace(e, e.data.field[axis], GAUSS_HOVER))
   return traces
 }
 
 /** Distance between each calibrated field and the expected field. */
 export function errorTraces(entries: readonly PlotEntry[]): Partial<Data>[] {
-  return entries.map((e) => entryTrace(e, e.calibration.error, GAUSS_HOVER))
+  return entries.map((e) => entryTrace(e, e.data.error, GAUSS_HOVER))
 }
 
 /** Length of each calibrated field, with the expected earth field strength as a reference line. */
@@ -143,7 +145,7 @@ export function lengthTraces(
       y: [intensityMilliGauss, intensityMilliGauss]
     })
   }
-  for (const e of entries) traces.push(entryTrace(e, vec3Magnitude(e.calibration.field), GAUSS_HOVER))
+  for (const e of entries) traces.push(entryTrace(e, vec3Magnitude(e.data.field), GAUSS_HOVER))
   return traces
 }
 
@@ -151,12 +153,12 @@ export function lengthTraces(
 export function yawVsExistingTraces(entries: readonly PlotEntry[]): Partial<Data>[] {
   return entries
     .filter((e) => e.calibration.id !== 'existing')
-    .map((e) => entryTrace(e, yawChangeDeg(e.calibration.yaw, e.existingYaw), DEG_HOVER))
+    .map((e) => entryTrace(e, yawChangeDeg(e.data.yaw, e.existingYaw), DEG_HOVER))
 }
 
 /** Heading of each calibration relative to the attitude source's yaw. */
 export function yawVsAttitudeTraces(entries: readonly PlotEntry[]): Partial<Data>[] {
-  return entries.map((e) => entryTrace(e, yawChangeDeg(e.calibration.yaw, e.attitudeYaw), DEG_HOVER))
+  return entries.map((e) => entryTrace(e, yawChangeDeg(e.data.yaw, e.attitudeYaw), DEG_HOVER))
 }
 
 /** Interference sources used for motor compensation (battery current). */
@@ -187,6 +189,8 @@ export function timeLayout(yTitle: string, range: readonly [number, number] | nu
 /** One compass's bars: label and mean error of the existing calibration and every valid fit. */
 export interface ErrorBars {
   readonly compass: number
+  /** Hidden when every calibration of the compass has been unticked (upstream `update_hidden`). */
+  readonly visible: boolean
   readonly bars: readonly { readonly label: string; readonly meanError: number }[]
 }
 
@@ -197,6 +201,7 @@ export function errorBarTraces(compasses: readonly ErrorBars[]): Partial<Data>[]
     return {
       type: 'bar',
       name,
+      visible: c.visible,
       meta: name,
       marker: { color: defaultColor(c.compass + 1) },
       hovertemplate: '<extra></extra>%{meta}<br>%{x}<br>%{y:.2f} mGauss',

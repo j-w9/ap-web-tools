@@ -30,6 +30,8 @@ export interface SyntheticOptions {
   readonly straight?: boolean
   /** Add a Carbonix `GCS:WX` METAR status text. */
   readonly metar?: boolean
+  /** Log BARO without an instance field (as very old firmware did). */
+  readonly baroNoInstance?: boolean
 }
 
 /** Field elevation of the synthetic flight, m AMSL. */
@@ -72,7 +74,8 @@ export function buildSyntheticAirspeedLog(options: SyntheticOptions = {}): Array
   w.defineFormat(0x90, 'ARSP', 'QBffffBBB', 'TimeUS,I,Airspeed,DiffPress,Temp,Offset,U,H,Pri')
   w.defineFormat(0x91, 'XKF1', 'QBffffff', 'TimeUS,C,Roll,Pitch,Yaw,VN,VE,VD')
   w.defineFormat(0x92, 'XKF2', 'QBff', 'TimeUS,C,VWN,VWE')
-  w.defineFormat(0x93, 'BARO', 'QBfff', 'TimeUS,I,Alt,Press,GndTemp')
+  if (options.baroNoInstance) w.defineFormat(0x93, 'BARO', 'Qfff', 'TimeUS,Alt,Press,GndTemp')
+  else w.defineFormat(0x93, 'BARO', 'QBfff', 'TimeUS,I,Alt,Press,GndTemp')
   w.defineFormat(0x94, 'POS', 'QLLfff', 'TimeUS,Lat,Lng,Alt,RelHomeAlt,RelOriginAlt')
   w.defineFormat(0x95, 'ATT', 'Qfff', 'TimeUS,DesRoll,Roll,Pitch')
   w.defineFormat(0x96, 'STAT', 'QBf', 'TimeUS,isFlying,isFlyProb')
@@ -95,7 +98,7 @@ export function buildSyntheticAirspeedLog(options: SyntheticOptions = {}): Array
   w.write('FMTU', [t0, 0x90, 's#-------', 'F--------'])
   w.write('FMTU', [t0, 0x91, 's#------', 'F-------'])
   w.write('FMTU', [t0, 0x92, 's#--', 'F---'])
-  w.write('FMTU', [t0, 0x93, 's#---', 'F----'])
+  w.write('FMTU', options.baroNoInstance ? [t0, 0x93, 's---', 'F---'] : [t0, 0x93, 's#---', 'F----'])
   w.write('FMTU', [t0, 0x97, 's#-------------', 'F--------------'])
 
   const param = (name: string, value: number): void => w.write('PARM', [t0, name, value, value, 0])
@@ -147,7 +150,8 @@ export function buildSyntheticAirspeedLog(options: SyntheticOptions = {}): Array
       w.write('XKF1', [timeUs + 3000 + core * 100, core, 0, 0, s.heading, vn + e, ve - e, s.vd])
       w.write('XKF2', [timeUs + 3500 + core * 100, core, windN + 0.2, windE - 0.2])
     }
-    w.write('BARO', [timeUs + 4000, 0, s.relAlt, press + noise(2), 35])
+    if (options.baroNoInstance) w.write('BARO', [timeUs + 4000, s.relAlt, press + noise(2), 35])
+    else w.write('BARO', [timeUs + 4000, 0, s.relAlt, press + noise(2), 35])
     w.write('ATT', [timeUs + 5000, 0, flying ? 25 * Math.sin(s.heading) : 0, 0])
     if (k % 2 === 0) {
       const latE7 = Math.round((lat0 + north / 111_320) * 1e7)

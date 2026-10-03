@@ -24,6 +24,8 @@ import type { OrientationOption } from './analysis/orientation.js'
 import type { UseOverride } from './analysis/params.js'
 import {
   compassCalibrations,
+  errorBarsVisible,
+  plotData,
   reconcileSelection,
   savedCalibration,
   toggleCalibration,
@@ -35,7 +37,7 @@ import { CompassCard } from './ui/CompassCard.js'
 import { ParamTable } from './ui/ParamTable.js'
 import { paramRows } from './ui/params-table.js'
 import { Rail } from './ui/Rail.js'
-import { planSave } from './ui/save.js'
+import { nextSaveStep, saveCandidates } from './ui/save.js'
 import {
   componentTraces,
   errorBarLayout,
@@ -54,6 +56,8 @@ import {
 import './magfit.css'
 
 type Range = [number, number]
+/** The TimeStart/TimeEnd inputs as typed; upstream reads them with `parseFloat`. */
+type RangeInputs = readonly [string, string]
 type PlotName = 'x' | 'y' | 'z' | 'error' | 'length' | 'yawExisting' | 'yawAttitude' | 'motor'
 
 /** A completed calculation and the inputs it used. */
@@ -62,13 +66,16 @@ interface Applied {
   readonly range: Range
   readonly prepared: PreparedAttitude
   readonly compasses: readonly (CompassFitResult | undefined)[]
+  readonly calibrations: readonly (readonly Calibration[] | undefined)[]
 }
 
 const ORIENTATION_DEFAULT: readonly OrientationOption[] = ['check', 'check', 'check']
 const USE_DEFAULT: readonly UseOverride[] = ['noChange', 'noChange', 'noChange']
 const AXES = ['x', 'y', 'z'] as const
 
-const fullRange = (d: MagFitLog): Range => [Math.floor(d.startTime), Math.ceil(d.endTime)]
+/** Upstream fills the inputs with the exact first and last compass sample times. */
+const fullRange = (d: MagFitLog): RangeInputs => [String(d.startTime), String(d.endTime)]
+const parseRange = (r: RangeInputs): Range => [parseFloat(r[0]), parseFloat(r[1])]
 
 /** Calibrations of every compass with a stable plot colour each. */
 function calibrationColors(compasses: readonly (readonly Calibration[] | undefined)[]): Map<CalibrationId, string>[] {
@@ -85,13 +92,17 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [sourceIndex, setSourceIndex] = useState<number | undefined>(undefined)
   /** Editable analysis window; applied on Calculate. */
-  const [timeRange, setTimeRange] = useState<Range>([0, 0])
+  const [timeRange, setTimeRange] = useState<RangeInputs>(['0', '0'])
+  /** Flight data plot zoom: autorange after loading, the inputs once they are edited (upstream). */
+  const [plotRange, setPlotRange] = useState<Range | null>(null)
   const [orientation, setOrientation] = useState<readonly OrientationOption[]>(ORIENTATION_DEFAULT)
   const [use, setUse] = useState<readonly UseOverride[]>(USE_DEFAULT)
   const [applied, setApplied] = useState<Applied | null>(null)
   const [selections, setSelections] = useState<readonly (CompassSelection | undefined)[]>([])
   const [dirty, setDirty] = useState(false)
   const [saveStatus, setSaveStatus] = useState<{ ok: boolean; text: string } | null>(null)
+  /** Replies to upstream's save confirmations while a save is in progress. */
+  const [saveAnswers, setSaveAnswers] = useState<readonly boolean[] | null>(null)
 
   // ----- Calculation (upstream `calculate`) -----
   const calculate = useCallback(
@@ -104,14 +115,15 @@ export function App() {
       previousSelections: readonly (CompassSelection | undefined)[]
     ) => {
       try {
-        if (!(range[1] > range[0])) throw new Error('The analysis window end must be after its start.')
         // The expected field only depends on the attitude source, so reuse it when that is unchanged.
         const prepared = previous?.sourceIndex === src ? previous.prepared : prepareAttitude(d, src)
         const compasses = runFits(d, prepared, { timeStart: range[0], timeEnd: range[1], orientation: options })
-        setApplied({ sourceIndex: src, range, prepared, compasses })
+        const calibrations = compasses.map((c, i) => (c ? compassCalibrations(c, previous?.calibrations[i]) : undefined))
+        setApplied({ sourceIndex: src, range, prepared, compasses, calibrations })
         setSelections(compasses.map((c, i) => (c ? reconcileSelection(previousSelections[i], c) : undefined)))
         setDirty(false)
         setSaveStatus(null)
+        setSaveAnswers(null)
         setError(null)
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))
@@ -128,16 +140,18 @@ export function App() {
         setData(loaded)
         setFileName(name)
         setTimeRange(range)
+        setPlotRange(null)
         setSourceIndex(loaded.defaultAttitudeSource)
         setOrientation(ORIENTATION_DEFAULT)
         setUse(USE_DEFAULT)
         setApplied(null)
         setSelections([])
         setSaveStatus(null)
+        setSaveAnswers(null)
         setError(null)
         document.title = name ? `MAGFit: ${name}` : 'MAGFit'
         if (loaded.defaultAttitudeSource === undefined) setDirty(true)
-        else calculate(loaded, loaded.defaultAttitudeSource, range, ORIENTATION_DEFAULT, null, [])
+        else calculate(loaded, loaded.defaultAttitudeSource, parseRange(range), ORIENTATION_DEFAULT, null, [])
       } catch (e) {
         setData(null)
         setApplied(null)
@@ -148,12 +162,12 @@ export function App() {
 
   const recalculate = (options = orientation) => {
     if (data && sourceIndex !== undefined) {
-      void run(() => calculate(data, sourceIndex, timeRange, options, applied, selections), 'Calculating')
+      void run(() => calculate(data, sourceIndex, parseRange(timeRange), options, applied, selections), 'Calculating')
     }
   }
 
   // ----- Calibrations, selection and plot entries -----
-  const calibrations = useMemo(() => applied?.compasses.map((c) => (c ? compassCalibrations(c) : undefined)) ?? [], [applied])
+  const calibrations = useMemo(() => applied?.calibrations ?? [], [applied])
   const colors = useMemo(() => calibrationColors(calibrations), [calibrations])
   const entries = useMemo(() => {
     const out: PlotEntry[] = []
@@ -161,10 +175,12 @@ export function App() {
       const selection = selections[i]
       if (!c || !selection) return
       for (const cal of calibrations[i] ?? []) {
-        if (!cal.valid || !selection.shown.has(cal.id)) continue
+        const plotted = plotData(cal)
+        if (plotted === undefined || !selection.shown.has(cal.id)) continue
         out.push({
           compass: i,
           calibration: cal,
+          data: plotted,
           time: c.prepared.compass.time,
           attitudeYaw: c.prepared.attitudeYaw,
           existingYaw: c.prepared.existingYaw,
@@ -175,12 +191,15 @@ export function App() {
     return out
   }, [applied, selections, calibrations, colors])
 
-  const savePlan = useMemo(() => (applied ? planSave(applied.compasses, selections, use) : null), [applied, selections, use])
+  const candidates = useMemo(
+    () => (applied ? saveCandidates(applied.compasses, selections, use, applied.calibrations) : null),
+    [applied, selections, use]
+  )
 
   // ----- Plot data -----
   const range = applied?.range ?? null
   const flightTraces = useMemo(() => flightDataTraces(data?.flight ?? null), [data])
-  const flightLayout = useMemo(() => flightDataLayout(data ? timeRange : null), [data, timeRange])
+  const flightLayout = useMemo(() => flightDataLayout(data ? plotRange : null), [data, plotRange])
   const component = useMemo(
     () => AXES.map((axis) => componentTraces(axis, applied?.prepared ?? null, entries)),
     [applied, entries]
@@ -202,10 +221,17 @@ export function App() {
   const bars = useMemo(() => {
     const out: ErrorBars[] = []
     calibrations.forEach((cals, i) => {
-      if (cals) out.push({ compass: i, bars: cals.flatMap((c) => (c.valid ? [{ label: c.label, meanError: c.meanError }] : [])) })
+      const selection = selections[i]
+      if (cals && selection) {
+        out.push({
+          compass: i,
+          visible: errorBarsVisible(selection),
+          bars: cals.flatMap((c) => (c.valid ? [{ label: c.label, meanError: c.meanError }] : []))
+        })
+      }
     })
     return errorBarTraces(out)
-  }, [calibrations])
+  }, [calibrations, selections])
   const barLayout = useMemo(() => errorBarLayout(), [])
 
   // ----- Plot linking: every time plot zooms together -----
@@ -226,21 +252,45 @@ export function App() {
       if (!data) return
       const r = relayoutRange(event)
       if (r === undefined) return
-      setTimeRange(r === 'autorange' ? fullRange(data) : [Math.floor(r[0]), Math.ceil(r[1])])
+      setTimeRange(r === 'autorange' ? fullRange(data) : [String(Math.floor(r[0])), String(Math.ceil(r[1]))])
       setDirty(true)
     },
     [data]
   )
 
-  const save = () => {
-    if (!savePlan) return
-    if (savePlan.file.ok) {
-      downloadText('MAGFit.param', savePlan.file.text)
-      setSaveStatus({ ok: true, text: savePlan.file.summary })
+  /** Advance the save with the replies so far (upstream `save_parameters` and its confirm boxes). */
+  const continueSave = (answers: readonly boolean[]) => {
+    if (!candidates) return
+    let step
+    try {
+      step = nextSaveStep(candidates, answers)
+    } catch (e) {
+      setSaveAnswers(null)
+      setSaveStatus({ ok: false, text: e instanceof Error ? e.message : String(e) })
+      return
+    }
+    if (step.kind === 'confirm') {
+      setSaveAnswers(answers)
+      setSaveStatus(null)
+      return
+    }
+    setSaveAnswers(null)
+    if (step.file.ok) {
+      downloadText('MAGFit.param', step.file.text)
+      setSaveStatus({ ok: true, text: step.file.summary })
     } else {
-      setSaveStatus({ ok: false, text: savePlan.file.error })
+      setSaveStatus({ ok: false, text: step.file.error })
     }
   }
+  const pendingConfirm = (() => {
+    if (!candidates || saveAnswers === null) return null
+    try {
+      const step = nextSaveStep(candidates, saveAnswers)
+      return step.kind === 'confirm' ? step.text : null
+    } catch {
+      return null
+    }
+  })()
 
   // ----- Rendering -----
   const present = applied?.compasses.flatMap((c, i) => (c ? [{ c, i }] : [])) ?? []
@@ -289,22 +339,24 @@ export function App() {
             setDirty(true)
           }}
           timeRange={timeRange}
-          timeLimits={data ? fullRange(data) : null}
+          loaded={data != null}
           onTimeRangeChange={(r) => {
             setTimeRange(r)
+            // Upstream time_range_changed zooms the flight data plot to the parsed inputs.
+            setPlotRange(parseRange(r))
             setDirty(true)
           }}
           calculateEnabled={data != null && sourceIndex !== undefined && dirty}
           onCalculate={() => recalculate()}
-          saveEnabled={savePlan?.file.ok === true && !dirty}
-          onSave={save}
+          saveEnabled={applied != null && !dirty && saveAnswers === null}
+          onSave={() => continueSave([])}
         />
       }
     >
       <ErrorBanner message={error} />
       {data && sourceIndex === undefined && (
         <p className="magfit-warning">
-          This log has more than one attitude source and none matches AHRS_EKF_TYPE. Choose one, then Calculate.
+          No attitude source selected: this log has more than one and none matches AHRS_EKF_TYPE. Choose one, then Calculate.
         </p>
       )}
       {applied && dirty && <p className="magfit-warning">Settings changed: Calculate to update the results.</p>}
@@ -340,6 +392,7 @@ export function App() {
                   onToggle={(id, show) => {
                     setSelections((s) => s.map((sel, j) => (j === i && sel ? toggleCalibration(sel, id, show) : sel)))
                     setSaveStatus(null)
+                    setSaveAnswers(null)
                   }}
                   orientation={orientation[i] ?? 'check'}
                   onOrientationChange={(o) => {
@@ -352,6 +405,7 @@ export function App() {
                   onUseChange={(u) => {
                     setUse((s) => s.map((v, j) => (j === i ? u : v)))
                     setSaveStatus(null)
+                    setSaveAnswers(null)
                   }}
                 />
               )
@@ -366,7 +420,7 @@ export function App() {
         title="Parameters to save"
         help="What Save parameters writes for each compass, with COMPASS_MOTCT. Values that change from the log are highlighted."
       >
-        {applied && savePlan ? (
+        {applied && candidates ? (
           <>
             <ParamTable
               columns={present.map(({ i }) => {
@@ -385,12 +439,31 @@ export function App() {
                 })
               )}
             />
-            {savePlan.warnings.map((w) => (
-              <p key={w} className="magfit-warning magfit-pre">
-                {w}
-              </p>
-            ))}
-            {!savePlan.file.ok && <p className="magfit-note">{savePlan.file.error}</p>}
+            {candidates.map((c) =>
+              c.warning === '' ? null : (
+                <p key={c.warning} className="magfit-warning magfit-pre">
+                  {c.warning}
+                </p>
+              )
+            )}
+            {candidates.length === 0 && <p className="magfit-note">No parameters to save</p>}
+            {pendingConfirm !== null && saveAnswers !== null && (
+              <div className="magfit-confirm" role="alertdialog" aria-label="Confirm save">
+                <p className="magfit-warning magfit-pre">{pendingConfirm}</p>
+                <div className="apwt-chips">
+                  <button
+                    type="button"
+                    className="apwt-btn apwt-btn--primary"
+                    onClick={() => continueSave([...saveAnswers, true])}
+                  >
+                    OK
+                  </button>
+                  <button type="button" className="apwt-btn" onClick={() => continueSave([...saveAnswers, false])}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
             {saveStatus && <p className={saveStatus.ok ? 'magfit-success magfit-pre' : 'apwt-error'}>{saveStatus.text}</p>}
           </>
         ) : (

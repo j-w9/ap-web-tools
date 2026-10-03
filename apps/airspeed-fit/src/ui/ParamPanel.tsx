@@ -1,5 +1,5 @@
 import { Download } from 'lucide-react'
-import { outOfRangeText, type RatioSuggestion } from '../analysis/params.js'
+import type { RatioSuggestion } from '../analysis/params.js'
 
 export interface ParamPanelProps {
   /** Per sensor, in sensor order; null when the window had too few valid samples. */
@@ -9,16 +9,17 @@ export interface ParamPanelProps {
   /** Fit reliability warnings. */
   warnings: readonly string[]
   onSave: () => void
-  /** Result of the last save, shown under the button. */
+  /** Upstream's confirm text while a save waits for OK or Cancel. */
+  confirm: string | null
+  onConfirm: (ok: boolean) => void
+  /** Result of the last save (upstream's alert text), shown under the button. */
   saveStatus: string | null
 }
 
 const fmt = (v: number | undefined | null, digits: number): string => (v == null || !isFinite(v) ? 'n/a' : v.toFixed(digits))
 
 /** Suggested ratios with the current value and change, warnings, and the .param download. */
-export function ParamPanel({ suggestions, names, warnings, onSave, saveStatus }: ParamPanelProps) {
-  const valid = suggestions.filter((s) => s !== null)
-  const outOfRange = valid.filter((s) => s.outOfRange)
+export function ParamPanel({ suggestions, names, warnings, onSave, confirm, onConfirm, saveStatus }: ParamPanelProps) {
   return (
     <>
       <div className="apwt-table-wrap">
@@ -37,7 +38,7 @@ export function ParamPanel({ suggestions, names, warnings, onSave, saveStatus }:
                 <td>{s?.name ?? names[i]}</td>
                 {s ? (
                   <>
-                    <td className={s.outOfRange ? 'apwt-changed' : undefined}>{s.ratio.toFixed(3)}</td>
+                    <td className={s.outOfRange ? 'apwt-changed' : undefined}>{fmt(s.ratio, 3)}</td>
                     <td>{fmt(s.current, 3)}</td>
                     <td>
                       {s.changePercent !== null && isFinite(s.changePercent)
@@ -46,25 +47,44 @@ export function ParamPanel({ suggestions, names, warnings, onSave, saveStatus }:
                     </td>
                   </>
                 ) : (
-                  <td colSpan={3}>Not enough valid samples in the selected window</td>
+                  <td colSpan={3}>not enough valid samples in the selected window</td>
                 )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {[...warnings, ...outOfRange.map(outOfRangeText)].map((w) => (
+      {warnings.map((w) => (
         <p key={w} className="apwt-error" role="alert">
           {w}
         </p>
       ))}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
-        <button type="button" className="apwt-btn apwt-btn--primary" disabled={valid.length === 0} onClick={onSave}>
+        <button type="button" className="apwt-btn apwt-btn--primary" disabled={confirm !== null} onClick={onSave}>
           <Download />
-          {outOfRange.length > 0 ? 'Save parameters anyway' : 'Save parameters'}
+          Save parameters
         </button>
-        {saveStatus && <span className="apwt-section__help">{saveStatus}</span>}
       </div>
+      {confirm !== null && (
+        <div role="alertdialog" aria-label="Confirm save" style={{ marginTop: 12 }}>
+          <p className="apwt-error" style={{ whiteSpace: 'pre-wrap' }}>
+            {confirm}
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="apwt-btn apwt-btn--primary" onClick={() => onConfirm(true)}>
+              OK
+            </button>
+            <button type="button" className="apwt-btn" onClick={() => onConfirm(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {saveStatus && (
+        <p className="apwt-section__help" style={{ whiteSpace: 'pre-wrap' }}>
+          {saveStatus}
+        </p>
+      )}
     </>
   )
 }

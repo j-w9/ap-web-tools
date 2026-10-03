@@ -70,6 +70,8 @@ export interface AirspeedLog {
   readonly endTime: number
   /** Suggested analysis window (whole seconds), from the first sensor's differential pressure. */
   readonly autoWindow: readonly [number, number]
+  /** The same window before rounding; upstream zooms the flight data plot to it on load. */
+  readonly autoWindowExact: readonly [number, number]
   readonly messageTypes: readonly string[]
 }
 
@@ -98,10 +100,19 @@ function velocitySources(log: DataflashLog): VelocitySource[] {
       const vn = log.getNumbers(v.velocity, 'VN', core)
       const ve = log.getNumbers(v.velocity, 'VE', core)
       const vd = log.getNumbers(v.velocity, 'VD', core)
-      if (time === undefined || time.length === 0 || vn === undefined || ve === undefined || vd === undefined) continue
-      const windTime = windCores.has(core) ? seconds(log, v.wind, core) : undefined
-      const north = log.getNumbers(v.wind, 'VWN', core)
-      const east = log.getNumbers(v.wind, 'VWE', core)
+      if (time === undefined || time.length === 0) continue
+      // Upstream runs Array.from on these columns and crashes when one is missing.
+      if (vn === undefined || ve === undefined || vd === undefined) throw new Error(`${v.velocity} is missing VN, VE or VD`)
+      let wind: VelocitySource['wind'] = null
+      if (windCores.has(core)) {
+        const windTime = seconds(log, v.wind, core)
+        const north = log.getNumbers(v.wind, 'VWN', core)
+        const east = log.getNumbers(v.wind, 'VWE', core)
+        if (windTime === undefined || north === undefined || east === undefined) {
+          throw new Error(`${v.wind} is missing TimeUS, VWN or VWE`)
+        }
+        wind = { time: windTime, north, east }
+      }
       sources.push({
         name: `${v.label} core ${core}`,
         ekf: v.label,
@@ -110,7 +121,7 @@ function velocitySources(log: DataflashLog): VelocitySource[] {
         vn,
         ve,
         vd,
-        wind: windTime !== undefined && north !== undefined && east !== undefined ? { time: windTime, north, east } : null
+        wind
       })
     }
   }
@@ -170,9 +181,10 @@ export function loadAirspeedLog(log: DataflashLog): AirspeedLog {
   const [firstSource, ...otherSources] = velocitySources(log)
   if (firstSource === undefined) throw new Error('Could not read EKF velocity')
 
-  // Static pressure from the first barometer. Deviation: a BARO without an instance field is read
-  // whole instead of failing.
+  // Static pressure from the first barometer. Upstream reads `BARO.instances` and crashes when
+  // BARO has no instance field; stop with an error instead.
   const baroInst = firstInstance(log, 'BARO')
+  if (baroInst === undefined) throw new Error('BARO has no instance field')
   const baro = {
     time: required(seconds(log, 'BARO', baroInst), 'No BARO.TimeUS in log'),
     press: required(log.getNumbers('BARO', 'Press', baroInst), 'No BARO.Press in log')
@@ -194,6 +206,8 @@ export function loadAirspeedLog(log: DataflashLog): AirspeedLog {
   let flyingTo: number | undefined
   const statTime = seconds(log, 'STAT')
   const flying = log.getNumbers('STAT', 'isFlying')
+  // Upstream crashes on a STAT message without isFlying.
+  if (log.has('STAT') && (statTime === undefined || flying === undefined)) throw new Error('STAT is missing TimeUS or isFlying')
   if (statTime !== undefined && flying !== undefined) {
     for (let i = 0; i < flying.length; i++) {
       if (flying[i] !== 1) continue
@@ -263,6 +277,7 @@ export function loadAirspeedLog(log: DataflashLog): AirspeedLog {
     startTime,
     endTime,
     autoWindow: [Math.floor(window[0]), Math.ceil(window[1])],
+    autoWindowExact: window,
     messageTypes: [...log.messageTypes().keys()]
   }
 }

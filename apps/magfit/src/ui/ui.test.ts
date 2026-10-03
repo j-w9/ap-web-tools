@@ -5,6 +5,7 @@ import { loadMagFitLog } from '../analysis/load.js'
 import { runMagFit } from '../analysis/magfit.js'
 import {
   compassCalibrations,
+  errorBarsVisible,
   fitId,
   initialSelection,
   reconcileSelection,
@@ -13,7 +14,7 @@ import {
   type CompassSelection
 } from './calibrations.js'
 import { paramRows } from './params-table.js'
-import { planSave } from './save.js'
+import { nextSaveStep, saveCandidates } from './save.js'
 
 const buffer = buildSyntheticMagLog()
 const data = loadMagFitLog(buffer)
@@ -53,19 +54,50 @@ describe('calibration selection', () => {
     let sel: CompassSelection = initialSelection(c1)
     sel = toggleCalibration(sel, fitId(1, 'iron'), true)
     expect(savedCalibration(sel, cals)?.label).toBe('Offsets and iron, Battery 1 current')
+    // Like upstream, recalculating rebuilds the priority order: the first ticked fit in upstream
+    // order is saved again, not the last one picked.
     const after = reconcileSelection(sel, c1)
-    expect(savedCalibration(after, cals)?.label).toBe('Offsets and iron, Battery 1 current')
+    expect(savedCalibration(after, cals)?.label).toBe('Offsets, No motor comp')
     sel = toggleCalibration(sel, fitId(1, 'iron'), false)
     expect(savedCalibration(sel, cals)?.label).toBe('Offsets, No motor comp')
     sel = toggleCalibration(sel, fitId(0, 'offsets'), false)
     expect(savedCalibration(sel, cals)).toBeUndefined()
   })
 
-  it('drops picks that become invalid', () => {
+  it('keeps ticks on fits that become invalid, with their stale plot data, and can save them', () => {
     const c0 = result.compasses[0]
     if (!c0) throw new Error('compass 1 missing')
-    const sel = toggleCalibration(initialSelection(c0), fitId(0, 'iron'), true)
-    expect(reconcileSelection(sel, c0).shown.has(fitId(0, 'iron'))).toBe(false)
+    const cals0 = compassCalibrations(c0)
+    const iron = cals0.find((c) => c.id === fitId(0, 'iron'))
+    expect(iron?.valid).toBe(false)
+    let sel = toggleCalibration(initialSelection(c0), fitId(0, 'offsets'), false)
+    sel = toggleCalibration(sel, fitId(0, 'iron'), true)
+    const after = reconcileSelection(sel, c0)
+    expect(after.shown.has(fitId(0, 'iron'))).toBe(true)
+    // Upstream order puts offsets first again, re-ticked by default.
+    expect(savedCalibration(after, cals0)?.id).toBe(fitId(0, 'offsets'))
+    const onlyIron = toggleCalibration(after, fitId(0, 'offsets'), false)
+    expect(savedCalibration(onlyIron, cals0)?.id).toBe(fitId(0, 'iron'))
+    // An invalid fit keeps the plot data it had when it was last valid (here: borrowed from a
+    // calculation where the same fit id was valid).
+    const previous = compassCalibrations(c1)
+    const before = previous.find((c) => c.id === fitId(0, 'iron'))
+    if (!before?.valid) throw new Error('expected a valid iron fit on compass 2')
+    const now = compassCalibrations(c0, previous).find((c) => c.id === fitId(0, 'iron'))
+    expect(now?.valid === false ? now.stale?.field : undefined).toBe(before.field)
+    expect(now?.valid === false ? compassCalibrations(c0).find((c) => c.id === now.id) : undefined).toMatchObject({
+      stale: undefined
+    })
+  })
+
+  it('hides a compass bar group only once every tick has been removed', () => {
+    let sel = initialSelection(c1)
+    expect(errorBarsVisible(sel)).toBe(true)
+    sel = toggleCalibration(sel, 'existing', false)
+    expect(errorBarsVisible(sel)).toBe(true)
+    sel = toggleCalibration(sel, fitId(0, 'offsets'), false)
+    expect(errorBarsVisible(sel)).toBe(false)
+    expect(errorBarsVisible(reconcileSelection(sel, c1))).toBe(true)
   })
 })
 
@@ -75,18 +107,31 @@ describe('parameter table and save plan', () => {
     await upstreamLoad(up, buffer)
     up.evaluate('save_parameters()')
     const selections = result.compasses.map((c) => (c ? initialSelection(c) : undefined))
-    const plan = planSave(result.compasses, selections, ['noChange', 'noChange', 'noChange'])
-    expect(plan.file.ok && plan.file.text).toBe(up.saved[0])
-    expect(plan.warnings).toEqual(up.confirms)
+    const candidates = saveCandidates(result.compasses, selections, ['noChange', 'noChange', 'noChange'])
+    const answers = up.confirms.map(() => true)
+    const step = nextSaveStep(candidates, answers)
+    expect(step.kind === 'done' && step.file.ok && step.file.text).toBe(up.saved[0])
+    expect(candidates.flatMap((c) => (c.warning === '' ? [] : [c.warning]))).toEqual(up.confirms)
   })
 
   it('reports orientation changes and use overrides', () => {
     const fixed = run(['fix90'])
     const selections = fixed.compasses.map((c) => (c ? initialSelection(c) : undefined))
-    const plan = planSave(fixed.compasses, selections, ['dontUse', 'noChange', 'use'])
-    expect(plan.warnings[0]).toContain('changed from 0:None to 4:Yaw180')
-    expect(plan.file.ok && plan.file.text).toContain('COMPASS_USE,0\n')
-    expect(plan.file.ok && plan.file.text).toContain('COMPASS_USE3,1\n')
+    const candidates = saveCandidates(fixed.compasses, selections, ['dontUse', 'noChange', 'use'])
+    const first = nextSaveStep(candidates, [])
+    expect(first.kind === 'confirm' && first.text).toContain('changed from 0:None to 4:Yaw180')
+    const step = nextSaveStep(
+      candidates,
+      candidates.flatMap((c) => (c.warning === '' ? [] : [true]))
+    )
+    const text = step.kind === 'done' && step.file.ok ? step.file.text : ''
+    expect(text).toContain('COMPASS_USE,0\n')
+    expect(text).toContain('COMPASS_USE3,1\n')
+    // Declining the confirmation leaves that compass out, as upstream's confirm() does.
+    const declined = nextSaveStep(candidates, [false, ...candidates.slice(1).flatMap((c) => (c.warning === '' ? [] : [true]))])
+    const declinedText = declined.kind === 'done' && declined.file.ok ? declined.file.text : ''
+    expect(declinedText).not.toContain('COMPASS_USE,0\n')
+    expect(declinedText).toContain('COMPASS_USE3,1\n')
   })
 
   it('highlights changed values and shows existing values when nothing is selected', () => {

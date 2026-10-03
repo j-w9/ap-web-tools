@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { describeAirspeedDevice } from './devid.js'
-import { paramFileText, ratioSuggestions, outOfRangeText } from './params.js'
+import { paramFileText, planSave, ratioSuggestions, outOfRangeText } from './params.js'
 import type { CombinedFit } from './core.js'
 import type { AirspeedSensor } from './load.js'
 
@@ -55,9 +55,19 @@ describe('parameter file', () => {
     expect(s[0]).toMatchObject({ name: 'ARSPD_RATIO', ratio: 2.123, outOfRange: false })
     expect(s[0]?.changePercent).toBeCloseTo(6.1725, 9)
     expect(s[1]).toMatchObject({ name: 'ARSPD2_RATIO', ratio: 3.457, outOfRange: true, changePercent: null })
-    expect(s[2]).toBeNull()
+    // A non-finite ratio still shows its row (current value, change n/a) but is not saved.
+    expect(s[2]).toMatchObject({ name: 'ARSPD3_RATIO', ratio: null, outOfRange: false })
+    expect(s[2]?.changePercent).toBeNaN()
     expect(paramFileText(s)).toBe('ARSPD_RATIO,2.123\nARSPD2_RATIO,3.457\n')
-    expect(s[1] && outOfRangeText(s[1])).toBe('ARSPD2_RATIO = 3.457 outside typical range 1 to 3')
+    expect(outOfRangeText({ ...s[1]!, ratio: 3.457 })).toBe('ARSPD2_RATIO = 3.457 outside typical range 1 to 3')
+    const plan = planSave(s)
+    expect(plan).toEqual({
+      kind: 'save',
+      text: 'ARSPD_RATIO,2.123\nARSPD2_RATIO,3.457\n',
+      confirm: 'Warning:\nARSPD2_RATIO = 3.457 outside typical range 1 to 3\n\nSave anyway?',
+      summary: 'Saved:\n\tARSPD_RATIO: 2.123\n\tARSPD2_RATIO: 3.457\n'
+    })
+    expect(planSave([null])).toEqual({ kind: 'nothing', message: 'No valid calibration to save' })
   })
 
   it('has no suggestions without a model', () => {

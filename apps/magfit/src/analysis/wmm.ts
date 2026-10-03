@@ -32,7 +32,11 @@ export interface EarthField extends EarthFieldAngles {
 }
 
 function cell(table: FieldTable, lat: number, lon: number): number {
-  return table[lat]![lon]!
+  const row = table[lat]
+  // Only reachable with a NaN location, which upstream lets through the range checks and then
+  // crashes on (reading a property of undefined); throw instead.
+  if (row === undefined) throw new Error('No earth field table entry for index ' + String(lat) + ', ' + String(lon))
+  return row[lon]!
 }
 
 /** Bilinear interpolation of a table at a latitude/longitude in degrees (upstream `interpolate_table`). */
@@ -62,8 +66,6 @@ export function interpolateTable(table: FieldTable, latitudeDeg: number, longitu
  * `undefined` outside the table bounds (latitude in [-90, 90), longitude in [-180, 180)).
  */
 export function earthFieldAngles(latitudeDeg: number, longitudeDeg: number): EarthFieldAngles | undefined {
-  // Deviation: upstream lets NaN through the range checks and then throws on the table lookup.
-  if (Number.isNaN(latitudeDeg) || Number.isNaN(longitudeDeg)) return undefined
   if (latitudeDeg < SAMPLING_MIN_LAT) return undefined
   if (latitudeDeg >= SAMPLING_MAX_LAT) return undefined
   if (longitudeDeg < SAMPLING_MIN_LON) return undefined

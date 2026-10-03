@@ -11,6 +11,14 @@ import { loadMagFitLog, type MagFitLog } from './load.js'
 import { runMagFit, type MagFitResult } from './magfit.js'
 import type { OrientationOption } from './orientation.js'
 import { buildParamFile, checkParams, type ParamFileEntry } from './params.js'
+import {
+  compassCalibrations,
+  initialSelection,
+  reconcileSelection,
+  savedCalibration,
+  toggleCalibration,
+  fitId
+} from '../ui/calibrations.js'
 
 type Series = { x: number[]; y: number[]; z: number[] }
 interface UpFit extends Partial<Series> {
@@ -39,7 +47,7 @@ interface UpCompass {
   quaternion: { q1: number[]; q2: number[]; q3: number[]; q4: number[]; yaw: number[] }
   coverage: { value: number }
   params: Record<string, number | number[] | undefined>
-  fits: ({ name: string; type: number } & Record<'offsets' | 'scale' | 'iron', UpFit>)[]
+  fits: ({ name: string; type: number; value: number[] | null } & Record<'offsets' | 'scale' | 'iron', UpFit>)[]
 }
 
 function compareSeries(
@@ -60,7 +68,7 @@ function compareFit(mine: FitResult, theirs: UpFit, label: string): void {
   expectSameArray(p.offDiagonals, theirs.params.off_diagonals, `${label} offDiagonals`)
   expectSameArray(p.motor, theirs.params.motor, `${label} motor`)
   expectSameNumber(p.scale, theirs.params.scale, `${label} scale`)
-  expect(p.orientation, `${label} orientation`).toBe(theirs.params.orientation)
+  expectSameNumber(p.orientation, theirs.params.orientation, `${label} orientation`)
   expect(p.fitType, `${label} fitType`).toBe(theirs.params.fit_type)
   if (!mine.valid) return
   compareSeries(mine.field, theirs as Series, `${label} field`)
@@ -113,6 +121,11 @@ function compareAll(up: UpstreamMagfit, data: MagFitLog, result: MagFitResult): 
 
     expect(mine.groups.map((g) => [g.name, g.type])).toEqual(theirs.fits.map((f) => [f.name, f.type]))
     mine.groups.forEach((g, j) => {
+      const value = theirs.fits[j]!.value
+      if (value === null) expect(g.motor, `${label} ${g.name} motor source`).toBeUndefined()
+      else expectSameArray(g.motor, value, `${label} ${g.name} motor source`)
+    })
+    mine.groups.forEach((g, j) => {
       for (const kind of FIT_KINDS) compareFit(g.fits[kind], theirs.fits[j]![kind], `${label} ${g.name} ${kind}`)
     })
   }
@@ -140,7 +153,17 @@ function compareParamFile(up: UpstreamMagfit, result: MagFitResult): void {
   up.saved.length = 0
   up.alerts.length = 0
   up.confirms.length = 0
-  up.evaluate('save_parameters()')
+  let upstreamThrew = false
+  try {
+    up.evaluate('save_parameters()')
+  } catch {
+    upstreamThrew = true
+  }
+  if (upstreamThrew) {
+    // e.g. a missing orientation parameter: param_to_string(undefined) throws upstream.
+    expect(() => buildParamFile(entries)).toThrow()
+    return
+  }
   const built = buildParamFile(entries)
   if (up.saved.length === 0) {
     expect(built.ok).toBe(false)
@@ -159,7 +182,22 @@ function compareParamFile(up: UpstreamMagfit, result: MagFitResult): void {
 
 describe.each([
   ['copter-sitl.bin', () => readFixture('copter-sitl.bin')],
-  ['synthetic log', () => buildSyntheticMagLog()]
+  ['synthetic log', () => buildSyntheticMagLog()],
+  // Compasses sampled at different times and rates: upstream resamples the battery current at
+  // compass 1's times for every compass (reproduced bug), and compass 3 has half the samples.
+  [
+    'synthetic log, compasses on different time bases',
+    () => buildSyntheticMagLog({ duration: 60, magOffsetUs: [0, 37_000, 61_000], magEvery: [1, 1, 2] })
+  ],
+  // Missing parameters read as undefined upstream and NaN in the port.
+  [
+    'synthetic log, missing parameters',
+    () =>
+      buildSyntheticMagLog({
+        duration: 60,
+        omitParams: ['COMPASS_ORIENT', 'COMPASS_ORIENT2', 'COMPASS_SCALE2', 'EK3_PRIMARY']
+      })
+  ]
 ])('oracle: %s', (name, getBuffer) => {
   let up: UpstreamMagfit
   let data: MagFitLog
@@ -258,5 +296,108 @@ describe('oracle sanity', () => {
       runMagFit(data, { timeStart: data.startTime, timeEnd: data.endTime, attitudeSource: 0 + data.defaultAttitudeSource! })
     )
     expect(up.saved.length).toBe(1)
+  })
+})
+
+describe('oracle: load failures', () => {
+  it('stops like upstream when an iron matrix parameter is missing', async () => {
+    const buffer = buildSyntheticMagLog({ duration: 20, omitParams: ['COMPASS_DIA3_X'] })
+    const up = await createUpstreamMagfit()
+    await expect(upstreamLoad(up, buffer)).rejects.toThrow('Input data contains non-numeric values')
+    expect(() => loadMagFitLog(buffer)).toThrow('Input data contains non-numeric values')
+  })
+
+  it('stops like upstream when a battery current exists without compass 1', async () => {
+    const buffer = buildSyntheticMagLog({ duration: 20, compasses: [1, 2] })
+    const up = await createUpstreamMagfit()
+    await expect(upstreamLoad(up, buffer)).rejects.toThrow()
+    expect(() => loadMagFitLog(buffer)).toThrow('without compass 1')
+  })
+
+  it('reports a missing location with the upstream text', async () => {
+    const buffer = buildSyntheticMagLog({ duration: 20, origin: false })
+    const up = await createUpstreamMagfit()
+    await upstreamLoad(up, buffer)
+    expect(up.alerts).toEqual(['Could not get earth field for Lat: undefined Lng: undefined'])
+    expect(() => loadMagFitLog(buffer)).toThrow(up.alerts[0])
+  })
+})
+
+describe('oracle: analysis window edge cases', () => {
+  // Upstream parses the TimeStart/TimeEnd inputs with parseFloat and fits whatever range of
+  // samples that gives, including an empty input (NaN) and an end before the start.
+  let up: UpstreamMagfit
+  let data: MagFitLog
+  beforeAll(async () => {
+    const buffer = buildSyntheticMagLog({ duration: 30 })
+    up = await createUpstreamMagfit()
+    await upstreamLoad(up, buffer)
+    data = loadMagFitLog(buffer)
+  })
+
+  it.each([
+    ['equal start and end', '15', '15'],
+    ['end just before start, inside one sample interval', '15.05', '15.02'],
+    ['empty inputs', '', ''],
+    ['empty start input', '', '20'],
+    ['empty end input', '10', ''],
+    ['short window', '10', '13.3'],
+    ['end well before start', '20', '10']
+  ])('%s', (_label, start, end) => {
+    up.element('TimeStart')['value'] = start
+    up.element('TimeEnd')['value'] = end
+    let upstreamError: unknown
+    try {
+      up.evaluate('calculate()')
+    } catch (e) {
+      upstreamError = e
+    }
+    const run = () =>
+      runMagFit(data, { timeStart: parseFloat(start), timeEnd: parseFloat(end), attitudeSource: data.defaultAttitudeSource! })
+    if (upstreamError !== undefined) {
+      expect(run).toThrow()
+      return
+    }
+    compareAll(up, data, run())
+  })
+})
+
+describe('oracle: calibration selection across a recalculation', () => {
+  it('saves the same fit as upstream after ticking and recalculating', async () => {
+    const buffer = buildSyntheticMagLog({ duration: 60 })
+    const up = await createUpstreamMagfit()
+    await upstreamLoad(up, buffer)
+    const data = loadMagFitLog(buffer)
+    const options = { timeStart: data.startTime, timeEnd: data.endTime, attitudeSource: data.defaultAttitudeSource! }
+    const result = runMagFit(data, options)
+    const c1 = result.compasses[1]!
+
+    // Tick "Offsets and iron, Battery 1 current" of compass 2 through upstream update_hidden.
+    const tick = (group: number, kind: string, checked: boolean): void => {
+      up.evaluate(`(() => {
+        const show = MAG_Data[1].fits[${group}].${kind}.show
+        const name = fit_types.${kind} + ', ' + MAG_Data[1].fits[${group}].name
+        show.checked = ${checked}
+        show.dataset = { index: String(MAG_Data[1].param_selection.find((s) => s.name == name).index) }
+        update_hidden(show)
+      })()`)
+    }
+    const upSaved = (): string | undefined =>
+      up.evaluate<{ name: string; show: boolean }[]>('MAG_Data[1].param_selection').find((s) => s.show)?.name
+
+    tick(1, 'iron', true)
+    let sel = toggleCalibration(initialSelection(c1), fitId(1, 'iron'), true)
+    expect(savedCalibration(sel, compassCalibrations(c1))?.label).toBe(upSaved())
+
+    // Recalculating: upstream rebuilds param_selection in fit order.
+    up.evaluate('calculate()')
+    const again = runMagFit(data, options).compasses[1]!
+    sel = reconcileSelection(sel, again)
+    expect(savedCalibration(sel, compassCalibrations(again))?.label).toBe(upSaved())
+
+    // Unticking the first shown fit falls back to the next ticked one in priority order.
+    tick(0, 'offsets', false)
+    sel = toggleCalibration(sel, fitId(0, 'offsets'), false)
+    expect(savedCalibration(sel, compassCalibrations(again))?.label).toBe(upSaved())
   })
 })

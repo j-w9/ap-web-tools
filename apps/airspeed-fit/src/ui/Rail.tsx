@@ -21,9 +21,10 @@ export interface RailProps {
   groundTempText: string
   onGroundTempTextChange: (text: string) => void
   readout: TemperatureReadout | null
-  window: readonly [number, number]
-  windowLimits: readonly [number, number] | null
-  onWindowChange: (window: readonly [number, number]) => void
+  /** TimeStart/TimeEnd input text (parsed with `parseFloat`, as upstream). */
+  window: readonly [string, string]
+  loaded: boolean
+  onWindowChange: (window: readonly [string, string]) => void
   calculateEnabled: boolean
   onCalculate: () => void
 }
@@ -39,7 +40,7 @@ function formatReadout(r: TemperatureReadout): { label: string; value: string }[
 
 /** The control rail: log input, velocity source, air temperature, analysis window and Calculate. */
 export function Rail(p: RailProps) {
-  const loaded = p.windowLimits !== null
+  const loaded = p.loaded
   const tempOptions = [
     ...TEMP_SOURCE_KEYS.flatMap((key) => {
       const value = p.tempSources[key]
@@ -105,11 +106,10 @@ export function Rail(p: RailProps) {
               type="number"
               step={1}
               disabled={!loaded}
-              min={p.windowLimits?.[0]}
-              max={p.windowLimits?.[1]}
+              min={0}
               value={p.window[i]}
               onChange={(e) => {
-                const v = Number(e.target.value)
+                const v = e.target.value
                 p.onWindowChange(i === 0 ? [v, p.window[1]] : [p.window[0], v])
               }}
             />

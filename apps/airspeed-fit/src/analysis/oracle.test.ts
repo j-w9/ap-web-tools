@@ -11,7 +11,7 @@ import { createUpstreamTool, upstreamLoad, type UpCal, type UpCombined, type Ups
 import { fitWarningText, type CombinedFit } from './core.js'
 import { prepareFit, runWindModel, seedWarnings, sensorSeries, sliderToQ, type FitInputs, type PreparedFit } from './fit.js'
 import { loadAirspeedLog, type AirspeedLog } from './load.js'
-import { paramFileText, ratioSuggestions } from './params.js'
+import { paramFileText, planSave, ratioSuggestions } from './params.js'
 import { chooseTempSource, tempBoxText, temperatureReadout } from './temperature.js'
 
 interface UpSensor {
@@ -216,6 +216,9 @@ describe('AirspeedFit end to end against upstream', () => {
     const suggestions = ratioSuggestions(log.sensors, model)
     expect(paramFileText(suggestions)).toBe(up.saved.at(-1))
     expect(suggestions.every((s) => s && !s.outOfRange)).toBe(true)
+    const plan = planSave(suggestions)
+    expect(plan.kind === 'save' && plan.summary).toBe(up.alerts.at(-1))
+    expect(plan.kind === 'save' && plan.confirm).toBeNull()
   })
 
   it('reports an empty window the way upstream does', () => {
@@ -227,6 +230,29 @@ describe('AirspeedFit end to end against upstream', () => {
     expect(model).toBeNull()
     expect(up.evaluate('fit_result')).toBeNull()
     expect(ratioSuggestions(log.sensors, model)).toEqual([null, null])
+    up.alerts.length = 0
+    up.evaluate('save_parameters()')
+    const plan = planSave(ratioSuggestions(log.sensors, model))
+    expect(plan.kind === 'nothing' && plan.message).toBe(up.alerts[0])
+  })
+
+  it.each([
+    ['empty inputs', '', ''],
+    ['empty start', '', '300'],
+    ['empty end', '200', ''],
+    ['end before start', '400', '200'],
+    ['fractional window', '123.4', '377.9']
+  ])('builds the same samples for odd window inputs: %s', (_label, start, end) => {
+    up.evaluate('log_data.sources[1].select.checked = false; log_data.sources[0].select.checked = true')
+    up.element('TimeStart')['value'] = start
+    up.element('TimeEnd')['value'] = end
+    up.evaluate('calculate()')
+    const { prepared, model, inputs } = portCalculate(log, up)
+    const combined = up.evaluate('combined') as UpCombinedSamples
+    expectSameArray(prepared.combined.t, combined.t, 't')
+    if (prepared.kind === 'ready') compareFit(up, log, prepared, model, _label)
+    else expect(up.evaluate('fit_result')).toBeNull()
+    expect(readoutText(log, inputs)).toBe(up.element('temp_debug')['innerHTML'])
   })
 })
 
@@ -259,5 +285,39 @@ describe('Open-Meteo source against upstream', () => {
     expect(up.element('ground_temp')['value']).toBe(tempBoxText(oat ?? NaN))
     const { prepared, model } = portCalculate(log, up)
     compareFit(up, log, prepared, model, 'open-meteo')
+  }, 60_000)
+})
+
+describe('AirspeedFit saving and load failures against upstream', () => {
+  it('asks the same confirmation for an out-of-range ratio and writes the same file', async () => {
+    const buffer = buildSyntheticAirspeedLog({ trueRatios: [3.6, 2.2], flightSeconds: 300 })
+    const up = await createUpstreamTool()
+    await upstreamLoad(up, buffer)
+    await new Promise((r) => setTimeout(r, 0))
+    const log = loadAirspeedLog(DataflashLog.parse(buffer))
+    const { model } = portCalculate(log, up)
+    up.alerts.length = 0
+    up.evaluate('save_parameters()')
+    const plan = planSave(ratioSuggestions(log.sensors, model))
+    expect(plan.kind).toBe('save')
+    if (plan.kind !== 'save') return
+    expect(plan.confirm).toBe(up.confirms[0])
+    expect(plan.text).toBe(up.saved[0])
+    expect(plan.summary).toBe(up.alerts[0])
+  }, 60_000)
+
+  it('stops like upstream on a BARO message without instances', async () => {
+    const buffer = buildSyntheticAirspeedLog({ flightSeconds: 120, baroNoInstance: true })
+    const up = await createUpstreamTool()
+    await expect(upstreamLoad(up, buffer)).rejects.toThrow()
+    expect(() => loadAirspeedLog(DataflashLog.parse(buffer))).toThrow('BARO has no instance field')
+  }, 60_000)
+
+  it('zooms the flight data plot to the exact auto window like upstream', async () => {
+    const buffer = buildSyntheticAirspeedLog({ flightSeconds: 300 })
+    const up = await createUpstreamTool()
+    await upstreamLoad(up, buffer)
+    const log = loadAirspeedLog(DataflashLog.parse(buffer))
+    expect([...log.autoWindowExact]).toEqual(up.evaluate('flight_data.layout.xaxis.range'))
   }, 60_000)
 })

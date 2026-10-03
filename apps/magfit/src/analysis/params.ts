@@ -95,7 +95,10 @@ export function checkParams(
 
   if (warning !== '') warning = 'MAG ' + String(compassIndex + 1) + ' params outside typical range:\n' + warning
 
-  if (original.orientation !== values.orientation) {
+  // Upstream compares with `!=`; a missing parameter is `undefined` there (equal to itself) and
+  // NaN here, so treat two missing values as equal.
+  const bothMissing = Number.isNaN(original.orientation) && Number.isNaN(values.orientation)
+  if (original.orientation !== values.orientation && !bothMissing) {
     if (warning !== '') warning += '\n'
     warning +=
       'MAG ' +
@@ -147,28 +150,40 @@ export type ParamFileResult =
  * upstream shows in its confirm box). Entries should be in compass order.
  */
 export function buildParamFile(entries: readonly ParamFileEntry[]): ParamFileResult {
+  const type = motorCompType(entries)
+  if (type.conflict) return { ok: false, error: MOTOR_TYPE_CONFLICT }
   let text = ''
-  let type: MotorCompType = 0
   let summary = 'Saved:\n'
   for (const entry of entries) {
-    const values = entry.params
-    if (!values.motor.every((m) => m === 0.0)) {
-      // Check for conflicting motor compensation types
-      if (type === 0) {
-        type = values.fitType
-      } else if (values.fitType !== 0 && values.fitType !== type) {
-        return {
-          ok: false,
-          error: 'All compasses must use the same motor fit type, current and throttle compensation cannot be used together'
-        }
-      }
-    }
-    text += compassParamLines(entry.names, values)
+    text += compassParamLines(entry.names, entry.params)
     const use = entry.use ?? 'noChange'
     if (use !== 'noChange') text += paramLine(entry.names.use, use === 'use' ? 1 : 0)
     summary += '\tCompass ' + String(entry.compassIndex + 1) + ': ' + entry.fitName + '\n'
   }
   if (text === '') return { ok: false, error: 'No parameters to save' }
-  text += paramLine('COMPASS_MOTCT', type)
+  text += paramLine('COMPASS_MOTCT', type.type)
   return { ok: true, text, summary }
+}
+
+/** Upstream's alert when compasses were fitted for different motor compensation types. */
+export const MOTOR_TYPE_CONFLICT =
+  'All compasses must use the same motor fit type, current and throttle compensation cannot be used together'
+
+/**
+ * `COMPASS_MOTCT` for a set of entries (in compass order): the fit type of the first entry with
+ * non-zero motor parameters; `conflict` when a later one has a different non-zero type.
+ */
+export function motorCompType(entries: readonly ParamFileEntry[]): { readonly type: MotorCompType; readonly conflict: boolean } {
+  let type: MotorCompType = 0
+  for (const entry of entries) {
+    const values = entry.params
+    if (values.motor.every((m) => m === 0.0)) continue
+    // Check for conflicting motor compensation types
+    if (type === 0) {
+      type = values.fitType
+    } else if (values.fitType !== 0 && values.fitType !== type) {
+      return { type, conflict: true }
+    }
+  }
+  return { type, conflict: false }
 }

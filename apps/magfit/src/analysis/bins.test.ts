@@ -34,6 +34,23 @@ describe('bins and time range', () => {
     }
   })
 
+  it('matches upstream get_weights for samples without a bin', () => {
+    // A NaN expected field matches no bin: upstream leaves it undefined, the port uses -1.
+    for (const bins of [
+      [0, -1, 3, 3, -1],
+      [-1, -1],
+      [5, -1]
+    ]) {
+      const js = '[' + bins.map((b) => (b < 0 ? 'undefined' : String(b))).join(',') + ']'
+      const theirs = up.evaluate<{ weights: number[]; coverage: number }>(`get_weights(${js})`)
+      const mine = binWeights(bins)
+      expectSameArray(mine.weights, theirs.weights, `weights ${js}`)
+      expectSameNumber(mine.coverage, theirs.coverage, `coverage ${js}`)
+    }
+    const nan = Float64Array.of(NaN)
+    expect(Array.from(assignBins({ x: nan, y: nan, z: nan }))).toEqual([-1])
+  })
+
   it('matches upstream find_start_index and find_end_index', () => {
     const time = [1, 2, 3, 4, 5, 6.5, 7, 8]
     for (const t of [0, 1, 1.5, 3, 4.2, 7, 8, 9]) {
@@ -42,6 +59,11 @@ describe('bins and time range', () => {
       expect(findStartIndex(time, t), `start ${t}`).toBe(up.evaluate(`find_start_index(${JSON.stringify(time)})`))
       expect(findEndIndex(time, t), `end ${t}`).toBe(up.evaluate(`find_end_index(${JSON.stringify(time)})`))
     }
+    // An empty time input parses to NaN upstream.
+    up.element('TimeStart')['value'] = ''
+    up.element('TimeEnd')['value'] = ''
+    expect(findStartIndex(time, NaN)).toBe(up.evaluate(`find_start_index(${JSON.stringify(time)})`))
+    expect(findEndIndex(time, NaN)).toBe(up.evaluate(`find_end_index(${JSON.stringify(time)})`))
     expect(analysisRange(time, 0, 100)).toEqual({ start: 0, end: 8 })
     expect(analysisRange(time, 3, 5)).toEqual({ start: 1, end: 6 })
   })

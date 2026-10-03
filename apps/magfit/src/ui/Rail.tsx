@@ -9,9 +9,10 @@ export interface RailProps {
   sources: readonly AttitudeSource[]
   sourceIndex: number | undefined
   onSourceChange: (index: number) => void
-  timeRange: readonly [number, number]
-  timeLimits: readonly [number, number] | null
-  onTimeRangeChange: (range: [number, number]) => void
+  /** TimeStart/TimeEnd input text (parsed with `parseFloat` when calculating, as upstream). */
+  timeRange: readonly [string, string]
+  loaded: boolean
+  onTimeRangeChange: (range: [string, string]) => void
   calculateEnabled: boolean
   onCalculate: () => void
   saveEnabled: boolean
@@ -20,7 +21,7 @@ export interface RailProps {
 
 /** The control rail: log input, attitude source, analysis window, calculate and save. */
 export function Rail(p: RailProps) {
-  const loaded = p.timeLimits != null
+  const loaded = p.loaded
   return (
     <RailCard>
       <ControlGroup label="Log">
@@ -31,7 +32,7 @@ export function Rail(p: RailProps) {
         {p.sources.length > 0 ? (
           <RadioChips
             name="attitude-source"
-            options={p.sources.map((s, i) => ({ value: String(i), label: s.name }))}
+            options={p.sources.map((s, i) => ({ value: String(i), label: s.name, disabled: p.sources.length === 1 }))}
             value={p.sourceIndex === undefined ? '' : String(p.sourceIndex)}
             onChange={(v) => p.onSourceChange(Number(v))}
           />
@@ -50,10 +51,9 @@ export function Rail(p: RailProps) {
             type="number"
             step={1}
             disabled={!loaded}
-            min={p.timeLimits?.[0]}
-            max={p.timeLimits?.[1]}
+            min={0}
             value={p.timeRange[0]}
-            onChange={(e) => p.onTimeRangeChange([Number(e.target.value), p.timeRange[1]])}
+            onChange={(e) => p.onTimeRangeChange([e.target.value, p.timeRange[1]])}
           />
         </label>
         <label className="apwt-field">
@@ -62,10 +62,9 @@ export function Rail(p: RailProps) {
             type="number"
             step={1}
             disabled={!loaded}
-            min={p.timeLimits?.[0]}
-            max={p.timeLimits?.[1]}
+            min={0}
             value={p.timeRange[1]}
-            onChange={(e) => p.onTimeRangeChange([p.timeRange[0], Number(e.target.value)])}
+            onChange={(e) => p.onTimeRangeChange([p.timeRange[0], e.target.value])}
           />
         </label>
         <p className="magfit-note">Or zoom the flight data plot to the flying part of the log.</p>

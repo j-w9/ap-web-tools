@@ -120,6 +120,12 @@ export interface SyntheticOptions {
   compasses?: readonly number[]
   /** Write ORGN records (default true). */
   origin?: boolean
+  /** Per compass index: microseconds added to its sample times (default 0). */
+  magOffsetUs?: readonly number[]
+  /** Per compass index: log only every n-th sample (default 1). */
+  magEvery?: readonly number[]
+  /** Parameters to leave out of the log. */
+  omitParams?: readonly string[]
 }
 
 /** Build the synthetic log bytes. */
@@ -169,7 +175,10 @@ export function buildSyntheticMagLog(options: SyntheticOptions = {}): ArrayBuffe
   w.write('FMTU', [t0, 0x93, 's#DUm', 'F-GGB'])
   w.write('FMTU', [t0, 0x94, 's#vA', 'F-00'])
 
-  const param = (name: string, value: number): void => w.write('PARM', [t0, name, value, value, 0])
+  const omit = new Set(options.omitParams ?? [])
+  const param = (name: string, value: number): void => {
+    if (!omit.has(name)) w.write('PARM', [t0, name, value, value, 0])
+  }
   param('AHRS_EKF_TYPE', 3)
   param('EK3_PRIMARY', 0)
   param('COMPASS_MOTCT', 0)
@@ -217,6 +226,7 @@ export function buildSyntheticMagLog(options: SyntheticOptions = {}): ArrayBuffe
     const body = quatRotate(quatInverse(q), ef)
     const currentAtMag = currentAt(ts)
     for (const i of include) {
+      if (k % (options.magEvery?.[i] ?? 1) !== 0) continue
       const c = SYNTHETIC_COMPASSES[i]!
       // True relation: body = M s (R_true sensor + ofs_true) + mot I
       const ms = iron(c.trueDiag, c.trueOffDiag).mul(c.trueScale)
@@ -230,7 +240,21 @@ export function buildSyntheticMagLog(options: SyntheticOptions = {}): ArrayBuffe
       const ironed = mul(iron(c.dia, c.odi), scaled)
       const mot = c.mot.map((m) => Math.round(m * currentAtMag)) as V3
       const logged = ironed.map((v, a) => Math.round(v + mot[a]!))
-      w.write('MAG', [t, i, logged[0]!, logged[1]!, logged[2]!, c.ofs[0], c.ofs[1], c.ofs[2], mot[0], mot[1], mot[2], 1, 0])
+      w.write('MAG', [
+        t + (options.magOffsetUs?.[i] ?? 0),
+        i,
+        logged[0]!,
+        logged[1]!,
+        logged[2]!,
+        c.ofs[0],
+        c.ofs[1],
+        c.ofs[2],
+        mot[0],
+        mot[1],
+        mot[2],
+        1,
+        0
+      ])
     }
   }
   const bytes = w.toBytes()

@@ -236,7 +236,8 @@ export function rmsBarTraces(sensors: readonly SensorPlotSeries[], biasColor: st
       customdata: signed,
       hovertemplate: '<extra></extra>mean error %{customdata:.2f} m/s',
       x: categories,
-      y: signed.map(Math.abs)
+      // Upstream takes Math.abs(null) = 0 when there is no "before" series.
+      y: signed.map((v) => (Number.isNaN(v) ? 0 : Math.abs(v)))
     })
   })
   return [...rms, ...bias]

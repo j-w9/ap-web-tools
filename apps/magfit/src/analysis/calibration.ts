@@ -128,8 +128,13 @@ export function removeCalibration(
   }
 
   // Remove iron correction. Upstream tests `array_all_equal(diagonals, 0.0)`, which is false
-  // for missing (undefined/NaN) diagonals, so they produce NaN here exactly as upstream.
+  // for missing (undefined) diagonals; building the matrix from `undefined` then throws in
+  // ml-matrix ("Input data contains non-numeric values") and the load stops. Missing values are
+  // NaN here, which ml-matrix would accept, so throw the same error explicitly.
   if (!allZero(params.diagonals)) {
+    if ([...params.diagonals, ...params.offDiagonals].some(Number.isNaN)) {
+      throw new TypeError('Input data contains non-numeric values')
+    }
     const inv = inverse(ironMatrix(params.diagonals, params.offDiagonals))
     const cx = combine(x, y, z, inv.get(0, 0), inv.get(0, 1), inv.get(0, 2))
     const cy = combine(x, y, z, inv.get(1, 0), inv.get(1, 1), inv.get(1, 2))

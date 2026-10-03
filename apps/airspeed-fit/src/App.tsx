@@ -28,7 +28,7 @@ import {
   type PreparedFit
 } from './analysis/fit.js'
 import { loadAirspeedLog, type AirspeedLog } from './analysis/load.js'
-import { PARAM_FILE_NAME, paramFileText, ratioSuggestions } from './analysis/params.js'
+import { PARAM_FILE_NAME, planSave, ratioSuggestions } from './analysis/params.js'
 import { chooseTempSource, tempBoxText, temperatureReadout, type TempChoice, type TempSources } from './analysis/temperature.js'
 import { fetchGroundTemperature } from './io/open-meteo.js'
 import { ParamPanel } from './ui/ParamPanel.js'
@@ -62,7 +62,8 @@ interface Draft {
   readonly tempChoice: TempChoice
   /** Ground temperature box text, deg C. */
   readonly groundTempText: string
-  readonly window: readonly [number, number]
+  /** TimeStart/TimeEnd input text; upstream reads them with `parseFloat`. */
+  readonly window: readonly [string, string]
 }
 
 /** The last calculation: its inputs, resampled data and seeds, and the wind model at `q`. */
@@ -76,11 +77,14 @@ interface Applied {
 /** Upstream's ground-temperature box starts at 15 when no preset is available. */
 const DEFAULT_GROUND_TEMP = '15'
 
-const EMPTY_DRAFT: Draft = { source: '', tempChoice: 'custom', groundTempText: DEFAULT_GROUND_TEMP, window: [0, 0] }
+const EMPTY_DRAFT: Draft = { source: '', tempChoice: 'custom', groundTempText: DEFAULT_GROUND_TEMP, window: ['0', '0'] }
+
+const parseWindow = (w: readonly [string, string]): [number, number] => [parseFloat(w[0]), parseFloat(w[1])]
+const windowText = (w: readonly [number, number]): [string, string] => [String(w[0]), String(w[1])]
 
 function draftInputs(draft: Draft): FitInputs | null {
   const groundTempC = parseFloat(draft.groundTempText)
-  return isFinite(groundTempC) ? { source: draft.source, groundTempC, window: draft.window } : null
+  return isFinite(groundTempC) ? { source: draft.source, groundTempC, window: parseWindow(draft.window) } : null
 }
 
 function fit(log: AirspeedLog, inputs: FitInputs, q: number): Applied {
@@ -102,6 +106,9 @@ export function App() {
   /** Slider position while dragging; `q` is applied when it is released. */
   const [qPosition, setQPosition] = useState<number>(Q_SLIDER.initial)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
+  const [saveConfirm, setSaveConfirm] = useState<{ text: string; file: string; summary: string } | null>(null)
+  /** Flight data plot range: upstream zooms to the exact auto window on load and to the inputs when they are edited. */
+  const [plotRange, setPlotRange] = useState<readonly [number, number] | null>(null)
 
   const log = loaded?.log ?? null
   const latest = useLatest({ loaded, draft, qPosition })
@@ -125,6 +132,7 @@ export function App() {
         try {
           setApplied(fit(target, fitInputs, q))
           setSaveStatus(null)
+          setSaveConfirm(null)
           setError(null)
         } catch (e) {
           setError(errorText(e))
@@ -148,8 +156,9 @@ export function App() {
       source: next.sources[0].name,
       tempChoice: choice,
       groundTempText: preset !== undefined ? tempBoxText(preset) : latest.current.draft.groundTempText,
-      window: next.autoWindow
+      window: windowText(next.autoWindow)
     }
+    setPlotRange(next.autoWindowExact)
     setLoaded({ log: next, fileName: name, groundSpeed: groundSpeed(next.sources[0]) })
     setOpenMeteo(null)
     setApplied(null)
@@ -184,7 +193,7 @@ export function App() {
       if (r === undefined) return
       const window: [number, number] =
         r === 'autorange' ? [Math.floor(log.startTime), Math.ceil(log.endTime)] : [Math.floor(r[0]), Math.ceil(r[1])]
-      setDraft((d) => ({ ...d, window }))
+      setDraft((d) => ({ ...d, window: windowText(window) }))
     },
     [log]
   )
@@ -192,11 +201,11 @@ export function App() {
   // ----- Derived display data -----
   const groundTempC = inputs?.groundTempC ?? null
   const readout = useMemo(
-    () => (log && groundTempC !== null ? temperatureReadout(log, groundTempC, draft.window) : null),
+    () => (log && groundTempC !== null ? temperatureReadout(log, groundTempC, parseWindow(draft.window)) : null),
     [log, groundTempC, draft.window]
   )
   const flightTraces = useMemo(() => flightDataTraces(log, loaded?.groundSpeed ?? null), [log, loaded])
-  const flightLayout = useMemo(() => flightDataLayout(log ? draft.window : null), [log, draft.window])
+  const flightLayout = useMemo(() => flightDataLayout(log ? plotRange : null), [log, plotRange])
 
   const model = shown?.model ?? null
   const series: SensorPlotSeries[] = useMemo(
@@ -222,13 +231,27 @@ export function App() {
   const suggestions = useMemo(() => (log ? ratioSuggestions(log.sensors, model) : []), [log, model])
   const warnings = useMemo(() => (shown ? seedWarnings(shown.prepared) : []), [shown])
 
+  /** Upstream `save_parameters`: alert when nothing is valid, confirm out-of-range ratios, then save. */
   const save = () => {
-    const text = paramFileText(suggestions)
-    if (text === '') return
-    downloadText(PARAM_FILE_NAME, text)
-    setSaveStatus(
-      `Saved ${suggestions.flatMap((s) => (s ? [`${s.name}: ${s.ratio.toFixed(3)}`] : [])).join(', ')} to ${PARAM_FILE_NAME}`
-    )
+    const plan = planSave(suggestions)
+    if (plan.kind === 'nothing') {
+      setSaveStatus(plan.message)
+      return
+    }
+    if (plan.confirm !== null) {
+      setSaveStatus(null)
+      setSaveConfirm({ text: plan.confirm, file: plan.text, summary: plan.summary })
+      return
+    }
+    downloadText(PARAM_FILE_NAME, plan.text)
+    setSaveStatus(plan.summary)
+  }
+  const confirmSave = (ok: boolean) => {
+    if (saveConfirm === null) return
+    setSaveConfirm(null)
+    if (!ok) return
+    downloadText(PARAM_FILE_NAME, saveConfirm.file)
+    setSaveStatus(saveConfirm.summary)
   }
 
   const facts: LogFact[] | null = log
@@ -277,8 +300,12 @@ export function App() {
           onGroundTempTextChange={(text) => setDraft((d) => ({ ...d, tempChoice: 'custom', groundTempText: text }))}
           readout={readout}
           window={draft.window}
-          windowLimits={log ? [Math.floor(log.startTime), Math.ceil(log.endTime)] : null}
-          onWindowChange={(window) => setDraft((d) => ({ ...d, window }))}
+          loaded={log !== null}
+          onWindowChange={(window) => {
+            setDraft((d) => ({ ...d, window }))
+            // Upstream time_range_changed zooms the flight data plot to the parsed inputs.
+            setPlotRange(parseWindow(window))
+          }}
           calculateEnabled={log !== null && needCalc}
           onCalculate={() => {
             if (log) void calculate(log, inputs, sliderToQ(qPosition))
@@ -341,6 +368,8 @@ export function App() {
               names={log?.sensors.map((s) => s.ratioName) ?? []}
               warnings={warnings}
               onSave={save}
+              confirm={saveConfirm?.text ?? null}
+              onConfirm={confirmSave}
               saveStatus={saveStatus}
             />
           </Section>

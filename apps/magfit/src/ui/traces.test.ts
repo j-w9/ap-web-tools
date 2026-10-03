@@ -24,6 +24,7 @@ describe('traces', () => {
           {
             compass: 2,
             calibration: cal,
+            data: cal,
             time: c.prepared.compass.time,
             attitudeYaw: c.prepared.attitudeYaw,
             existingYaw: c.prepared.existingYaw,
@@ -42,11 +43,15 @@ describe('traces', () => {
   })
 
   it('builds one bar trace per compass', () => {
-    const bars = errorBarTraces([{ compass: 0, bars: [{ label: 'Offsets, No motor comp', meanError: 3 }] }])
+    const bars = errorBarTraces([{ compass: 0, visible: true, bars: [{ label: 'Offsets, No motor comp', meanError: 3 }] }])
     expect(bars[0]).toMatchObject({ type: 'bar', x: ['Offsets<br>No motor comp'], y: [3] })
   })
 
   it('colours bars by compass', () => {
-    expect(errorBarTraces([{ compass: 1, bars: [] }])[0]).toMatchObject({ name: 'Mag 2', marker: { color: 'color2' } })
+    expect(errorBarTraces([{ compass: 1, visible: false, bars: [] }])[0]).toMatchObject({
+      name: 'Mag 2',
+      visible: false,
+      marker: { color: 'color2' }
+    })
   })
 })

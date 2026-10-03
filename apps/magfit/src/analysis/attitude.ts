@@ -25,17 +25,14 @@ export interface AttitudeSources {
   readonly defaultIndex: number | undefined
 }
 
-function load(
-  log: DataflashLog,
-  message: string,
-  instance: number | undefined
-): Omit<AttitudeSource, 'name' | 'ekfType'> | undefined {
+function load(log: DataflashLog, message: string, instance: number | undefined): Omit<AttitudeSource, 'name' | 'ekfType'> {
   const timeUs = log.getNumbers(message, 'TimeUS', instance)
   const q1 = log.getNumbers(message, 'Q1', instance)
   const q2 = log.getNumbers(message, 'Q2', instance)
   const q3 = log.getNumbers(message, 'Q3', instance)
   const q4 = log.getNumbers(message, 'Q4', instance)
-  if (!timeUs || !q1 || !q2 || !q3 || !q4) return undefined
+  // Upstream runs Array.from on each column and crashes when one is missing.
+  if (!timeUs || !q1 || !q2 || !q3 || !q4) throw new Error(message + ' is missing TimeUS or a quaternion field')
   const time = timeUsToSeconds(timeUs)
   return {
     time,
@@ -52,8 +49,7 @@ export function loadAttitudeSources(log: DataflashLog): AttitudeSources {
   const sources: AttitudeSource[] = []
   let defaultIndex: number | undefined
 
-  const add = (name: string, type: 0 | 2 | 3, data: Omit<AttitudeSource, 'name' | 'ekfType'> | undefined): void => {
-    if (data === undefined) return
+  const add = (name: string, type: 0 | 2 | 3, data: Omit<AttitudeSource, 'name' | 'ekfType'>): void => {
     if (ekfType === type) defaultIndex = sources.length
     sources.push({ name, ekfType: type, ...data })
   }

@@ -60,7 +60,11 @@ export interface BinWeights {
   readonly coverage: number
 }
 
-/** Weights from bin assignments (upstream `get_weights`). */
+/**
+ * Weights from bin assignments (upstream `get_weights`). A sample with no bin (-1, upstream
+ * `undefined`) is counted in the total but never as an occupied bin, and gets a NaN weight,
+ * exactly as upstream's `count[undefined]` arithmetic does.
+ */
 export function binWeights(bins: ArrayLike<number>, numBins: number = NUM_BINS): BinWeights {
   const count = new Map<number, number>()
   const len = bins.length
@@ -68,10 +72,11 @@ export function binWeights(bins: ArrayLike<number>, numBins: number = NUM_BINS):
   let totalBins = 0
   for (let i = 0; i < len; i++) {
     const b = bins[i]!
+    totalBins++
+    if (b < 0) continue
     const c = count.get(b) ?? 0
     if (c === 0) numUniqueBins++
     count.set(b, c + 1)
-    totalBins++
   }
   const meanBinSize = totalBins / numUniqueBins
   const coverage = numUniqueBins / numBins

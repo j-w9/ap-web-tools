@@ -63,7 +63,9 @@ describe('wmm', () => {
       expect(up.evaluate(`expected_earth_field_lat_lon(${lat}, ${lon})`)).toBeUndefined()
     }
     expect(expectedEarthField(undefined, 10)).toBeUndefined()
-    expect(earthFieldAngles(NaN, 0)).toBeUndefined()
+    // NaN passes upstream's range checks and then crashes on the table lookup; the port throws.
+    expect(() => earthFieldAngles(NaN, 0)).toThrow()
+    expect(() => up.evaluate('expected_earth_field_lat_lon(NaN, 0)')).toThrow()
   })
 
   it('interpolates exactly on grid points', () => {

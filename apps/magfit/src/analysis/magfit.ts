@@ -8,7 +8,6 @@ import type { CompassData } from './compass.js'
 import { attitudeYaw, bodyFrameEarthField, compassYaw, interpolateAttitude } from './expected.js'
 import { defaultFitKind, fitCompass, weightedRms, type FitKind, type FitSet } from './fit.js'
 import type { MagFitLog } from './load.js'
-import { motorSourceAt } from './motor.js'
 import { checkOrientation, type OrientationCheck, type OrientationOption } from './orientation.js'
 import type { MotorCompType } from './params.js'
 import type { QuatSeries } from './quaternion.js'
@@ -80,7 +79,10 @@ export interface FitGroup {
   /** "No motor comp" or the interference source name. */
   readonly name: string
   readonly type: MotorCompType
-  /** Interference source on the compass time base, `undefined` for no motor compensation. */
+  /**
+   * Interference source resampled at compass 1's sample times (upstream bug reproduced, see
+   * {@link motorSourceAt}), `undefined` for no motor compensation.
+   */
   readonly motor: Float64Array | undefined
   readonly fits: FitSet
   /** Fit upstream ticks by default, see {@link defaultFitKind}. */
@@ -141,7 +143,7 @@ export function runFits(data: MagFitLog, prepared: PreparedAttitude, options: Ma
     }
     const sources: Omit<FitGroup, 'fits' | 'defaultKind'>[] = [
       { name: 'No motor comp', type: 0, motor: undefined },
-      ...data.motorSources.map((s) => ({ name: s.name, type: s.type, motor: motorSourceAt(s, compass.time) }))
+      ...data.motorSources.map((s) => ({ name: s.name, type: s.type, motor: s.atCompass0 }))
     ]
     const groups = sources.map((g): FitGroup => {
       const fits = fitCompass(input, g.motor === undefined ? undefined : { type: g.type, value: g.motor })
