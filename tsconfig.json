@@ -8,6 +8,9 @@
       "path": "packages/dataflash"
     },
     {
+      "path": "packages/mavlink"
+    },
+    {
       "path": "packages/plot"
     },
     {
