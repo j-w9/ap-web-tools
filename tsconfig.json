@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/signal" },
+    { "path": "packages/dataflash" },
+    { "path": "packages/plot" },
+    { "path": "packages/tool-shell" },
+    { "path": "apps/pid-review" }
+  ]
+}

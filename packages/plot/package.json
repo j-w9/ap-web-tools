@@ -1,0 +1,11 @@
+{
+  "name": "@apwt/plot",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts",
+  "dependencies": { "@apwt/signal": "*", "plotly.js-dist-min": "^3.1.0" },
+  "devDependencies": { "@types/plotly.js-dist-min": "^2.3.4" }
+}
