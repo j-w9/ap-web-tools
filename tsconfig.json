@@ -63,6 +63,9 @@
     },
     {
       "path": "apps/geofence-generator"
+    },
+    {
+      "path": "apps/analytic-tune"
     }
   ]
 }

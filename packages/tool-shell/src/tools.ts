@@ -193,7 +193,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Tune a multirotor or heli analytically from system identification flight data.',
     category: 'logs',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'AnalyticTune',
     opens: NONE
   },

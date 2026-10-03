@@ -1,0 +1,97 @@
+/* Parameter fields: the ArduPilot name in mono over a short plain label. */
+.at-param {
+  align-items: flex-start;
+}
+
+.at-param__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.at-param__name code {
+  align-self: flex-start;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.at-param__name small {
+  font-size: 13px;
+  color: rgb(var(--g400));
+}
+
+.at-param input,
+.at-param select {
+  flex: none;
+}
+
+.apwt-field.at-param select {
+  width: 150px;
+}
+
+.at-bits {
+  margin: 4px 0 10px;
+}
+
+.at-bits .apwt-chip {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.at-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g400));
+}
+
+.at-note--warn {
+  color: var(--yellow-text);
+}
+
+.at-subhead {
+  margin: 14px 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--g300));
+}
+
+.at-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.at-buttons .apwt-btn {
+  flex: 1 1 auto;
+}
+
+.at-loops {
+  margin-bottom: 12px;
+}
+
+.at-runs td,
+.at-runs th {
+  white-space: nowrap;
+}
+
+.at-runs tr.at-run--selected td {
+  color: rgb(var(--g100));
+}
+
+.at-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.apwt-plot.at-bode {
+  height: 340px;
+}
+
+.apwt-plot.at-coherence {
+  height: 260px;
+}

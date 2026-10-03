@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "noEmit": false },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/signal" },
+    { "path": "../../packages/dataflash" },
+    { "path": "../../packages/ardupilot" },
+    { "path": "../../packages/plot" },
+    { "path": "../../packages/tool-shell" }
+  ]
+}
