@@ -21,10 +21,6 @@ export default defineConfig({
   // Relative asset URLs so the built site works from any path (e.g. /Tools/WebTools/).
   base: './',
   plugins: [react()],
-  resolve: {
-    // Consume ArduConfigurator's firmware-flash from source (vendored submodule) rather than its built dist.
-    alias: { '@arduconfig/firmware-flash': resolve(__dirname, 'vendor/arduconfigurator/packages/firmware-flash/src/index.ts') }
-  },
   publicDir: 'public',
   build: {
     outDir: 'dist',

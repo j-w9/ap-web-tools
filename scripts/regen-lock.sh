@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/apwt-lock.XXXXXX")
 trap 'git -C "$root" worktree remove --force "$dir" >/dev/null 2>&1; rm -rf "$dir"' EXIT
 git -C "$root" worktree add -q --detach "$dir" HEAD
-(cd "$dir" && git submodule update --init --depth 1 vendor/arduconfigurator >/dev/null 2>&1 || true; npm install --no-audit --no-fund >/dev/null 2>&1)
+(cd "$dir" && npm install --no-audit --no-fund >/dev/null 2>&1)
 if cmp -s "$dir/package-lock.json" <(git -C "$root" show HEAD:package-lock.json); then
   echo "lockfile already matches"
 else

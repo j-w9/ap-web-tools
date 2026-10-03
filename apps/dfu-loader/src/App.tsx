@@ -1,259 +1,167 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Plug, Unplug, Zap } from 'lucide-react'
-import { DfuProtectedSectorError, DfuSeDevice } from '@arduconfig/firmware-flash'
 import {
   ControlGroup,
   ErrorBanner,
   LogInput,
-  RadioChips,
   RailCard,
   Section,
   ToolPage,
-  readFileAsArrayBuffer,
   toolById,
   toolReadme,
   type LogFact
 } from '@apwt/tool-shell'
-import { formatAddress, imageSegments, parseAddress, parseFirmwareFile, type FirmwareImage } from './analysis/image.js'
-import {
-  claimAlternate,
-  connectDfuDevice,
-  defaultAlternate,
-  disconnect,
-  isWebUsbSupported,
-  type DfuAlternate,
-  type DfuDevice
-} from './usb/dfu-usb.js'
-import { IDLE, type FlashState } from './ui/flash-state.js'
-import { MemoryTable } from './ui/MemoryTable.js'
-import { Progress } from './ui/Progress.js'
+import { LoaderSession } from './dfu/session.js'
+import { DeviceInfo } from './ui/DeviceInfo.js'
+import { FlashLog } from './ui/FlashLog.js'
 import './ui/dfu.css'
 
-const FALLBACK_START = 0x08000000
 const BOOTLOADERS_URL = 'https://firmware.ardupilot.org/Tools/Bootloaders/'
 
-function alternateLabel(a: DfuAlternate): string {
-  const name = a.name.split('/')[0]?.replace(/^@/, '').trim()
-  return name !== undefined && name !== '' ? name : `Interface ${String(a.interfaceNumber)}.${String(a.alternateSetting)}`
-}
-
-function hex4(n: number): string {
-  return n.toString(16).padStart(4, '0')
+function createSession(): LoaderSession {
+  return new LoaderSession('usb' in navigator ? navigator.usb : undefined, window.location.search)
 }
 
 export function App() {
-  const [device, setDevice] = useState<DfuDevice | null>(null)
-  const [alternateKey, setAlternateKey] = useState<string | null>(null)
-  const [image, setImage] = useState<FirmwareImage | null>(null)
-  const [startText, setStartText] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [flash, setFlash] = useState<FlashState>(IDLE)
+  const [session] = useState(createSession)
+  const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
+  useEffect(() => session.start(), [session])
 
-  const keyOf = (a: DfuAlternate) => `${String(a.interfaceNumber)}.${String(a.alternateSetting)}`
-  const alternate = useMemo(
-    () =>
-      device ? (device.alternates.find((a) => keyOf(a) === alternateKey) ?? defaultAlternate(device.alternates)) : undefined,
-    [device, alternateKey]
-  )
-  const defaultStart = alternate?.memory[0]?.start ?? FALLBACK_START
-  const startAddress = startText === null ? defaultStart : parseAddress(startText)
-  const busy = flash.phase === 'flashing'
-  const canFlash = device !== null && alternate !== undefined && image !== null && startAddress !== null && !busy
-
-  const connect = async () => {
-    setError(null)
-    try {
-      const d = await connectDfuDevice()
-      setDevice(d)
-      setAlternateKey(null)
-      setFlash(IDLE)
-    } catch (e) {
-      // Closing the chooser without picking a device is not an error worth showing.
-      if (e instanceof DOMException && e.name === 'NotFoundError') return
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  const disconnectDevice = async () => {
-    if (device) await disconnect(device)
-    setDevice(null)
-    setFlash(IDLE)
-  }
-
-  const chooseFile = async (file: File) => {
-    const parsed = parseFirmwareFile(file.name, new Uint8Array(await readFileAsArrayBuffer(file)))
-    if (parsed.ok) {
-      setImage(parsed.value)
-      setError(null)
-    } else {
-      setImage(null)
-      setError(parsed.error)
-    }
-    setFlash(IDLE)
-  }
-
-  const runFlash = async (allowProtectedSectors: boolean) => {
-    if (!device || !alternate || !image || startAddress === null) return
-    const segments = imageSegments(image, startAddress)
-    setFlash({ phase: 'flashing', progress: null })
-    const claimed = await claimAlternate(device, alternate)
-    try {
-      const dfu = new DfuSeDevice(claimed.usb, alternate.memory, device.transferSize)
-      await dfu.flash(segments, (progress) => setFlash({ phase: 'flashing', progress }), { allowProtectedSectors })
-      setFlash({ phase: 'done', deviceName: device.productName })
-      // The board leaves DFU mode and re-enumerates, so this connection is finished.
-      await disconnect(device)
-      setDevice(null)
-    } catch (e) {
-      if (e instanceof DfuProtectedSectorError) setFlash({ phase: 'blocked', sectors: e.protectedSectors })
-      else setFlash({ phase: 'failed', error: e instanceof Error ? e.message : String(e) })
-    } finally {
-      await claimed.release()
-    }
-  }
-
-  const imageFacts: LogFact[] | null = image
+  const { dfuse, firmware, invalid } = state
+  const firmwareFacts: LogFact[] | null = firmware
     ? [
-        { label: 'File', value: image.name },
-        { label: 'Format', value: image.format === 'hex' ? 'Intel HEX' : 'Raw binary' },
-        { label: 'Size', value: `${(image.size / 1024).toFixed(1)} KiB` },
-        ...(image.format === 'hex' ? [{ label: 'Address', value: formatAddress(image.segments[0]?.address ?? 0) }] : [])
+        { label: 'File', value: firmware.name },
+        { label: 'Format', value: firmware.convertedFromHex ? 'Intel HEX, converted to bin' : 'Binary' },
+        { label: 'Size', value: `${firmware.data.byteLength} bytes` }
       ]
     : null
 
   const tool = toolById('dfu-loader')
-  const supported = isWebUsbSupported()
 
   return (
     <ToolPage
       title="DFU Loader"
       readmeUrl={toolReadme(tool)}
-      intro="Flash an ArduPilot bootloader to a board in USB DFU mode. Works in Chrome and Edge, which support WebUSB."
+      intro="Load an ArduPilot bootloader on boards that support DFU over USB. Works in Chrome and Edge, which support WebUSB."
       rail={
         <RailCard>
           <ControlGroup label="Board">
-            {device ? (
-              <>
-                <dl className="apwt-facts">
-                  <div>
-                    <dt>Device</dt>
-                    <dd>{device.productName}</dd>
-                  </div>
-                  {device.manufacturerName !== '' && (
-                    <div>
-                      <dt>Maker</dt>
-                      <dd>{device.manufacturerName}</dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt>USB id</dt>
-                    <dd>
-                      {hex4(device.vendorId)}:{hex4(device.productId)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Transfer size</dt>
-                    <dd>{device.transferSize} B</dd>
-                  </div>
-                </dl>
-                <button
-                  type="button"
-                  className="apwt-btn apwt-btn--block"
-                  style={{ marginTop: 14 }}
-                  disabled={busy}
-                  onClick={() => void disconnectDevice()}
-                >
-                  <Unplug />
-                  Disconnect
-                </button>
-              </>
-            ) : (
-              <button type="button" className="apwt-btn apwt-btn--block" disabled={!supported} onClick={() => void connect()}>
-                <Plug />
-                Connect board
-              </button>
-            )}
+            <button
+              type="button"
+              className="apwt-btn apwt-btn--block"
+              disabled={!state.webUsb}
+              onClick={() => void session.connectClick()}
+            >
+              {state.connectLabel === 'Connect' ? <Plug /> : <Unplug />}
+              {state.connectLabel}
+            </button>
           </ControlGroup>
 
-          {device && device.alternates.length > 1 && alternate && (
-            <ControlGroup label="Interface">
-              <RadioChips
-                name="alternate"
-                value={keyOf(alternate)}
-                onChange={setAlternateKey}
-                options={device.alternates.map((a) => ({ value: keyOf(a), label: alternateLabel(a) }))}
-              />
+          {!dfuse.hidden && (
+            <ControlGroup label="DfuSe">
+              <label className="apwt-field">
+                <span>Start address</span>
+                <input
+                  type="text"
+                  value={dfuse.startAddress.value}
+                  disabled={dfuse.startAddress.disabled}
+                  title="Initial memory address to read/write from (hex)"
+                  size={10}
+                  spellCheck={false}
+                  aria-invalid={invalid?.field === 'startAddress'}
+                  onChange={(e) => session.editStartAddress(e.target.value)}
+                  onBlur={() => session.commitStartAddress()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') session.commitStartAddress()
+                  }}
+                />
+              </label>
+              <label className="apwt-field">
+                <span>Upload size</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={dfuse.uploadSize.max ?? undefined}
+                  value={dfuse.uploadSize.value}
+                  disabled={dfuse.uploadSize.disabled}
+                  aria-invalid={invalid?.field === 'uploadSize'}
+                  onChange={(e) => session.editUploadSize(e.target.value, e.target.validity.badInput)}
+                />
+              </label>
+              {invalid && <p className="dfu-invalid">{invalid.message}</p>}
             </ControlGroup>
           )}
 
           <ControlGroup label="Bootloader">
-            <LogInput
-              facts={imageFacts}
-              onFile={(f) => void chooseFile(f)}
-              accept=".bin,.hex"
-              title="Choose a bootloader"
-              hint="A .bin or .hex file for your board"
-            />
+            <fieldset className="dfu-file" disabled={!state.fileEnabled}>
+              <LogInput
+                facts={firmwareFacts}
+                onFile={(f) => void session.chooseFile(f)}
+                accept=".bin,.hex"
+                title="Choose a bootloader"
+                hint={state.fileEnabled ? 'A .bin or .hex file for your board' : 'Connect a board in DFU mode first'}
+                changeLabel="Choose another file"
+              />
+            </fieldset>
           </ControlGroup>
-
-          {image?.format === 'bin' && (
-            <ControlGroup label="Start address">
-              <label className="apwt-field">
-                <span>Address</span>
-                <input
-                  type="text"
-                  value={startText ?? formatAddress(defaultStart)}
-                  onChange={(e) => setStartText(e.target.value)}
-                  spellCheck={false}
-                />
-              </label>
-              {startAddress === null && <p className="apwt-section__help">Enter a hexadecimal address, such as 0x08000000.</p>}
-            </ControlGroup>
-          )}
 
           <div className="apwt-group">
             <button
               type="button"
               className="apwt-btn apwt-btn--primary apwt-btn--block"
-              disabled={!canFlash}
-              onClick={() => void runFlash(false)}
+              disabled={!state.flashEnabled || state.flashing}
+              onClick={() => void session.flash()}
             >
               <Zap />
-              Flash bootloader
+              Flash Bootloader
             </button>
           </div>
         </RailCard>
       }
     >
-      {!supported && (
-        <ErrorBanner message="This browser does not support WebUSB, so it cannot talk to a board in DFU mode. Open this page in Chrome or Edge." />
+      {state.status?.kind === 'error' ? (
+        <ErrorBanner message={state.status.text} />
+      ) : (
+        state.status && <p className="dfu-status">{state.status.text}</p>
       )}
-      <ErrorBanner message={error} />
 
-      <Section title={flash.phase === 'idle' ? 'Before you start' : 'Steps'}>
+      <Section title="Instructions" help="To install an ArduPilot bootloader follow these steps.">
         <ol className="apwt-steps">
-          <li>Put the board in DFU mode, usually by holding its boot button while plugging in USB.</li>
+          <li>Use a recent version of Chrome.</li>
+          <li>Put your flight controller in DFU mode, usually by pressing a button while plugging in USB to power it on.</li>
           <li>
-            Download the ArduPilot bootloader for your board, as a .bin or .hex file, from{' '}
+            Download the right ArduPilot bootloader for your device in .bin or .hex format from{' '}
             <a href={BOOTLOADERS_URL} target="_blank" rel="noopener">
-              firmware.ardupilot.org
+              {BOOTLOADERS_URL}
             </a>
             .
           </li>
-          <li>Connect the board, choose the bootloader and flash it.</li>
-          <li>Power cycle the board, then load the main firmware with Mission Planner or another ground station.</li>
+          <li>Press Connect and select your DFU interface.</li>
+          <li>Choose the bootloader file.</li>
+          <li>Press Flash Bootloader to flash the bootloader to your device.</li>
+          <li>
+            On completion power cycle your flight controller and load the main firmware with Mission Planner or another ArduPilot
+            compatible GCS.
+          </li>
         </ol>
+        <p className="apwt-section__help dfu-credit">
+          Many thanks to{' '}
+          <a href="https://github.com/devanlai/webdfu" target="_blank" rel="noopener">
+            https://github.com/devanlai/webdfu
+          </a>{' '}
+          for the DFU code!
+        </p>
       </Section>
 
-      {flash.phase !== 'idle' && (
-        <Section title="Flashing" help="Progress and result of the current flash.">
-          <Progress state={flash} onFlashAnyway={() => void runFlash(true)} />
+      {state.connected && (
+        <Section title="Device" help="What the board reports about its USB DFU interface.">
+          <DeviceInfo info={state.connected} interfaces={state.interfaces} />
         </Section>
       )}
 
-      {alternate && (
-        <Section title="Device memory" help="The flash layout the board reports for the selected interface.">
-          <MemoryTable sectors={alternate.memory} />
+      {(state.log.length > 0 || state.flashing) && (
+        <Section title="Firmware download" help="Writing to the USB device.">
+          <FlashLog entries={state.log} />
         </Section>
       )}
     </ToolPage>

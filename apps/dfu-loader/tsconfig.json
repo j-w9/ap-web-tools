@@ -4,8 +4,8 @@
     "rootDir": "src",
     "outDir": "dist",
     "noEmit": false,
-    "types": ["w3c-web-usb"]
+    "types": ["w3c-web-usb", "node"]
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/tool-shell" }, { "path": "../../vendor/arduconfigurator/packages/firmware-flash" }]
+  "references": [{ "path": "../../packages/tool-shell" }]
 }

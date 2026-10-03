@@ -6,7 +6,6 @@
   "type": "module",
   "dependencies": {
     "@apwt/tool-shell": "*",
-    "@arduconfig/firmware-flash": "*",
     "lucide-react": "^1.51.0"
   },
   "devDependencies": {

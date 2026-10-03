@@ -10,7 +10,6 @@ git -C "$root" worktree add -q --detach "$dir" "$commit"
 cd "$dir"
 # Reuse the local object store so submodules don't re-download history.
 git submodule update --init --depth 1 --reference "$root/upstream" upstream >/dev/null 2>&1 || git submodule update --init --depth 1 upstream
-git submodule update --init --depth 1 vendor/arduconfigurator >/dev/null 2>&1 || true
 step=$(sed -n 's/.*run: \(git -C upstream submodule update.*\)/\1/p' .github/workflows/ci.yml)
 eval "$step" >/dev/null 2>&1 || { echo "FAIL: nested submodules"; exit 1; }
 status=0

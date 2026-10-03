@@ -7,4 +7,3 @@ package-lock.json
 apps/scurve-tool/src/wasm/*.js
 apps/kinematic-tool/src/wasm/*.js
 # Tools being ported in parallel; formatted when they land.
-vendor/

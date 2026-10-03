@@ -10,17 +10,16 @@ reference for every port. Nothing in `upstream/` is imported at runtime.
 
 npm-workspaces monorepo. Shared logic lives in framework-free packages; each tool is a small app on top.
 
-| Workspace                 | Responsibility                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------- |
-| `packages/dataflash`      | ArduPilot DataFlash (`.bin`) log parser: lazy, instance-aware, typed columns            |
-| `packages/ardupilot`      | ArduPilot domain helpers: parameter files, device ids, firmware version, board ids      |
-| `packages/signal`         | Array and complex maths, FFT windowing and spectrum helpers                             |
-| `packages/filters`        | Digital filter and rate controller models with frequency responses, phase unwrap/wrap   |
-| `packages/plot`           | Typed Plotly wrapper that follows the page theme, axis linking                          |
-| `packages/tool-shell`     | Shared page frame in the CustomBuild style, controls, tool registry, "Open in" hand-off |
-| `apps/<tool>`             | One Vite entry per tool, served at `apps/<tool>/`                                       |
-| `site/`                   | Landing page, generated from the tool registry                                          |
-| `vendor/arduconfigurator` | Submodule; its `firmware-flash` package drives the DFU Loader                           |
+| Workspace             | Responsibility                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `packages/dataflash`  | ArduPilot DataFlash (`.bin`) log parser: lazy, instance-aware, typed columns            |
+| `packages/ardupilot`  | ArduPilot domain helpers: parameter files, device ids, firmware version, board ids      |
+| `packages/signal`     | Array and complex maths, FFT windowing and spectrum helpers                             |
+| `packages/filters`    | Digital filter and rate controller models with frequency responses, phase unwrap/wrap   |
+| `packages/plot`       | Typed Plotly wrapper that follows the page theme, axis linking                          |
+| `packages/tool-shell` | Shared page frame in the CustomBuild style, controls, tool registry, "Open in" hand-off |
+| `apps/<tool>`         | One Vite entry per tool, served at `apps/<tool>/`                                       |
+| `site/`               | Landing page, generated from the tool registry                                          |
 
 See `docs/architecture.md`, `docs/typescript-standard.md` and `docs/design.md`.
 
