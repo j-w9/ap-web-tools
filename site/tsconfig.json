@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "..", "outDir": "../dist/site-types", "types": [] },
+  "include": ["./**/*", "../packages/tool-shell/src/assets.d.ts", "../packages/tool-shell/src/css.d.ts"],
+  "references": [{ "path": "../packages/tool-shell" }]
+}

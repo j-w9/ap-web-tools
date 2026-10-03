@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { ThemeToggle } from './ThemeToggle.js'
+import logoUrl from './assets/ardupilot_logo.png'
 import './tool.css'
 
 export interface ToolPageProps {
@@ -17,7 +18,7 @@ export interface ToolPageProps {
 }
 
 const NAV = [
-  { href: '../', label: 'All tools' },
+  { href: '../../', label: 'All tools' },
   { href: 'https://ardupilot.org', label: 'ardupilot.org' },
   { href: 'https://github.com/j-w9/ap-web-tools', label: 'GitHub' }
 ] as const
@@ -31,8 +32,8 @@ export function ToolPage({ title, intro, readmeUrl, actions, rail, children }: T
     <>
       <header className="apwt-header">
         <div className="apwt-header__inner">
-          <a href="../" aria-label="All ArduPilot web tools">
-            <img className="apwt-header__logo" src="/images/ardupilot_logo.png" alt="ArduPilot" />
+          <a href="../../" aria-label="All ArduPilot web tools">
+            <img className="apwt-header__logo" src={logoUrl} alt="ArduPilot" />
           </a>
           <span className="apwt-header__spacer" />
           <nav className="apwt-nav" aria-label="Site">

@@ -3,6 +3,7 @@
  * either the `File` (same origin: the receiver gets the file name and can hand it on again)
  * or the raw `ArrayBuffer` (cross origin, e.g. UAV Log Viewer).
  */
+import { TOOLS, acceptsLog, toolHref } from './tools.js'
 
 export interface OpenInDestination {
   name: string
@@ -14,19 +15,26 @@ export interface OpenInDestination {
   accepts: (messageTypes: readonly string[]) => boolean
 }
 
-const any = (wanted: readonly string[]) => (types: readonly string[]) => wanted.some((t) => types.includes(t))
+const UAV_LOG_VIEWER: OpenInDestination = {
+  name: 'UAV Log Viewer',
+  path: 'https://plotbeta.ardupilot.org/#',
+  sameOrigin: false,
+  accepts: () => true
+}
 
+/**
+ * Every place a log can be sent: UAV Log Viewer plus each registered tool that opens logs.
+ * Ported tools are same-origin and receive the `File`; tools still on the original site
+ * receive the bytes, as upstream's own hand-off does across origins.
+ */
 export const OPEN_IN_DESTINATIONS: readonly OpenInDestination[] = [
-  { name: 'UAV Log Viewer', path: 'https://plotbeta.ardupilot.org/#', sameOrigin: false, accepts: () => true },
-  { name: 'Hardware Report', path: '../hardware-report/', sameOrigin: true, accepts: any(['PARM']) },
-  { name: 'Filter Review', path: '../filter-review/', sameOrigin: true, accepts: any(['GYR', 'ISBD']) },
-  { name: 'MAGFit', path: '../magfit/', sameOrigin: true, accepts: any(['MAG']) },
-  {
-    name: 'PID Review',
-    path: '../pid-review/',
-    sameOrigin: true,
-    accepts: any(['RATE', 'PIDR', 'PIDP', 'PIDY', 'PIQR', 'PIQP', 'PIQY', 'PIDS', 'PIDA'])
-  }
+  UAV_LOG_VIEWER,
+  ...TOOLS.filter((t) => t.opens.kind !== 'none').map((t): OpenInDestination => ({
+    name: t.name,
+    path: toolHref(t, 'tool'),
+    sameOrigin: t.home === 'ported',
+    accepts: (types) => acceptsLog(t, types)
+  }))
 ]
 
 /** Destinations other than the current tool (identified by the last path segment). */
