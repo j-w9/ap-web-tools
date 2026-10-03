@@ -4,9 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { defaultFilterParams, type FilterParams } from './filter-params.js'
 import { filterToolUrl } from './filter-tool-link.js'
-import { applyParamFile, filterParamFileText, pageParams, paramToString, signedBitmask } from './param-file.js'
-import { rng } from './test-utils/rng.js'
-import { loadFilterReviewUpstream } from './test-utils/upstream.js'
+import { applyParamFile, filterParamFileText, pageParams, signedBitmask } from './param-file.js'
 
 const upstreamDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../upstream')
 
@@ -50,24 +48,6 @@ function sampleParams(): FilterParams {
 }
 
 describe('parameter file', () => {
-  it('formats values like upstream param_to_string', () => {
-    const up = loadFilterReviewUpstream()
-    const next = rng(5)
-    const values = [
-      0,
-      1,
-      -1,
-      0.1,
-      20,
-      400,
-      1e-7,
-      123456.789,
-      0.6499999761581421,
-      ...Array.from({ length: 200 }, () => (next() - 0.5) * 10 ** (8 * next() - 3))
-    ]
-    for (const v of values) expect(paramToString(v), String(v)).toBe(up.run(`param_to_string(${v})`))
-  })
-
   it('lists parameters in upstream page order', () => {
     expect(pageParams(defaultFilterParams(), true).map((p) => p.name)).toEqual(upstreamPageOrder())
   })
@@ -90,6 +70,9 @@ describe('parameter file', () => {
     expect(applied).toEqual(['INS_HNTCH_ENABLE', 'INS_HNTCH_FREQ', 'INS_HNTCH_HMNCS', 'SCHED_LOOP_RATE'])
     expect(params.notches[0]).toMatchObject({ enable: 1, freq: 95, harmonics: 255 })
     expect(params.loopRate).toBe(800)
+    expect(applyParamFile('  INS_GYRO_FILTER,40\r\nINS_HNTCH_FREQ,abc\n', defaultFilterParams(), false).applied).toEqual([
+      'INS_GYRO_FILTER'
+    ])
     const roundTrip = applyParamFile(filterParamFileText(sampleParams(), true), defaultFilterParams(), true).params
     expect(roundTrip.notches[0]).toEqual({ ...sampleParams().notches[0], bandwidth: 40.1 })
   })

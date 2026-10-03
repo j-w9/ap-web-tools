@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { PlotlyChart, relayoutRange, type PlotRelayoutEvent } from '@apwt/plot'
 import { DataflashLog } from '@apwt/dataflash'
 import {
+  downloadText,
   ErrorBanner,
   OpenInButton,
   Section,
@@ -30,7 +31,6 @@ import { loadAirspeedLog, type AirspeedLog } from './analysis/load.js'
 import { PARAM_FILE_NAME, paramFileText, ratioSuggestions } from './analysis/params.js'
 import { chooseTempSource, tempBoxText, temperatureReadout, type TempChoice, type TempSources } from './analysis/temperature.js'
 import { fetchGroundTemperature } from './io/open-meteo.js'
-import { downloadText } from './ui/download.js'
 import { ParamPanel } from './ui/ParamPanel.js'
 import { Rail } from './ui/Rail.js'
 import { SensorSummary } from './ui/SensorSummary.js'
@@ -225,7 +225,7 @@ export function App() {
   const save = () => {
     const text = paramFileText(suggestions)
     if (text === '') return
-    downloadText(text, PARAM_FILE_NAME)
+    downloadText(PARAM_FILE_NAME, text)
     setSaveStatus(
       `Saved ${suggestions.flatMap((s) => (s ? [`${s.name}: ${s.ratio.toFixed(3)}`] : [])).join(', ')} to ${PARAM_FILE_NAME}`
     )

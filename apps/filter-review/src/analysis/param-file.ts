@@ -1,21 +1,5 @@
+import { paramLine, parseParamFile } from '@apwt/ardupilot'
 import { NOTCH_PARAM_SUFFIXES, notchParamNames, unsignedBitmask, type FilterParams, type NotchParams } from './filter-params.js'
-
-/**
- * Shortest decimal string that round-trips through a 32-bit float (upstream `param_to_string`).
- * Throws if no 7 to 9 significant digit form round-trips, as upstream does.
- */
-export function paramToString(value: number): string {
-  // Make sure number can be represented by 32 bit float
-  const floatVal = Math.fround(value)
-  for (const figures of [7, 8, 9]) {
-    const numberVal = Number(floatVal.toPrecision(figures))
-    // Did not get original value, try more digits
-    if (floatVal !== Math.fround(numberVal)) continue
-    // Convert number back to string with no trailing zeros
-    return numberVal.toString()
-  }
-  throw new Error(`Could not convert ${value} to float string`)
-}
 
 /** Value of a bitmask as the page shows it: narrow (8-bit) masks are signed, as logged. */
 export function signedBitmask(value: number, bits: number): number {
@@ -63,10 +47,13 @@ export function pageParams(params: FilterParams, sixteenHarmonics: boolean): Pag
   return out
 }
 
-/** Text of the `.param` file upstream's "Save Parameters" downloads. */
+/**
+ * Text of the `.param` file upstream's "Save Parameters" downloads. Lines stay in page order
+ * (not the natural name order of `paramFileText`), as upstream writes them.
+ */
 export function filterParamFileText(params: FilterParams, sixteenHarmonics: boolean): string {
   return pageParams(params, sixteenHarmonics)
-    .map((p) => `${p.name},${paramToString(p.value)}\n`)
+    .map((p) => paramLine(p.name, p.value))
     .join('')
 }
 
@@ -78,8 +65,10 @@ export interface ParamFileResult {
 }
 
 /**
- * Apply a `.param` / `.parm` file to the filter settings (upstream `load_parameters`): every
- * line is split on whitespace, commas or `=`, and recognised names overwrite their field.
+ * Apply a `.param` / `.parm` file to the filter settings (upstream `load_parameters`): lines are
+ * read by the shared `parseParamFile`, and recognised names overwrite their field in file order.
+ *
+ * Deviation: upstream does not trim lines, so an indented line was ignored; it is read here.
  */
 export function applyParamFile(text: string, params: FilterParams, sixteenHarmonics: boolean): ParamFileResult {
   const next: FilterParams = {
@@ -100,14 +89,9 @@ export function applyParamFile(text: string, params: FilterParams, sixteenHarmon
     }
   })
   const applied: string[] = []
-  for (const line of text.split('\n')) {
-    const parts = line.split(/[\s,=\t]+/)
-    const name = parts[0]
-    const raw = parts[1]
-    if (name === undefined || raw === undefined) continue
+  for (const { name, value } of parseParamFile(text).entries) {
     const set = lookup.get(name)
-    const value = parseFloat(raw)
-    if (set === undefined || Number.isNaN(value)) continue
+    if (set === undefined) continue
     set(value)
     applied.push(name)
   }

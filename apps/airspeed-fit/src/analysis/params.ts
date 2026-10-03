@@ -1,21 +1,11 @@
 /**
- * Suggested parameters and the `.param` file (upstream `update_saved_params`, `save_parameters`
- * and `param_to_string` from Libraries/Param_Helpers.js).
+ * Suggested parameters and the `.param` file (upstream `update_saved_params` and
+ * `save_parameters`; value formatting is the shared `param_to_string` port).
  */
+import { paramLine } from '@apwt/ardupilot'
 import type { CombinedFit } from './core.js'
 import { fittedRatio } from './fit.js'
 import type { AirspeedSensor, ArspdParam } from './load.js'
-
-/** Shortest decimal string that round-trips through a 32-bit float (upstream `param_to_string`). */
-export function paramToString(value: number): string {
-  const floatVal = Math.fround(value)
-  for (const figures of [7, 8, 9]) {
-    const numberVal = Number(floatVal.toPrecision(figures))
-    if (floatVal !== Math.fround(numberVal)) continue
-    return numberVal.toString()
-  }
-  throw new Error(`Could not convert ${value.toString()} to float string`)
-}
 
 /** Ratios outside this range are flagged before saving. */
 export const RATIO_TYPICAL_RANGE = [1.0, 3.0] as const
@@ -57,9 +47,12 @@ export function outOfRangeText(s: RatioSuggestion): string {
   return `${s.name} = ${s.ratio.toFixed(3)} outside typical range ${RATIO_TYPICAL_RANGE[0]} to ${RATIO_TYPICAL_RANGE[1]}`
 }
 
-/** Text of the `.param` file, one `NAME,value` line per suggestion in sensor order. */
+/**
+ * Text of the `.param` file, one `NAME,value` line per suggestion in sensor order (not the
+ * natural name order of the shared `paramFileText`, as upstream writes it).
+ */
 export function paramFileText(suggestions: readonly (RatioSuggestion | null)[]): string {
-  return suggestions.flatMap((s) => (s ? [`${s.name},${paramToString(s.ratio)}\n`] : [])).join('')
+  return suggestions.flatMap((s) => (s ? [paramLine(s.name, s.ratio)] : [])).join('')
 }
 
 /** File name upstream saves to. */

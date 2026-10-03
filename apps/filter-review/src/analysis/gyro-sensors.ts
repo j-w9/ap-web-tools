@@ -1,3 +1,4 @@
+import { decodeDevId, DeviceType } from '@apwt/ardupilot'
 import type { DataflashLog } from '@apwt/dataflash'
 import { arrayMean } from '@apwt/signal'
 import { MAX_GYROS } from './constants.js'
@@ -37,4 +38,15 @@ export function readGyroSensors(log: DataflashLog): GyroSensors {
     numGyro++
   }
   return { numGyro, gyroRate, sensors }
+}
+
+/**
+ * Gyro description as upstream `load()` writes it: `"ICM42688 via SPI at 2000 Hz"`, with `?` for
+ * an unknown rate. Upstream uses the IMU table name and bus for every bus type, DroneCAN
+ * included, rather than the DroneCAN node form of `describeDevId`.
+ */
+export function gyroInfoText(sensor: GyroSensor): string {
+  const decoded = decodeDevId(sensor.deviceId, DeviceType.imu)
+  const rate = sensor.rate === undefined ? '?' : Math.round(sensor.rate)
+  return `${decoded.name} via ${decoded.busType} at ${rate} Hz`
 }

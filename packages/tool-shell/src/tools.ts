@@ -153,7 +153,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Generate geofences from OpenStreetMap waterway data.',
     category: 'setup',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'GeofenceGenerator',
     opens: NONE
   },

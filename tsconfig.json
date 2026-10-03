@@ -57,6 +57,9 @@
     },
     {
       "path": "apps/scurve-tool"
+    },
+    {
+      "path": "apps/geofence-generator"
     }
   ]
 }

@@ -5,6 +5,7 @@
   "references": [
     { "path": "../../packages/signal" },
     { "path": "../../packages/dataflash" },
+    { "path": "../../packages/ardupilot" },
     { "path": "../../packages/plot" },
     { "path": "../../packages/tool-shell" }
   ]

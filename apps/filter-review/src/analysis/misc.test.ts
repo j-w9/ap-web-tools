@@ -3,6 +3,7 @@ import { DataflashLog } from '@apwt/dataflash'
 import { NOTCH_PREFIXES, notchParamNames, unsignedBitmask } from './filter-params.js'
 import { readFilterVersion } from './filter-version.js'
 import { defaultTimeRange, throttleActiveRange } from './flight-data.js'
+import { gyroInfoText } from './gyro-sensors.js'
 import { firstParamIgnoringChanges } from './log-params.js'
 import { fixture } from './test-utils/logs.js'
 import { findEndIndex, findStartIndex } from './time-index.js'
@@ -60,5 +61,14 @@ describe('default time range', () => {
     const throttle = series([0.2, 0.3, 0.4])
     expect(throttleActiveRange(throttle).first).toBeUndefined()
     expect(defaultTimeRange(0.2, 14.7, throttle)).toEqual({ dataStart: 0, dataEnd: 15, start: 0, end: 15 })
+  })
+})
+
+describe('gyroInfoText', () => {
+  it('labels gyros like upstream load()', () => {
+    expect(gyroInfoText({ index: 0, deviceId: 3408138, rate: 1999.6 })).toBe('ICM42688 via SPI at 2000 Hz')
+    expect(gyroInfoText({ index: 1, deviceId: 3 | (1 << 3) | (125 << 8) | (0x34 << 16), rate: undefined })).toBe(
+      'ICM42688 via DRONECAN at ? Hz'
+    )
   })
 })

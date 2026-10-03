@@ -1,46 +1,16 @@
-import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { createContext, runInContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
-import { decodeAirspeedDevId } from './devid.js'
-import { paramFileText, paramToString, ratioSuggestions, outOfRangeText } from './params.js'
+import { describeAirspeedDevice } from './devid.js'
+import { paramFileText, ratioSuggestions, outOfRangeText } from './params.js'
 import type { CombinedFit } from './core.js'
 import type { AirspeedSensor } from './load.js'
 
-const upstream = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../upstream/Libraries')
-const context = createContext({ console })
-runInContext(readFileSync(resolve(upstream, 'Param_Helpers.js'), 'utf8'), context)
-runInContext(readFileSync(resolve(upstream, 'DecodeDevID.js'), 'utf8'), context)
-const upParamToString = runInContext('param_to_string', context) as (v: number) => string
-const upDecode = runInContext('(id) => decode_devid(id, DEVICE_TYPE_AIRSPEED)', context) as (
-  id: number
-) => Record<string, unknown>
-
-describe('paramToString', () => {
-  it('matches upstream', () => {
-    for (const v of [0, 1, 1.987, 2.0, 1.2345678, 0.1, -3.25, 1e-7, 123456.7]) expect(paramToString(v)).toBe(upParamToString(v))
-  })
-})
-
-describe('decodeAirspeedDevId', () => {
-  it('matches upstream decode_devid', () => {
-    for (const id of [
-      1 | (0x28 << 8) | (2 << 16),
-      3 | (1 << 3) | (12 << 8),
-      3 | (12 << 8) | (3 << 16),
-      2 | (0x0b << 16),
-      0x7f0000 | 4
-    ]) {
-      const mine = decodeAirspeedDevId(id)
-      const theirs = upDecode(id)
-      expect(mine.name).toBe(theirs['name'])
-      expect(mine.busType).toBe(theirs['bus_type'])
-      expect(mine.bus).toBe(theirs['bus'])
-      expect(mine.address).toBe(theirs['address'])
-      if (mine.dronecan) expect(mine.sensorId).toBe(theirs['sensor_id'])
-      else expect(mine.devtype).toBe(theirs['devtype'])
-    }
+describe('describeAirspeedDevice', () => {
+  it('describes devices like the upstream sensor summary', () => {
+    expect(describeAirspeedDevice(undefined, 1)).toBe('ARSP instance 1')
+    expect(describeAirspeedDevice(1 | (0x28 << 8) | (2 << 16), 0)).toBe('MS4525 via I2C')
+    // DroneCAN: the usual unset sensor id (devtype 0, i.e. -1) is hidden, a real one shown
+    expect(describeAirspeedDevice(3 | (1 << 3) | (12 << 8), 0)).toBe('DRONECAN bus: 1 node id: 12')
+    expect(describeAirspeedDevice(3 | (12 << 8) | (3 << 16), 0)).toBe('DRONECAN bus: 0 node id: 12 sensor: 2')
   })
 })
 

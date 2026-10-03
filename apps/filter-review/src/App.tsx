@@ -11,6 +11,7 @@ import { DataflashLog } from '@apwt/dataflash'
 import { fftAmplitudeScale, fftFrequencyScale, type AmplitudeKind } from '@apwt/signal'
 import {
   ChipLabel,
+  downloadText,
   ErrorBanner,
   OpenInButton,
   RadioChips,
@@ -29,6 +30,7 @@ import { defaultFilterParams, type FilterParams } from './analysis/filter-params
 import { filterToolUrl } from './analysis/filter-tool-link.js'
 import type { FilterVersion } from './analysis/filter-version.js'
 import type { GyroLogType } from './analysis/gyro-data.js'
+import { gyroInfoText } from './analysis/gyro-sensors.js'
 import { loadFilterReviewLog, trackingContext, type FilterReviewLog } from './analysis/load.js'
 import { applyParamFile, filterParamFileText } from './analysis/param-file.js'
 import type { AliasMode } from './analysis/plots/alias.js'
@@ -95,15 +97,6 @@ function defaultSelections(log: FilterReviewLog): Selections {
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
-}
-
-function download(text: string, name: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 export function App() {
@@ -366,7 +359,7 @@ export function App() {
 
   // ----- Parameters -----
   const sixteenHarmonics = loaded?.sixteenHarmonics ?? true
-  const saveParams = () => download(filterParamFileText(params, sixteenHarmonics), 'filter.param')
+  const saveParams = () => downloadText('filter.param', filterParamFileText(params, sixteenHarmonics))
   const loadParams = (paramFile: File) => {
     void paramFile.text().then((text) => {
       const result = applyParamFile(text, params, sixteenHarmonics)
@@ -421,13 +414,11 @@ export function App() {
         { label: 'Duration', value: `${(loaded.gyro.endTime - loaded.gyro.startTime).toFixed(0)} s` },
         ...loaded.sensors.map((s) => {
           const info = fftInfo[s.index]
-          // TODO(shared-devid): show "<name> via <bus> at <rate> Hz" once the device-id decoder is shared
-          const rate = s.rate === undefined ? '?' : Math.round(s.rate)
           return {
             label: gyroLabel(s.index),
             value: (
               <>
-                ID {s.deviceId} at {rate} Hz
+                {gyroInfoText(s)}
                 {info && (
                   <>
                     <br />

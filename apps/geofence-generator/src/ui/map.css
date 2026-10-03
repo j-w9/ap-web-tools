@@ -1,0 +1,191 @@
+/* Map card for the geofence generator. */
+.gf-map {
+  width: 100%;
+  height: min(70vh, 640px);
+  min-height: 380px;
+  border: 1px solid rgb(var(--s4));
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgb(var(--s3));
+  font-family: var(--font);
+  /* Keep Leaflet's panes below the sticky page header. */
+  z-index: 0;
+  position: relative;
+}
+
+/*
+ * Dark theme: OSM only publishes light tiles, so the tile pane alone is inverted and its hues
+ * rotated back, which gives a dark map with water still blue-ish. Polygons, controls and the
+ * attribution sit in other panes and keep their real colours.
+ */
+html:not(.light) .gf-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.8);
+}
+
+.gf-map .leaflet-bar a {
+  color: rgb(var(--g200));
+  background: rgb(var(--s2));
+  border-bottom-color: rgb(var(--s4));
+}
+
+.gf-map .leaflet-bar a:hover {
+  color: var(--yellow-text);
+  background: rgb(var(--s3));
+}
+
+.gf-map .leaflet-bar {
+  border: 1px solid rgb(var(--s4));
+  box-shadow: none;
+}
+
+/* The tile provider requires attribution: keep it legible in both themes. */
+.gf-map .leaflet-control-attribution {
+  color: rgb(var(--g300));
+  background: rgb(var(--s2) / 0.85);
+  font-family: var(--font);
+  font-size: 11px;
+}
+
+.gf-map .leaflet-control-attribution a {
+  color: var(--yellow-text);
+}
+
+.gf-map .leaflet-tooltip {
+  color: rgb(var(--g100));
+  background: rgb(var(--s2));
+  border-color: rgb(var(--s4));
+  font-family: var(--font);
+}
+
+/* Leaflet.Editable vertex handles in the accent colour. */
+.gf-map .leaflet-vertex-icon {
+  background: var(--yellow);
+  border: 1px solid #000;
+  border-radius: 2px;
+}
+
+.gf-map .leaflet-middle-icon {
+  background: rgb(var(--g300));
+  opacity: 0.7;
+}
+
+.gf-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gf-hint {
+  margin: 0;
+  color: rgb(var(--g400));
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.gf-search {
+  display: flex;
+  gap: 8px;
+}
+
+.gf-search .apwt-input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.gf-places {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gf-places button {
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: rgb(var(--g300));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.gf-places button:hover {
+  color: var(--yellow-text);
+  background: var(--hover-fill);
+  border-color: rgb(var(--s4));
+}
+
+.gf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  color: rgb(var(--g400));
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.gf-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 0;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-top: 2px solid var(--swatch);
+}
+
+.gf-legend .gf-key-feature {
+  --swatch: #3388ff;
+}
+
+.gf-legend .gf-key-selected {
+  --swatch: #facc15;
+}
+
+.gf-legend .gf-key-inclusion {
+  --swatch: #22c55e;
+}
+
+.gf-legend .gf-key-exclusion {
+  --swatch: #f97316;
+}
+
+.gf-legend .gf-key-crop {
+  --swatch: #ef4444;
+}
+
+.gf-legend .gf-key-inclusion::before,
+.gf-legend .gf-key-exclusion::before {
+  border-top-style: dashed;
+}
+
+.gf-row-selected td {
+  background: var(--hover-fill);
+}
+
+.gf-file {
+  max-height: 260px;
+  margin: 12px 0 0;
+  padding: 12px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgb(var(--g300));
+  background: rgb(var(--s3));
+  border: 1px solid rgb(var(--s4));
+  border-radius: 8px;
+}
+
+.gf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
