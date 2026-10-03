@@ -8,13 +8,11 @@ export default tseslint.config(
   {
     ignores: [
       // Tools being ported in parallel; linted when they land.
-      'apps/filter-review/**',
-      'apps/magfit/**',
-      'apps/hardware-report/**',
 
       '**/dist/**',
       '**/node_modules/**',
       'upstream/**',
+      'vendor/**',
       'scripts/**',
       '**/*.d.ts',
       'eslint.config.js',

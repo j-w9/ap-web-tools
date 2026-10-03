@@ -13,7 +13,8 @@
   },
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "vendor/arduconfigurator/packages/firmware-flash"
   ],
   "scripts": {
     "dev": "vite",

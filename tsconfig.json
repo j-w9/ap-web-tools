@@ -18,6 +18,9 @@
     },
     {
       "path": "site"
+    },
+    {
+      "path": "apps/dfu-loader"
     }
   ]
 }

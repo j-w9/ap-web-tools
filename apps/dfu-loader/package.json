@@ -1,0 +1,14 @@
+{
+  "name": "@apwt/dfu-loader",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@apwt/tool-shell": "*",
+    "@arduconfig/firmware-flash": "*"
+  },
+  "devDependencies": {
+    "@types/w3c-web-usb": "^1.0.14"
+  }
+}

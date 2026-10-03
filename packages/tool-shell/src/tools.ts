@@ -122,7 +122,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Flash an ArduPilot bootloader over USB DFU.',
     category: 'setup',
     stable: true,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'DFULoader',
     opens: NONE
   },
