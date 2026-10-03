@@ -1,0 +1,11 @@
+{
+  "name": "@apwt/rotation-check",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@apwt/plot": "*",
+    "@apwt/tool-shell": "*"
+  }
+}

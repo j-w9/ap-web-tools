@@ -1,0 +1,71 @@
+/* Parameter fields: the ArduPilot name in mono over a short plain label. */
+.ft-param {
+  align-items: flex-start;
+}
+
+.ft-param__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ft-param__name code {
+  align-self: flex-start;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.ft-param__name small {
+  font-size: 13px;
+  color: rgb(var(--g400));
+}
+
+.ft-param input,
+.ft-param select {
+  flex: none;
+}
+
+.apwt-field.ft-param select {
+  width: 150px;
+}
+
+.ft-bits {
+  margin: 4px 0 10px;
+}
+
+.ft-bits .apwt-chip {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.ft-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgb(var(--g400));
+}
+
+.ft-note--warn {
+  color: var(--yellow-text);
+}
+
+.ft-subhead {
+  margin: 14px 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--g300));
+}
+
+.ft-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ft-buttons .apwt-btn {
+  flex: 1 1 auto;
+}
+
+.apwt-plot.ft-bode {
+  height: 640px;
+}

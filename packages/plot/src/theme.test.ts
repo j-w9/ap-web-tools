@@ -17,3 +17,11 @@ describe('themeLayout', () => {
     expect(out.xaxis?.gridcolor).toBe('red')
   })
 })
+
+describe('themeLayout for 3D', () => {
+  it('themes scene axes and keeps explicit settings', () => {
+    const out = themeLayout({ scene: { xaxis: { range: [0, 1] } } }, theme) as { scene: Record<string, Record<string, unknown>> }
+    expect(out.scene.xaxis).toMatchObject({ gridcolor: 'g', range: [0, 1] })
+    expect(out.scene.zaxis?.gridcolor).toBe('g')
+  })
+})

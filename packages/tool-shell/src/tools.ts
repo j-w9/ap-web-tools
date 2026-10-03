@@ -61,7 +61,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Load folders of logs and sort them by flight controller, with parameter changes tracked between logs.',
     category: 'logs',
     stable: true,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'LogFinder',
     opens: NONE
   },
@@ -71,7 +71,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Overview of connected hardware from a parameter file or log, including sensor health and firmware version.',
     category: 'setup',
     stable: true,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'HardwareReport',
     opens: messages('PARM')
   },
@@ -112,7 +112,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Bode plots of the gyro low-pass and notch filters configured in a parameter file.',
     category: 'setup',
     stable: true,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'FilterTool',
     opens: NONE
   },
@@ -162,7 +162,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Visualise board and sensor rotations.',
     category: 'simulation',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'RotationCheck',
     opens: NONE
   },
@@ -202,7 +202,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Fit MOT_THST_EXPO from thrust stand data for a linear thrust response.',
     category: 'setup',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'ThrustExpo',
     opens: NONE
   },

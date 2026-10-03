@@ -157,10 +157,15 @@ code {
 
 .apwt-sr-only {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
   overflow: hidden;
-  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -629,7 +634,7 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
   background: rgba(250, 204, 21, 0.1);
 }
 
-.apwt-drop svg {
+.apwt-drop > svg {
   width: 28px;
   height: 28px;
   color: var(--yellow-text);
@@ -684,6 +689,18 @@ html.light .apwt-rail .apwt-btn:not(.apwt-btn--primary) {
   color: var(--yellow-text);
   background: rgba(250, 204, 21, 0.1);
   border: 1px solid rgba(250, 204, 21, 0.2);
+}
+
+.apwt-badge--green {
+  color: var(--green-text);
+  background: rgba(52, 211, 153, 0.1);
+  border-color: rgba(52, 211, 153, 0.25);
+}
+
+.apwt-badge--red {
+  color: var(--red-text);
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.25);
 }
 
 .apwt-badge--gray {

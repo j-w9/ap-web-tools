@@ -58,14 +58,6 @@ export function PlotlyChart({ data, layout, config, style, className, onRelayout
     }
   }, [data, themed, config])
 
-  // Purge on unmount.
-  useEffect(() => {
-    const el = divRef.current
-    return () => {
-      if (el) Plotly.purge(el)
-    }
-  }, [])
-
   // Wire events once the element exists.
   useEffect(() => {
     if (!plot) return
@@ -74,6 +66,15 @@ export function PlotlyChart({ data, layout, config, style, className, onRelayout
     plot.on('plotly_relayout', handler)
     return () => plot.removeListener('plotly_relayout', handler)
   }, [plot, readyRef, relayoutRef])
+
+  // Purge on unmount. Declared after the listener effect so React runs its cleanup later:
+  // purging deletes the element's emitter methods, so listeners must be removed first.
+  useEffect(() => {
+    const el = divRef.current
+    return () => {
+      if (el) Plotly.purge(el)
+    }
+  }, [])
 
   return <div ref={divRef} style={style} className={className} />
 }

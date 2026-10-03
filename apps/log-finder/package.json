@@ -1,0 +1,13 @@
+{
+  "name": "@apwt/log-finder",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@apwt/dataflash": "*",
+    "@apwt/plot": "*",
+    "@apwt/tool-shell": "*",
+    "lucide-react": "^1.51.0"
+  }
+}

@@ -17,6 +17,9 @@
       "path": "apps/pid-review"
     },
     {
+      "path": "apps/log-finder"
+    },
+    {
       "path": "apps/stream-stats"
     },
     {
@@ -27,6 +30,18 @@
     },
     {
       "path": "apps/dfu-loader"
+    },
+    {
+      "path": "apps/filter-tool"
+    },
+    {
+      "path": "apps/hardware-report"
+    },
+    {
+      "path": "apps/rotation-check"
+    },
+    {
+      "path": "apps/thrust-expo"
     }
   ]
 }

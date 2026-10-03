@@ -76,5 +76,21 @@ export function themeLayout(layout: Partial<Layout>, theme: PlotTheme): Partial<
       ...axis
     }
   }
+  // 3D plots keep their axes under `scene`.
+  const scene = (layout as Record<string, unknown>).scene as Record<string, AxisLike | undefined> | undefined
+  if (scene !== undefined) {
+    const themedScene: Record<string, unknown> = { ...scene }
+    for (const key of ['xaxis', 'yaxis', 'zaxis']) {
+      themedScene[key] = {
+        gridcolor: theme.grid,
+        zerolinecolor: theme.line,
+        linecolor: theme.line,
+        color: theme.muted,
+        backgroundcolor: 'rgba(0,0,0,0)',
+        ...(scene[key] ?? {})
+      }
+    }
+    out.scene = themedScene
+  }
   return out
 }

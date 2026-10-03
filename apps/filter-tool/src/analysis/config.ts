@@ -1,0 +1,116 @@
+/**
+ * Turn raw parameter values into typed filter configurations, following how upstream
+ * `filters.js` interprets each parameter.
+ */
+import {
+  HARMONICS,
+  type HarmonicNotchConfig,
+  type Harmonic,
+  type NotchComposition,
+  type NotchTracking,
+  type OperatingPoint,
+  type PidGains
+} from './filters.js'
+import { NOTCH_PREFIXES, notchParam, pidParam, type Inputs, type NotchPrefix, type PidAxis } from './params.js'
+
+/** `_OPTS` bits the filter maths uses. */
+export const NOTCH_OPTION_BITS = { double: 0, multiSource: 1, triple: 4 } as const
+
+/** True when `bit` is set in a parameter value, with JavaScript's 32-bit integer semantics as upstream. */
+export function hasBit(value: number, bit: number): boolean {
+  return (value & (1 << bit)) !== 0
+}
+
+/** Harmonics selected by an `_HMNCS` bitmask, lowest first. */
+export function harmonicsFromMask(mask: number): Harmonic[] {
+  return HARMONICS.filter((h) => hasBit(mask, h - 1))
+}
+
+/** Double takes precedence over triple when both are set, as in ArduPilot. */
+export function compositionFromOptions(options: number): NotchComposition {
+  if (hasBit(options, NOTCH_OPTION_BITS.double)) return 'double'
+  if (hasBit(options, NOTCH_OPTION_BITS.triple)) return 'triple'
+  return 'single'
+}
+
+/**
+ * Tracking for a `_MODE` value. Upstream compares with `==`, so a mode that is not one of the
+ * known integers behaves as a fixed notch.
+ */
+export function trackingFromParams(mode: number, reference: number, minRatio: number, options: number): NotchTracking {
+  switch (mode) {
+    case 1:
+      return { mode: 'throttle', reference, minRatio }
+    case 2:
+      return { mode: 'rpm', sensor: 1, reference }
+    case 3:
+      return { mode: 'esc', reference, multiSource: hasBit(options, NOTCH_OPTION_BITS.multiSource) }
+    case 4:
+      return { mode: 'fft' }
+    case 5:
+      return { mode: 'rpm', sensor: 2, reference }
+    default:
+      return { mode: 'fixed' }
+  }
+}
+
+export function notchEnabled(inputs: Inputs, prefix: NotchPrefix): boolean {
+  // Upstream disables the filter when `enable <= 0`.
+  return !(inputs[notchParam(prefix, 'ENABLE')] <= 0)
+}
+
+export function notchConfig(inputs: Inputs, prefix: NotchPrefix): HarmonicNotchConfig {
+  const v = (field: Parameters<typeof notchParam>[1]) => inputs[notchParam(prefix, field)]
+  return {
+    enabled: notchEnabled(inputs, prefix),
+    tracking: trackingFromParams(v('MODE'), v('REF'), v('FM_RAT'), v('OPTS')),
+    baseFreqHz: v('FREQ'),
+    bandwidthHz: v('BW'),
+    attenuationDb: v('ATT'),
+    harmonics: harmonicsFromMask(v('HMNCS')),
+    composition: compositionFromOptions(v('OPTS'))
+  }
+}
+
+export function operatingPoint(inputs: Inputs): OperatingPoint {
+  return {
+    throttle: inputs.Throttle,
+    rpm1: inputs.RPM1,
+    rpm2: inputs.RPM2,
+    escRpm: inputs.ESC_RPM,
+    numMotors: inputs.NUM_MOTORS
+  }
+}
+
+export function pidGains(inputs: Inputs, axis: PidAxis): PidGains {
+  return {
+    kP: inputs[pidParam(axis, 'P')],
+    kI: inputs[pidParam(axis, 'I')],
+    kD: inputs[pidParam(axis, 'D')],
+    errorCutoffHz: inputs[pidParam(axis, 'FLTE')],
+    derivativeCutoffHz: inputs[pidParam(axis, 'FLTD')]
+  }
+}
+
+/** Operating-point inputs a tracking mode reads. */
+export type TrackingSource = 'throttle' | 'esc' | 'rpm'
+
+/** Sources read by the enabled notches, so the page only asks for those (upstream `update_hidden_mode`). */
+export function trackingSourcesInUse(inputs: Inputs): ReadonlySet<TrackingSource> {
+  const used = new Set<TrackingSource>()
+  for (const prefix of NOTCH_PREFIXES) {
+    const config = notchConfig(inputs, prefix)
+    if (!config.enabled) continue
+    switch (config.tracking.mode) {
+      case 'throttle':
+      case 'esc':
+      case 'rpm':
+        used.add(config.tracking.mode)
+        break
+      case 'fixed':
+      case 'fft':
+        break
+    }
+  }
+  return used
+}

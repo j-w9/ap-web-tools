@@ -16,6 +16,8 @@ export interface LogInputProps {
   title?: string
   /** Drop-zone hint, e.g. which messages the log needs. */
   hint?: ReactNode
+  /** Label of the button shown once a file is loaded. */
+  changeLabel?: string
 }
 
 /** "a .bin file" or "a .bin or .tlog file" from an `accept` attribute. */
@@ -43,7 +45,14 @@ function describeAccept(accept: string) {
  * loaded it is a dashed drop target; afterwards it lists facts about the log and stays a
  * drop target for opening another one.
  */
-export function LogInput({ facts, onFile, accept = '.bin', title = 'Open a log', hint }: LogInputProps) {
+export function LogInput({
+  facts,
+  onFile,
+  accept = '.bin',
+  title = 'Open a log',
+  hint,
+  changeLabel = 'Open another log'
+}: LogInputProps) {
   const id = useId()
   const [over, setOver] = useState(false)
 
@@ -100,7 +109,7 @@ export function LogInput({ facts, onFile, accept = '.bin', title = 'Open a log',
       <label htmlFor={id} className="apwt-btn apwt-btn--block" style={{ marginTop: 14 }}>
         {input}
         <FileText />
-        Open another log
+        {changeLabel}
       </label>
     </div>
   )

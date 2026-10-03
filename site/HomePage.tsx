@@ -23,7 +23,7 @@ export function HomePage({ children }: { children: ReactNode }) {
             ArduPilot <span className="apwt-logo-gradient">Web Tools</span>
           </h1>
           <p className="home-hero__intro">
-            Review logs, tune filters and controllers, and check your setup, right in the browser. Logs never leave your computer.
+            Browser tools for ArduPilot log analysis, tuning and setup. Files are processed locally and are not uploaded.
           </p>
         </div>
         {children}
