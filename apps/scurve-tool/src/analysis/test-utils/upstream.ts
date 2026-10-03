@@ -58,7 +58,8 @@ interface Element {
 
 interface UpstreamGlobals {
   initial_load(): void
-  replot(): Promise<void>
+  replot: () => Promise<void>
+  update_wp_colours(lastSet: number): void
   wp_pos_plot: { data: UpstreamTrace[]; layout: { scene: Record<'xaxis' | 'yaxis' | 'zaxis', { range: number[] }> } }
   SCurveLog: UpstreamCurve[]
 }
@@ -126,4 +127,32 @@ export async function runUpstream(mission: Mission, params: ParamValues, display
     ranges: { x: scene.xaxis.range, y: scene.yaxis.range, z: scene.zaxis.range },
     curves: globals.SCurveLog
   })
+}
+
+/**
+ * Set upstream's colour checkboxes, tick or untick one the way a click does and run its
+ * `onchange` (`update_wp_colours`), then return the checkbox states it leaves.
+ */
+export function clickUpstreamColour(
+  before: Pick<UpstreamDisplay, 'display_wp_vel' | 'display_wp_accel' | 'display_wp_jerk'>,
+  clicked: 'display_wp_vel' | 'display_wp_accel' | 'display_wp_jerk'
+): Pick<UpstreamDisplay, 'display_wp_vel' | 'display_wp_accel' | 'display_wp_jerk'> {
+  const { globals, elements } = load()
+  for (const [id, checked] of Object.entries(before)) elements.set(id, { id, value: '', checked })
+  const el = elements.get(clicked)
+  if (el) el.checked = !el.checked
+  // Upstream calls update() at the end, which replots; its promise is not needed here.
+  const replot = globals.replot
+  globals.replot = () => Promise.resolve()
+  try {
+    globals.update_wp_colours({ display_wp_vel: 0, display_wp_accel: 1, display_wp_jerk: 2 }[clicked])
+  } finally {
+    globals.replot = replot
+  }
+  const state = (id: string) => elements.get(id)?.checked ?? false
+  return {
+    display_wp_vel: state('display_wp_vel'),
+    display_wp_accel: state('display_wp_accel'),
+    display_wp_jerk: state('display_wp_jerk')
+  }
 }

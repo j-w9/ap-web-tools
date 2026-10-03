@@ -6,8 +6,8 @@ import 'leaflet-editable'
 import { useLatest } from '@apwt/tool-shell'
 import type { WaterPolygon } from '../analysis/features.js'
 import type { Fence } from '../analysis/fence.js'
-import type { Bounds, Position, Ring } from '../analysis/geo.js'
-import type { MapView } from '../analysis/view.js'
+import { isRing, openRing, type Bounds, type Position, type Ring } from '../analysis/geo.js'
+import { cropCornersPx, type MapView } from '../analysis/view.js'
 import { loadView, saveView } from './view-storage.js'
 import './map.css'
 
@@ -20,6 +20,13 @@ export interface MapState {
 /** Imperative actions on the map, for events that come from outside it. */
 export interface FenceMapHandle {
   fitBounds(bounds: Bounds): void
+  /** The view as it is now (upstream reads `map.getBounds()` when Search is pressed). */
+  view(): MapState | null
+  /**
+   * Replace the crop polygon with upstream's starting rectangle for the current view and return
+   * its ring as `toGeoJSON()` gives it (upstream `add_crop`).
+   */
+  addCrop(): Ring | null
 }
 
 export interface FenceMapProps {
@@ -27,7 +34,7 @@ export interface FenceMapProps {
   selectedKey: string | null
   /** Generated fence for the selected polygon, drawn over it. */
   fence: Fence | null
-  /** Crop polygon (open ring), editable on the map. */
+  /** Crop polygon (closed ring, as `toGeoJSON()` gives it), editable on the map. */
   crop: Ring | null
   labelOf: (polygon: WaterPolygon) => string
   onSelect: (key: string) => void
@@ -36,8 +43,9 @@ export interface FenceMapProps {
   ref?: Ref<FenceMapHandle>
 }
 
-// OpenStreetMap's standard tiles. Upstream used the old `http://{s}.tile.osm.org` alias; this is the
-// current HTTPS URL the OSM tile usage policy asks for. Attribution is required and stays visible.
+// OpenStreetMap's standard tiles. Upstream used the old `http://{s}.tile.osm.org` alias, which
+// browsers block as mixed content; this is the current HTTPS URL. The tile layer keeps Leaflet's
+// default `maxZoom` (18), as upstream, so the same zoom levels (and search areas) are reachable.
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 
@@ -56,16 +64,15 @@ function boundsOf(map: L.Map): MapState {
   return { bounds: { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() }, zoom: map.getZoom() }
 }
 
-/** The outer ring of an edited Leaflet polygon as GeoJSON positions. */
-function outerRing(polygon: L.Polygon): Ring {
-  const latLngs = polygon.getLatLngs()
-  const outer = latLngs[0]
-  if (!Array.isArray(outer)) return []
-  const ring: Position[] = []
-  for (const p of outer) {
-    if (p instanceof L.LatLng) ring.push([p.lng, p.lat])
-  }
-  return ring
+/**
+ * The crop polygon's ring as upstream feeds it to Turf: `toGeoJSON()`, which closes the ring and
+ * rounds coordinates to 6 decimals.
+ */
+function cropRing(polygon: L.Polygon): Ring {
+  const geometry = polygon.toGeoJSON().geometry
+  if (geometry.type !== 'Polygon') return []
+  const ring = geometry.coordinates[0]
+  return isRing(ring) ? ring : []
 }
 
 /**
@@ -99,6 +106,26 @@ export function FenceMap({
         [b.south, b.west],
         [b.north, b.east]
       ])
+    },
+    view() {
+      const map = mapRef.current
+      return map === null ? null : boundsOf(map)
+    },
+    addCrop() {
+      const map = mapRef.current
+      if (map === null) return null
+      const bb = map.getBounds()
+      const corners = cropCornersPx(map.project(bb.getNorthEast()), map.project(bb.getSouthWest()))
+      cropLayer.current?.remove()
+      const layer = L.polygon(
+        corners.map((c) => map.unproject(c)),
+        { color: COLORS.crop, fill: false, weight: 2 }
+      ).addTo(map)
+      layer.enableEdit(map)
+      cropLayer.current = layer
+      const ring = cropRing(layer)
+      reportedCrop.current = ring
+      return ring
     }
   }))
 
@@ -106,10 +133,10 @@ export function FenceMap({
   useEffect(() => {
     const container = containerRef.current
     if (container === null) return
-    const map = L.map(container, { editable: true, zoomControl: true, worldCopyJump: true })
+    const map = L.map(container, { editable: true, zoomControl: true })
     const view: MapView = loadView()
     map.setView([view.lat, view.lng], view.zoom)
-    L.tileLayer(TILE_URL, { attribution: ATTRIBUTION, maxZoom: 19 }).addTo(map)
+    L.tileLayer(TILE_URL, { attribution: ATTRIBUTION }).addTo(map)
     featureLayer.current = L.layerGroup().addTo(map)
     fenceLayer.current = L.layerGroup().addTo(map)
 
@@ -119,16 +146,17 @@ export function FenceMap({
       saveView({ lat: center.lat, lng: center.lng, zoom: state.zoom })
       callbacks.current.onViewChange(state)
     }
+    // Upstream re-applies the crop only when a vertex drag ends (adding a vertex by dragging a
+    // midpoint ends with one too); deleting a vertex leaves the crop as it was until the next drag.
     const onEdited = () => {
       const layer = cropLayer.current
       if (layer === null) return
-      const ring = outerRing(layer)
+      const ring = cropRing(layer)
       reportedCrop.current = ring
       callbacks.current.onCropChange(ring)
     }
     map.on('moveend', report)
     map.on('editable:vertex:dragend', onEdited)
-    map.on('editable:vertex:deleted', onEdited)
     mapRef.current = map
     report()
 
@@ -192,7 +220,8 @@ export function FenceMap({
     }
   }, [fence])
 
-  // Editable crop polygon (upstream draws it red, unfilled).
+  // Editable crop polygon (upstream draws it red, unfilled). `addCrop` and vertex drags create or
+  // move the layer themselves; this only removes it, or rebuilds it for a ring from elsewhere.
   useEffect(() => {
     const map = mapRef.current
     if (map === null) return
@@ -201,7 +230,7 @@ export function FenceMap({
     cropLayer.current = null
     reportedCrop.current = crop
     if (crop === null) return
-    const layer = L.polygon(crop.map(toLatLng), { color: COLORS.crop, fill: false, weight: 2 }).addTo(map)
+    const layer = L.polygon(openRing(crop).map(toLatLng), { color: COLORS.crop, fill: false, weight: 2 }).addTo(map)
     layer.enableEdit(map)
     cropLayer.current = layer
   }, [crop])

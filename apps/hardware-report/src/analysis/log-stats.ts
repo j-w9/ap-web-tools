@@ -41,11 +41,11 @@ export interface MessageSize {
 export interface LogStats {
   /** File size in bytes. */
   readonly totalBytes: number
-  /** Per message type with records, in format-id order. */
+  /** Every defined message type, in format-id order, including types with no records (as upstream `stats()`). */
   readonly messages: readonly MessageSize[]
 }
 
-/** Log composition for the size pie chart (`DataflashLog.stats()` omits types with no records). */
+/** Log composition for the size pie chart: every defined type, zero-record ones included, as upstream. */
 export function readLogStats(log: DataflashLog): LogStats {
   const messages: MessageSize[] = []
   for (const [name, s] of log.stats()) messages.push({ name, count: s.count, bytes: s.bytes })

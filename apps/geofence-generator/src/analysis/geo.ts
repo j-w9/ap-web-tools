@@ -1,16 +1,20 @@
 /**
  * Geographic primitives shared by the analysis modules. Coordinates follow GeoJSON order,
  * `[lon, lat]` in degrees, because that is what OpenStreetMap data and Turf use.
+ *
+ * Rings are mutable on purpose: upstream `generate_fence` edits the feature's own coordinate
+ * arrays on every download (see `fence.ts`), and those arrays are shared between a feature and
+ * the map polygons made from it, so the port keeps the same arrays and the same sharing.
  */
 
 /** A GeoJSON position: longitude then latitude, in degrees. */
-export type Position = readonly [lon: number, lat: number]
+export type Position = [lon: number, lat: number]
 
 /** A linear ring. Rings from GeoJSON are closed (first position repeated at the end). */
-export type Ring = readonly Position[]
+export type Ring = Position[]
 
 /** A polygon: the outer ring first, then any holes. */
-export type PolygonRings = readonly Ring[]
+export type PolygonRings = Ring[]
 
 /** A point in latitude/longitude order, as the fence file and Leaflet use it. */
 export interface LatLon {
@@ -26,56 +30,32 @@ export interface Bounds {
   readonly east: number
 }
 
-function isFiniteNumber(v: unknown): v is number {
-  return typeof v === 'number' && Number.isFinite(v)
+/**
+ * Whether a GeoJSON position has a numeric longitude and latitude. Narrowing keeps the very same
+ * array (no copy), so later in-place edits still reach the feature it came from.
+ */
+export function isPosition(value: unknown): value is Position {
+  return Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number'
 }
 
-/** Narrow an untyped GeoJSON position to a `Position`, or `null` if it is not one. */
-export function toPosition(value: unknown): Position | null {
-  if (!Array.isArray(value)) return null
-  const lon: unknown = value[0]
-  const lat: unknown = value[1]
-  return isFiniteNumber(lon) && isFiniteNumber(lat) ? [lon, lat] : null
+/** Whether a value is a ring of positions (any length, as upstream accepts whatever osmtogeojson gives). */
+export function isRing(value: unknown): value is Ring {
+  return Array.isArray(value) && value.every(isPosition)
 }
 
-/** Narrow an untyped GeoJSON ring, or `null` if any position is malformed or it has under 4 positions. */
-export function toRing(value: unknown): Ring | null {
-  if (!Array.isArray(value) || value.length < 4) return null
-  const ring: Position[] = []
-  for (const p of value) {
-    const position = toPosition(p)
-    if (position === null) return null
-    ring.push(position)
-  }
-  return ring
+/** Whether a value is polygon coordinates: an array of rings. */
+export function isPolygonRings(value: unknown): value is PolygonRings {
+  return Array.isArray(value) && value.every(isRing)
 }
 
-/** Narrow untyped GeoJSON polygon coordinates; rings that are malformed drop the whole polygon. */
-export function toPolygonRings(value: unknown): PolygonRings | null {
-  if (!Array.isArray(value) || value.length === 0) return null
-  const rings: Ring[] = []
-  for (const r of value) {
-    const ring = toRing(r)
-    if (ring === null) return null
-    rings.push(ring)
-  }
-  return rings
-}
-
-/** True when the ring's last position repeats its first. */
-export function isClosed(ring: Ring): boolean {
+/** True when the ring's last position repeats its first (upstream compares both coordinates with `==`). */
+export function isClosed(ring: readonly Position[]): boolean {
   const first = ring[0]
   const last = ring[ring.length - 1]
   return first !== undefined && last !== undefined && first[0] === last[0] && first[1] === last[1]
 }
 
-/** The ring with its closing duplicate removed (upstream `generate_fence` drops it before simplifying). */
-export function openRing(ring: Ring): Ring {
-  return isClosed(ring) ? ring.slice(0, -1) : ring
-}
-
-/** The ring closed by repeating its first position, as GeoJSON requires. */
-export function closeRing(ring: Ring): Ring {
-  const first = ring[0]
-  return first === undefined || isClosed(ring) ? ring : [...ring, first]
+/** A copy of the ring without its closing duplicate. */
+export function openRing(ring: readonly Position[]): Position[] {
+  return isClosed(ring) ? ring.slice(0, -1) : [...ring]
 }

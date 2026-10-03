@@ -43,9 +43,13 @@ const ERROR_MESSAGES: ReadonlyMap<number, string> = new Map([
   [-110, 'ErrorExecutionTimeCalculation.']
 ])
 
-/** `array_from_range` from upstream `Libraries/Array_Math.js`, including its accumulated step. */
+/**
+ * `array_from_range` from upstream `Libraries/Array_Math.js`, including its accumulated step.
+ * Throws a `RangeError` for a length `new Array` rejects, as upstream does.
+ */
 export function sampleTimes(start: number, end: number, step: number): Float64Array {
   const length = Math.floor((end - start) / step) + 1
+  if (!Number.isInteger(length) || length < 0 || length > 2 ** 32 - 1) throw new RangeError('Invalid array length')
   const times = new Float64Array(length)
   let value = start
   for (let i = 0; i < length; i++) {
@@ -105,7 +109,13 @@ function createPlanner(module: RuckigModule): RuckigLib {
           }
         }
 
-        const time = sampleTimes(0, trajectory.get_duration(), input.dt)
+        let time: Float64Array
+        try {
+          time = sampleTimes(0, trajectory.get_duration(), input.dt)
+        } catch {
+          // Upstream throws here and the page stops updating.
+          return { ok: false, code: null, message: 'The trajectory duration could not be sampled.' }
+        }
         const pos = new Float64Array(time.length)
         const vel = new Float64Array(time.length)
         const accel = new Float64Array(time.length)

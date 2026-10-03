@@ -117,8 +117,9 @@ export function taskName(task: number): string | undefined {
 }
 
 /**
- * Name of a fault type. Deviation: upstream lists BusFault and UsageFault under `case 4`
- * (unreachable duplicates); they are mapped to 5 and 6 as in the Cortex-M fault numbering.
+ * Name of a fault type, as upstream's `switch`. Upstream bug, reproduced: BusFault and
+ * UsageFault are listed under duplicate `case 4` labels, which never match, so fault types 5
+ * and 6 get no name.
  */
 export function faultName(type: number): string | undefined {
   return FAULT_NAMES[type]
@@ -128,9 +129,7 @@ const FAULT_NAMES: Readonly<Record<number, string>> = {
   1: 'Reset',
   2: 'NMI',
   3: 'HardFault',
-  4: 'MemManage',
-  5: 'BusFault',
-  6: 'UsageFault'
+  4: 'MemManage'
 }
 
 /** One decoded ICSR bit field. */
@@ -186,17 +185,22 @@ const ICSR_FIELDS: readonly (readonly [string, string, ((v: number) => string) |
 ]
 
 /**
- * Decode the ICSR register into its bit fields (upstream `decode_ICSR`). Deviation: values are
- * extracted with an unsigned shift so bit 31 reads 1 rather than upstream's -1.
+ * Decode the ICSR register into its bit fields (upstream `decode_ICSR`). Values are extracted
+ * with upstream's signed shift, so a set bit 31 (NMIPENDSET) reads -1 (upstream bug, reproduced).
  */
 export function decodeIcsr(icsr: number): IcsrField[] {
   return ICSR_FIELDS.map(([bits, name, decoder]) => {
     const [start, stop] = bits.includes('-') ? (bits.split('-').map(Number) as [number, number]) : [Number(bits), Number(bits)]
     let mask = 0
     for (let i = start; i <= stop; i++) mask |= 1 << i
-    const value = ((icsr & mask) >>> start) >>> 0
+    const value = (icsr & mask) >> start
     return { bits, name, value, description: decoder?.(value) }
   })
+}
+
+/** Upstream's hex text for a value: `"0x" + value.toString(16)` (so -1 reads `0x-1`). */
+export function upstreamHex(value: number): string {
+  return '0x' + value.toString(16)
 }
 
 /**

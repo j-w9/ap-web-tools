@@ -29,8 +29,6 @@ import { interestingParamChanges, parseParamFile, readLogParams, type ParamData,
 import { readPerformance, readStacks, type PerformanceData, type ThreadStack } from './performance.js'
 import { positionOffsets, type PositionOffsets } from './position-offsets.js'
 import { readFlow, readRangefinders, readViso, type PositionedSensor } from './position-sensors.js'
-import { readSerialPorts, type SerialPortConfig } from './serial.js'
-import { readSysFiles, type SysFilesReport } from './sys-files.js'
 import { collectWarnings, type ReportWarning } from './warnings.js'
 import { readWatchdogs, type WatchdogRecord } from './watchdog.js'
 
@@ -64,8 +62,6 @@ export interface ParamReport {
   readonly sensors: SensorReport
   /** Sensor positions for the offset plot. */
   readonly positionOffsets: PositionOffsets
-  /** `SERIALn` port configuration. */
-  readonly serialPorts: readonly SerialPortConfig[]
   /** Warnings. */
   readonly warnings: readonly ReportWarning[]
 }
@@ -116,8 +112,6 @@ export interface LogReport extends ParamReport {
   readonly missions: MissionData
   /** Embedded files. */
   readonly files: readonly EmbeddedFile[]
-  /** Decoded `@SYS` files. */
-  readonly sysFiles: SysFilesReport
   /** Log size and composition. */
   readonly logStats: LogStats
   /** Time series. */
@@ -150,7 +144,6 @@ function paramReport(
     paramChanges: interestingParamChanges(params.changes),
     sensors,
     positionOffsets: positionOffsets(sensors),
-    serialPorts: readSerialPorts(p),
     warnings: collectWarnings(p, watchdogs, files)
   }
 }
@@ -166,6 +159,7 @@ export function buildParamFileReport(text: string): ParamFileReport {
  */
 export function buildLogReport(log: DataflashLog): LogReport {
   const params = readLogParams(log)
+  // Upstream alerts this exact text and stops.
   if (params === undefined) throw new Error('No parameter values found in log')
   // CAN first so device ids can be annotated with node names.
   const can = readCanNodes(log)
@@ -182,7 +176,6 @@ export function buildLogReport(log: DataflashLog): LogReport {
     can,
     missions: readMissions(log),
     files,
-    sysFiles: readSysFiles(files),
     logStats: readLogStats(log),
     plots: {
       temperature: readTemperature(log),

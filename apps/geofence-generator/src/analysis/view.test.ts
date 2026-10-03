@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { cropRectangle, parseStoredView } from './view.js'
+import { cropCornersPx, parseStoredView } from './view.js'
+import { loadUpstream } from '../test-utils/upstream.js'
 
 describe('parseStoredView', () => {
   it('accepts a valid view and rejects anything else', () => {
@@ -11,24 +12,37 @@ describe('parseStoredView', () => {
   })
 })
 
-describe('cropRectangle', () => {
-  it('insets the view in Web Mercator, corners NE, SE, SW, NW', () => {
-    const ring = cropRectangle({ south: 40, west: 10, north: 60, east: 20 }, 0.9)
-    expect(ring).toHaveLength(4)
-    const [ne, se, sw, nw] = ring
-    expect(ne?.[0]).toBeCloseTo(19.5)
-    expect(sw?.[0]).toBeCloseTo(10.5)
-    expect(ne?.[1]).toBe(nw?.[1])
-    expect(se?.[1]).toBe(sw?.[1])
-    expect(ne?.[1]).toBeLessThan(60)
-    expect(se?.[1]).toBeGreaterThan(40)
-    // Mercator stretches the north, so the same on-screen inset is fewer degrees there.
-    expect(60 - (ne?.[1] ?? 0)).toBeLessThan((se?.[1] ?? 0) - 40)
+/** Leaflet's EPSG:3857 projection at a zoom, written out (Leaflet itself needs a DOM to load). */
+function webMercator(zoom: number) {
+  const R = 6378137
+  const scale = (256 * 2 ** zoom) / (2 * Math.PI * R)
+  return (ll: { lat: number; lng: number }) => {
+    const sin = Math.sin((ll.lat * Math.PI) / 180)
+    const x = R * ((ll.lng * Math.PI) / 180)
+    const y = (R * Math.log((1 + sin) / (1 - sin))) / 2
+    return { x: scale * x + 0.5 * 256 * 2 ** zoom, y: -scale * y + 0.5 * 256 * 2 ** zoom }
+  }
+}
+
+describe('cropCornersPx matches upstream add_crop', () => {
+  it.each([
+    [{ south: 47.25, west: 8.45, north: 47.35, east: 8.6 }, 12],
+    [{ south: -33.9, west: 151.1, north: -33.8, east: 151.3 }, 13],
+    [{ south: 69.5, west: 18.0, north: 69.7, east: 18.4 }, 11]
+  ])('view %o at zoom %i', (bounds, zoom) => {
+    const project = webMercator(zoom)
+    const upstream = loadUpstream()
+    const theirs = upstream.addCrop(bounds, project, [])
+    const ne = project({ lat: bounds.north, lng: bounds.east })
+    const sw = project({ lat: bounds.south, lng: bounds.west })
+    expect(cropCornersPx(ne, sw)).toEqual(theirs)
   })
 
-  it('is the full view at inset 1', () => {
-    const ring = cropRectangle({ south: -10, west: -5, north: 10, east: 5 }, 1)
-    expect(ring[0]?.[1]).toBeCloseTo(10, 9)
-    expect(ring[2]?.[1]).toBeCloseTo(-10, 9)
+  it('insets the top to 70% and the other edges to 95% of the half-size', () => {
+    const [rt, rb, lb, lt] = cropCornersPx({ x: 200, y: 0 }, { x: 0, y: 100 })
+    expect(rt).toEqual([195, 15])
+    expect(rb).toEqual([195, 97.5])
+    expect(lb).toEqual([5, 97.5])
+    expect(lt).toEqual([5, 15])
   })
 })

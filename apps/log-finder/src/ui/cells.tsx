@@ -60,9 +60,9 @@ function warningText(w: LogWarning) {
     case 'watchdog':
       return (
         <p key={w.kind} style={{ margin: '4px 0' }}>
-          {w.kind === 'crash-dump' ? 'Crash dump file detected.' : 'Watchdog reboot detected.'}
+          {w.kind === 'crash-dump' ? 'Crash Dump file detected.' : 'Watchdog reboot detected.'}
           <br />
-          For more information see the ArduPilot{' '}
+          For more information see ArduPilot{' '}
           <a href={w.docsUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--red-text)' }}>
             documentation
           </a>

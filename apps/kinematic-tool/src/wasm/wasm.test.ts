@@ -49,4 +49,10 @@ describe('ruckig', () => {
   it('samples like upstream array_from_range', () => {
     expect(Array.from(sampleTimes(0, 1, 0.25))).toEqual([0, 0.25, 0.5, 0.75, 1])
   })
+
+  it('rejects the lengths upstream new Array rejects', () => {
+    expect(() => sampleTimes(0, NaN, 0.25)).toThrow(RangeError)
+    expect(() => sampleTimes(0, Infinity, 0.25)).toThrow(RangeError)
+    expect(() => sampleTimes(0, -1, 0.25)).toThrow(RangeError)
+  })
 })

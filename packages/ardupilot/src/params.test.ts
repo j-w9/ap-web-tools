@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { loadUpstream, rng } from './test-utils/upstream.js'
+import { loadUpstream, rng, upstreamOutput } from './test-utils/upstream.js'
 import {
   compareParamNames,
   compassParamNames,
@@ -123,6 +123,38 @@ describe('paramValue', () => {
   })
   it('returns undefined for a missing param', () => {
     expect(paramValue(names, values, 'C').value).toBeUndefined()
+  })
+
+  it('matches upstream get_param_value: value, console messages and the alert', () => {
+    const up = loadUpstream()
+    const cases: [string[], number[]][] = [
+      [names, values],
+      [
+        ['X', 'X', 'Y', 'X'],
+        [0.1, 0.1, 2, 0.30000001192092896]
+      ],
+      [['Z'], [NaN]],
+      [
+        ['Z', 'Z'],
+        [NaN, NaN]
+      ]
+    ]
+    for (const [n, v] of cases) {
+      for (const name of new Set([...n, 'MISSING'])) {
+        for (const allow of [undefined, true, false]) {
+          upstreamOutput.log.length = 0
+          upstreamOutput.alert.length = 0
+          const theirs = up.get_param_value({ Name: n, Value: v }, name, allow)
+          const mine = paramValue(n, v, name, allow)
+          expect(mine.value).toEqual(theirs)
+          expect(mine.changes).toEqual(upstreamOutput.log)
+          // Upstream alerts exactly the last message when changes are not allowed.
+          expect(allow === false ? mine.changes.slice(-1).filter((m) => m.startsWith('Ignoring')) : []).toEqual(
+            upstreamOutput.alert
+          )
+        }
+      }
+    }
   })
 })
 

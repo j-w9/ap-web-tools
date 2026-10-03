@@ -66,31 +66,51 @@ function movingBase(params: ParamValues, prefix: string): ParamVector3 | undefin
   return paramVector3(params, paramNameVector3(prefix + 'OFS_'))
 }
 
-/** Device names per 0-based GPS index from boot messages (upstream regexes). */
-export function gpsDevicesFromMessages(messages: readonly string[]): Map<number, string> {
-  const out = new Map<number, string>()
+/** A boot message naming a GPS receiver, e.g. `"GPS 1: detected as u-blox at 115200 baud"`. */
+export interface GpsDeviceMessage {
+  /** 0-based GPS index (`n - 1`; may be out of range). */
+  readonly index: number
+  /** Word after "as". */
+  readonly device: string
+  /** The message. */
+  readonly message: string
+}
+
+/** Boot messages that name a GPS device, in log order (upstream regexes). */
+export function gpsDeviceMessages(messages: readonly string[]): GpsDeviceMessage[] {
+  const out: GpsDeviceMessage[] = []
   const regexDevice = /(?<=as\s)(\S+)/i
   const regexNumber = /(?<=GPS\s)(\d+)/
   for (const message of messages) {
     if (!message.startsWith('GPS')) continue
     const num = message.match(regexNumber)
     const device = message.match(regexDevice)
-    if (num !== null && device !== null) out.set(parseInt(num[0]) - 1, device[0])
+    if (num !== null && device !== null) out.push({ index: parseInt(num[0]) - 1, device: device[0], message })
   }
   return out
 }
 
 /**
- * GPS receivers from `GPS_TYPE[n]` (pre 4.6) or `GPSn_TYPE` (4.6+) parameters.
+ * Thrown where upstream `load_gps` crashes: a boot message names a GPS number that is not
+ * configured (upstream assigns to `gps[n].device` of a missing entry and the report stops).
+ */
+export class UnconfiguredGpsError extends Error {
+  constructor(readonly gps: GpsDeviceMessage) {
+    super(`The log message "${gps.message}" names GPS ${gps.index + 1}, which is not configured; the report can not be built.`)
+    this.name = 'UnconfiguredGpsError'
+  }
+}
+
+/**
+ * GPS receivers from `GPS_TYPE[n]` (pre 4.6) or `GPSn_TYPE` (4.6+) parameters, with the device
+ * name from the last boot message naming each (upstream `load_gps`). Every configured receiver
+ * is returned, as the offset plot uses them all; upstream lists only those with a
+ * {@link GpsSensor.device}, which the UI filters on.
  *
- * Upstream only displays receivers whose device name was found in the boot messages (so
- * never for `.param` files); every configured receiver is returned here and the UI can
- * filter on {@link GpsSensor.device}. Deviation: upstream throws when a message names a GPS
- * that is not configured; such messages are ignored.
+ * @throws {UnconfiguredGpsError} where upstream crashes (a message names an unconfigured GPS).
  */
 export function readGps(params: ParamValues, log: DataflashLog | undefined, can: CanInventory): (GpsSensor | undefined)[] {
-  const devices = log === undefined ? new Map<number, string>() : gpsDevicesFromMessages(log.textMessages())
-  const out: (GpsSensor | undefined)[] = []
+  const configured: (Omit<GpsSensor, 'device'> | undefined)[] = []
   for (let i = 0; i < MAX_NUM_GPS; i++) {
     let found: { type: number; pos: ParamVector3; nodeId: number | undefined; movingBase: ParamVector3 | undefined } | undefined
     const oldType = params.get(i === 0 ? 'GPS_TYPE' : `GPS_TYPE${i + 1}`)
@@ -115,12 +135,18 @@ export function readGps(params: ParamValues, log: DataflashLog | undefined, can:
       }
     }
     if (found === undefined) {
-      out.push(undefined)
+      configured.push(undefined)
       continue
     }
     const canName =
       DRONECAN_GPS_TYPES.has(found.type) && found.nodeId !== undefined ? canNameForNodeId(can, found.nodeId) : undefined
-    out.push({ number: i + 1, ...found, typeName: GPS_TYPE_NAMES[found.type], device: devices.get(i), canName })
+    configured.push({ number: i + 1, ...found, typeName: GPS_TYPE_NAMES[found.type], canName })
   }
-  return out
+
+  const devices = new Map<number, string>()
+  for (const m of log === undefined ? [] : gpsDeviceMessages(log.textMessages())) {
+    if (configured[m.index] === undefined) throw new UnconfiguredGpsError(m)
+    devices.set(m.index, m.device)
+  }
+  return configured.map((g, i) => (g === undefined ? undefined : { ...g, device: devices.get(i) }))
 }

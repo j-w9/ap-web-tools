@@ -61,20 +61,21 @@ export const BUILTIN_MULTIPLIERS: Readonly<Record<string, number>> = {
 /** Unit id that marks a message's instance-number field. */
 export const INSTANCE_UNIT_ID = '#'
 
-/** SI prefix to prepend to a unit label for a given multiplier. */
+/**
+ * Prefix prepended to a unit label for a given multiplier: upstream `multipliersTable`, including
+ * its `n` (nano) for 1e-6 where micro is meant (upstream bug, reproduced).
+ */
 const SI_PREFIXES: ReadonlyMap<number, string> = new Map([
-  [1e-9, 'n'],
-  [1e-6, 'µ'],
-  [1e-3, 'm'],
-  [1e3, 'k'],
-  [1e6, 'M']
+  [0.000001, 'n'],
+  [1000, 'M'],
+  [0.001, 'm']
 ])
 
 /** Unit and scaling metadata for one field. */
 export interface FieldUnits {
   /** Unit id character from FMTU, or `undefined` when the log has no FMTU for the message. */
   readonly unitId: string | undefined
-  /** Human unit label, with an SI prefix applied when the multiplier is a plain power of ten (e.g. `"ms"`). `"?"` when unknown. */
+  /** Human unit label, with upstream's prefix applied for multipliers 1e-6 (`n`), 1e-3 (`m`) and 1e3 (`M`). `"?"` when unknown. */
   readonly unit: string
   /** Multiplier id character from FMTU, or `undefined` when unknown. */
   readonly multiplierId: string | undefined
@@ -124,7 +125,7 @@ export function resolveFieldUnits(
     const prefix = SI_PREFIXES.get(multiplier) ?? ''
     out.push({
       unitId,
-      unit: label === '' ? '' : prefix + label,
+      unit: prefix + label,
       multiplierId,
       multiplier,
       isInstance: unitId === INSTANCE_UNIT_ID

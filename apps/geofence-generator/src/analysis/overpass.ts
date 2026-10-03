@@ -1,5 +1,5 @@
-import osmtogeojson from 'osmtogeojson'
-import { geometryPolygons, type Tags, type WaterFeature } from './features.js'
+import osmtogeojson from 'osmtogeojson/osmtogeojson.js'
+import type { OsmFeature } from './features.js'
 import type { Bounds } from './geo.js'
 
 /** Public Overpass API endpoint upstream queries. */
@@ -40,13 +40,11 @@ const WAYS = `(way[landuse=reservoir];
          way[water=reservoir];);
         out geom;`
 
-/**
- * Overpass QL for water bodies in `bounds`. Deviation: `[out:json]` is added so the response is
- * parsed as JSON rather than XML; osmtogeojson converts either into the same GeoJSON.
- */
+/** Overpass QL for water bodies in `bounds`, exactly as upstream `request()` builds it. */
 export function buildOverpassQuery(bounds: Bounds): string {
-  const bbox = `[bbox:${bounds.south},${bounds.west},${bounds.north},${bounds.east}];`
-  return `[out:json]${bbox}${AREAS}${WAYS}`
+  // Upstream concatenates the raw numbers, so their default string form is used here too.
+  const bbox = `[bbox:${String(bounds.south)},${String(bounds.west)},${String(bounds.north)},${String(bounds.east)}];`
+  return `${bbox}${AREAS}${WAYS}`
 }
 
 /** Form body for the Overpass POST request, as upstream sends it. */
@@ -54,43 +52,24 @@ export function overpassRequestBody(bounds: Bounds): string {
   return `data=${encodeURIComponent(buildOverpassQuery(bounds))}`
 }
 
-export type OverpassResult =
-  { readonly ok: true; readonly features: WaterFeature[] } | { readonly ok: false; readonly error: string }
-
-function stringTags(properties: unknown): Tags {
-  const tags: Record<string, string> = {}
-  if (typeof properties !== 'object' || properties === null) return tags
-  for (const [k, v] of Object.entries(properties)) {
-    if (typeof v === 'string') tags[k] = v
-  }
-  return tags
-}
-
-/** Water features from a GeoJSON FeatureCollection; only Polygon and MultiPolygon features are kept. */
-export function waterFeaturesFromGeoJson(features: readonly unknown[]): WaterFeature[] {
-  const out: WaterFeature[] = []
-  for (const f of features) {
-    if (typeof f !== 'object' || f === null || !('geometry' in f)) continue
-    const polygons = geometryPolygons(f.geometry)
-    if (polygons === null) continue
-    const id = 'id' in f && (typeof f.id === 'string' || typeof f.id === 'number') ? String(f.id) : ''
-    out.push({ id, tags: stringTags('properties' in f ? f.properties : null), polygons })
-  }
-  return out
+/** The part of a parsed XML document this module reads (a browser `Document` has it). */
+export interface XmlDocument {
+  getElementsByTagName(name: string): ArrayLike<{ readonly textContent: string | null }>
 }
 
 /**
- * Parse an Overpass JSON response into water features (upstream converts the XML response with
- * osmtogeojson, which assembles multipolygon relations into rings).
+ * Features from an Overpass response document. Upstream asks for the default XML output, parses
+ * the body with `DOMParser` as `text/xml` and converts it with osmtogeojson (the same build,
+ * 3.0.0-beta.5), whatever the HTTP status; the port does the same, so an error page or an
+ * unparsable body gives whatever osmtogeojson makes of it (normally no features).
  */
-export function parseOverpassResponse(json: unknown): OverpassResult {
-  if (typeof json !== 'object' || json === null || !('elements' in json) || !Array.isArray(json.elements)) {
-    return { ok: false, error: 'The Overpass API returned an unexpected response.' }
-  }
-  // Overpass reports timeouts and memory limits as a `remark` with a 200 status.
-  if ('remark' in json && typeof json.remark === 'string' && /error/i.test(json.remark)) {
-    return { ok: false, error: `The Overpass API could not finish the search (${json.remark.trim()}). Try a smaller area.` }
-  }
-  const geojson = osmtogeojson(json)
-  return { ok: true, features: waterFeaturesFromGeoJson(geojson.features) }
+export function featuresFromXml(xml: XmlDocument): OsmFeature[] {
+  return osmtogeojson(xml).features
+}
+
+/** Overpass reports timeouts and memory limits in a `<remark>` with HTTP 200; its text, if any. */
+export function overpassRemark(xml: XmlDocument): string | null {
+  const remark = xml.getElementsByTagName('remark')[0]
+  const text = remark?.textContent?.trim()
+  return text === undefined || text === '' ? null : text
 }

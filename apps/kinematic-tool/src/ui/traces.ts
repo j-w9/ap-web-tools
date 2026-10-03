@@ -2,7 +2,8 @@
  * Builders turning simulation results into Plotly traces and layouts, one plot per quantity.
  * Pure functions so the React components stay declarative.
  */
-import { defaultColor, type Data, type Layout, type Shape } from '@apwt/plot'
+import type { Data, Layout, Shape } from '@apwt/plot'
+import { defaultColor } from '@apwt/plot/colors'
 import type { SimulationResult } from '../analysis/simulate.js'
 import type { MethodResult } from '../analysis/trajectory.js'
 
@@ -83,12 +84,16 @@ function seriesData(result: MethodResult, quantity: Quantity): { x: Float64Array
 export function quantityTraces(result: SimulationResult | null, quantity: Quantity): Partial<Data>[] {
   if (!result) return []
   const unit = QUANTITY_INFO[quantity].unit
+  // Upstream's plane page sets `showlegend: true` on every trace, which keeps the legend even when
+  // only one trace has data (the jerk plot); the copter page leaves Plotly's default.
+  const legend = result.vehicle === 'plane' ? { showlegend: true } : {}
   const traces: Partial<Data>[] = []
   methodSeries(result).forEach((method, i) => {
     const data = method.result && seriesData(method.result, quantity)
     if (!data) return
     traces.push({
       mode: 'lines',
+      ...legend,
       name: method.name,
       line: { color: defaultColor(i) },
       hovertemplate: `<extra></extra>%{x:.2f} s<br>%{y:.2f} ${unit}`,

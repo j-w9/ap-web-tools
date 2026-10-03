@@ -5,10 +5,12 @@ import { fencePointCount, formatWaypoints, type Fence, type FenceItem } from '..
 export interface FencePreviewProps {
   polygon: WaterPolygon
   label: string
-  /** The generated fence, or `null` when it must be (re)generated, e.g. after the crop changed. */
+  /** The fence the next download will write, or `null` while it is (re)generated. */
   fence: Fence | null
+  /** Downloads so far; each one rotates the polygon's rings, as upstream does. */
+  downloads: number
   onGenerate: () => void
-  onDownload: (text: string) => void
+  onDownload: () => void
 }
 
 const KIND_LABEL = { polygon: 'Polygon', circle: 'Circle' } as const satisfies Record<FenceItem['kind'], string>
@@ -24,7 +26,7 @@ function itemSize(item: FenceItem): string {
 }
 
 /** Details of the selected polygon, the fence generated from it and the download (upstream's popup). */
-export function FencePreview({ polygon, label, fence, onGenerate, onDownload }: FencePreviewProps) {
+export function FencePreview({ polygon, label, fence, downloads, onGenerate, onDownload }: FencePreviewProps) {
   const text = fence === null ? null : formatWaypoints(fence)
   return (
     <>
@@ -42,7 +44,7 @@ export function FencePreview({ polygon, label, fence, onGenerate, onDownload }: 
           </dd>
         </div>
         <div>
-          <dt>Source points</dt>
+          <dt>Points</dt>
           <dd>{pointCount(polygon.rings)}</dd>
         </div>
         {fence !== null && (
@@ -87,11 +89,17 @@ export function FencePreview({ polygon, label, fence, onGenerate, onDownload }: 
           {text !== null && (
             <>
               <div className="gf-actions">
-                <button type="button" className="apwt-btn apwt-btn--primary" onClick={() => onDownload(text)}>
+                <button type="button" className="apwt-btn apwt-btn--primary" onClick={onDownload}>
                   <Download />
                   Download fence
                 </button>
               </div>
+              {downloads > 0 && (
+                <p className="gf-hint">
+                  As in the original tool, each download rotates the polygon&apos;s start vertex by 228 places, so the next file
+                  differs slightly from the last one.
+                </p>
+              )}
               <details>
                 <summary className="gf-hint" style={{ marginTop: 12, cursor: 'pointer' }}>
                   Show file

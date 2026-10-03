@@ -1,8 +1,10 @@
 import { ArrowDown, ArrowUp, Map as MapIcon } from 'lucide-react'
 import type { VehicleType } from '@apwt/dataflash'
 import { formatDistance, formatFlightTime, formatSize, formatStartTime } from '../analysis/format.js'
-import type { BoardTable, ScannedLog, SortKey, SortState } from '../analysis/table.js'
+import type { BoardSort, BoardTable, SortKey } from '../analysis/table.js'
 import { OpenInMenu, ParamDiffCell, ParamDownloadButton, WarningsButton } from './cells.js'
+import { FlightMap } from './FlightMap.js'
+import { PopoverButton } from './Popover.js'
 
 export const VEHICLE_NAMES: Readonly<Record<VehicleType, string>> = {
   copter: 'Copter',
@@ -13,7 +15,7 @@ export const VEHICLE_NAMES: Readonly<Record<VehicleType, string>> = {
   blimp: 'Blimp'
 }
 
-const COLUMNS: readonly { key: SortKey; label: string }[] = [
+const COLUMNS: readonly { key: SortKey | 'vehicle'; label: string }[] = [
   { key: 'date', label: 'Date' },
   { key: 'name', label: 'Name' },
   { key: 'size', label: 'Size' },
@@ -28,48 +30,52 @@ const ACTIONS = { display: 'flex', gap: 6, justifyContent: 'flex-end', alignItem
 
 export interface LogTableProps {
   table: BoardTable<File>
-  sort: SortState
+  /** This board's own sort (upstream sorts each board's table separately). */
+  sort: BoardSort
   onSort: (key: SortKey) => void
-  onShowPath: (log: ScannedLog<File>) => void
 }
 
 /** One board's logs (upstream: one Tabulator table per board). */
-export function LogTable({ table, sort, onSort, onShowPath }: LogTableProps) {
+export function LogTable({ table, sort, onSort }: LogTableProps) {
   return (
     <div className="apwt-table-wrap">
       <table className="apwt-table">
         <thead>
           <tr>
-            {COLUMNS.map((c) => (
-              <th
-                key={c.key}
-                style={c.key === 'name' || c.key === 'firmware' ? LEFT : undefined}
-                aria-sort={sort.key === c.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-              >
-                <button
-                  type="button"
-                  onClick={() => onSort(c.key)}
-                  style={{
-                    font: 'inherit',
-                    letterSpacing: 'inherit',
-                    textTransform: 'inherit',
-                    color: 'inherit',
-                    background: 'none',
-                    border: 0,
-                    padding: 0,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    ...(sort.key === c.key ? { color: 'var(--yellow-text)' } : {})
-                  }}
+            {COLUMNS.map((c) => {
+              const key = c.key
+              if (key === 'vehicle') return <th key={key}>{c.label}</th>
+              return (
+                <th
+                  key={key}
+                  style={key === 'name' || key === 'firmware' ? LEFT : undefined}
+                  aria-sort={sort.key === key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  {c.label}
-                  {sort.key === c.key &&
-                    (sort.direction === 'asc' ? <ArrowUp width={12} height={12} /> : <ArrowDown width={12} height={12} />)}
-                </button>
-              </th>
-            ))}
+                  <button
+                    type="button"
+                    onClick={() => onSort(key)}
+                    style={{
+                      font: 'inherit',
+                      letterSpacing: 'inherit',
+                      textTransform: 'inherit',
+                      color: 'inherit',
+                      background: 'none',
+                      border: 0,
+                      padding: 0,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      ...(sort.key === key ? { color: 'var(--yellow-text)' } : {})
+                    }}
+                  >
+                    {c.label}
+                    {sort.key === key &&
+                      (sort.direction === 'asc' ? <ArrowUp width={12} height={12} /> : <ArrowDown width={12} height={12} />)}
+                  </button>
+                </th>
+              )
+            })}
             <th>Param changes</th>
             <th aria-label="Actions" />
           </tr>
@@ -93,16 +99,20 @@ export function LogTable({ table, sort, onSort, onShowPath }: LogTableProps) {
                   {s.distanceM === undefined ? (
                     '-'
                   ) : (
-                    <button
-                      type="button"
+                    <PopoverButton
+                      label={
+                        <>
+                          <MapIcon />
+                          {formatDistance(s.distanceM)}
+                        </>
+                      }
+                      title="Show the flight path on a map"
                       className="apwt-btn apwt-btn--ghost"
                       style={{ padding: '4px 8px', fontSize: 13 }}
-                      title="Show the flight path"
-                      onClick={() => onShowPath(log)}
+                      width={502}
                     >
-                      <MapIcon />
-                      {formatDistance(s.distanceM)}
-                    </button>
+                      {() => <FlightMap file={log.file} />}
+                    </PopoverButton>
                   )}
                 </td>
                 <td>
@@ -123,7 +133,7 @@ export function LogTable({ table, sort, onSort, onShowPath }: LogTableProps) {
           <tfoot>
             <tr style={{ background: 'rgb(var(--s3))', borderTop: '1px solid rgb(var(--s4))' }}>
               <td style={LEFT}>Total</td>
-              <td style={LEFT}>{table.rows.length} logs</td>
+              <td style={LEFT}>{table.sorted.length} logs</td>
               <td>{formatSize(table.totals.sizeBytes)}</td>
               <td />
               <td />

@@ -13,7 +13,7 @@ export { DataflashLog, type ParamChange, leapSecondsGps, leapSecondsTai } from '
 export type { FieldInfo, MessageStats, MessageTypeInfo, ParseOptions, ParsedMessage } from './log.js'
 export type { Column, NumericColumn } from './decode.js'
 export type { FormatDefinition, TypeCode } from './format.js'
-export { TYPE_SIZES, isTypeCode, makeFormat } from './format.js'
+export { FMT_DEFINITION, TYPE_SIZES, isTypeCode, makeFormat } from './format.js'
 export type { FieldUnits } from './units.js'
 export { BUILTIN_MULTIPLIERS, BUILTIN_UNITS } from './units.js'
 export {

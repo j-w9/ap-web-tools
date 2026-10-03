@@ -10,30 +10,60 @@ import {
   presentGroupParams
 } from '../analysis/minimal-params.js'
 import type { ParamData, ParamHistory } from '../analysis/params.js'
-import { paramToString } from '@apwt/ardupilot'
 import { Table } from './common.js'
 
 type Base = 'all' | 'changed'
 
 const SECTIONS = [...new Set(PARAM_GROUPS.map((g) => g.section))]
 
+/** Parameters present in each group (upstream `update_minimal_config()`). */
+function groupPresence(params: ParamData, changedOnly: boolean): Map<string, string[]> {
+  return new Map(PARAM_GROUPS.map((g) => [g.id, presentGroupParams(g, params.values, params.defaults, changedOnly)]))
+}
+
 /** Parameter downloads: all, changed from default, and the minimal configuration. */
 export function ParamExportSection({ params, fileName }: { params: ParamData; fileName: string | null }) {
   const haveDefaults = params.defaults.size > 0
   const [chosenBase, setBase] = useState<Base>('changed')
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set())
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [loadedParams, setLoadedParams] = useState(params)
   const base: Base = haveDefaults ? chosenBase : 'all'
   const changedOnly = base === 'changed'
 
-  const present = useMemo(
-    () => new Map(PARAM_GROUPS.map((g) => [g.id, presentGroupParams(g, params.values, params.defaults, changedOnly)])),
-    [params, changedOnly]
-  )
-  // Groups with nothing to include are disabled and never selected.
-  const included = useMemo(() => new Set([...chosen].filter((id) => (present.get(id)?.length ?? 0) > 0)), [chosen, present])
+  const present = useMemo(() => groupPresence(params, changedOnly), [params, changedOnly])
+  const prune = (groups: ReadonlySet<string>, presence: ReadonlyMap<string, readonly string[]>): Set<string> =>
+    new Set([...groups].filter((id) => (presence.get(id)?.length ?? 0) > 0))
+
+  // A new file: upstream `reset()` selects "Changed from defaults" when the log has defaults, and
+  // `update_minimal_config()` unticks the groups that are empty for it. Ticks otherwise carry over
+  // from the previous file, as upstream never clears them.
+  if (loadedParams !== params) {
+    setLoadedParams(params)
+    setBase('changed')
+    setChosen(prune(chosen, groupPresence(params, params.defaults.size > 0)))
+  }
+  const included = useMemo(() => prune(chosen, present), [chosen, present])
+
+  // Changing the base also runs `update_minimal_config()`: groups left empty are unticked and stay
+  // unticked if the base is changed back.
+  const changeBase = (next: Base): void => {
+    setChosen(prune(included, groupPresence(params, next === 'changed')))
+    setBase(next)
+  }
 
   if (params.values.size === 0) return null
   const name = (suffix: string): string => exportFileName(fileName ?? undefined, suffix)
+  // Writing fails like upstream's param_to_string for values that are not numbers (e.g. a
+  // parameter file line `NAME,` reads as NaN); upstream stops with an error and saves nothing.
+  const save = (file: string, text: () => string): void => {
+    try {
+      downloadText(file, text())
+      setSaveError(null)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   return (
     <Section
@@ -41,7 +71,7 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
       help="Download the parameters as a .param file for Mission Planner, QGroundControl or MAVProxy."
     >
       <div className="apwt-chips">
-        <button type="button" className="apwt-btn" onClick={() => downloadText(name('.param'), allParamsText(params.values))}>
+        <button type="button" className="apwt-btn" onClick={() => save(name('.param'), () => allParamsText(params.values))}>
           <Download />
           All parameters
         </button>
@@ -50,7 +80,7 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
             type="button"
             className="apwt-btn"
             title="Only parameters that differ from their firmware default"
-            onClick={() => downloadText(name('_changed.param'), changedParamsText(params.values, params.defaults))}
+            onClick={() => save(name('_changed.param'), () => changedParamsText(params.values, params.defaults))}
           >
             <Download />
             Changed parameters
@@ -68,7 +98,7 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
         <RadioChips
           name="param-base"
           value={base}
-          onChange={setBase}
+          onChange={changeBase}
           options={[
             { value: 'all', label: 'All parameters' },
             { value: 'changed', label: 'Changed from defaults', disabled: !haveDefaults }
@@ -93,8 +123,7 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
         className="apwt-btn apwt-btn--primary"
         style={{ marginTop: 12 }}
         onClick={() =>
-          downloadText(
-            name('_minimal.param'),
+          save(name('_minimal.param'), () =>
             minimalParamsText(params.values, params.defaults, { changedOnly, includedGroups: included })
           )
         }
@@ -102,6 +131,11 @@ export function ParamExportSection({ params, fileName }: { params: ParamData; fi
         <Download />
         Minimal parameters
       </button>
+      {saveError !== null && (
+        <p role="alert" style={{ color: 'var(--red-text)' }}>
+          {saveError}
+        </p>
+      )}
     </Section>
   )
 }
@@ -116,15 +150,13 @@ export function ParamChangesSection({ changes }: { changes: readonly ParamHistor
     >
       {changes.map((c) => (
         <details key={c.name} style={{ marginBottom: 6 }}>
-          <summary style={{ fontFamily: 'var(--mono)' }}>
-            {c.name} ({c.changes.length - 1} {c.changes.length === 2 ? 'change' : 'changes'})
-          </summary>
+          <summary style={{ fontFamily: 'var(--mono)' }}>{c.name}</summary>
           <div style={{ margin: '6px 0 10px' }}>
             <Table head={['Time (s)', 'Value']}>
               {c.changes.map((ch, i) => (
                 <tr key={i}>
                   <td>{ch.time.toFixed(2)}</td>
-                  <td>{paramToString(ch.value)}</td>
+                  <td>{String(ch.value)}</td>
                 </tr>
               ))}
             </Table>

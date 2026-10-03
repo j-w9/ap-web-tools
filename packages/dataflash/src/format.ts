@@ -207,14 +207,18 @@ export function readNumber(view: DataView, offset: number, type: TypeCode): numb
 }
 
 /**
- * Decode the body of a FMT record at `offset` into a {@link FormatDefinition}.
- * Returns `undefined` if the format is unusable.
+ * Decode the body of a FMT record at `offset`. `format` is `undefined` when the format string has
+ * a type code that can not be sized.
  */
-export function decodeFmtRecord(bytes: Uint8Array, view: DataView, offset: number): FormatDefinition | undefined {
+export function decodeFmtRecord(
+  bytes: Uint8Array,
+  view: DataView,
+  offset: number
+): { readonly id: number; readonly format: FormatDefinition | undefined } {
   const id = view.getUint8(offset)
   const length = view.getUint8(offset + 1)
   const name = readString(bytes, offset + 2, 4)
   const format = readString(bytes, offset + 6, 16)
   const columns = readString(bytes, offset + 22, 64)
-  return makeFormat(id, length, name, format, columns, true)
+  return { id, format: makeFormat(id, length, name, format, columns, true) }
 }

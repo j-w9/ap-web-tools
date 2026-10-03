@@ -19,41 +19,59 @@ export function ReleaseInfo({ hash }: { hash: string }) {
 
   const check = result?.hash === hash ? result.check : null
   if (check === null) return <span className="apwt-section__help">Checking release…</span>
+  return <ReleaseResult hash={hash} check={check} />
+}
+
+function Links({ names }: { names: readonly string[] }) {
+  return (
+    <>
+      {names.map((n, i) => (
+        <span key={n}>
+          {i > 0 && ', '}
+          <a href={treeUrl(n)}>{n}</a>
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** The upstream `check_release` text for each outcome. */
+function ReleaseResult({ hash, check }: { hash: string; check: ReleaseCheck }) {
   switch (check.kind) {
+    case 'rate-limited':
+      return null
+    case 'tags-failed':
+      return <span className="apwt-section__help">Version check failed to get whitelist ({hash})</span>
     case 'release':
       return (
         <span>
-          <Badge tone="good">Official release</Badge>{' '}
-          {check.tags.map((t, i) => (
-            <span key={t}>
-              {i > 0 && ', '}
-              <a href={treeUrl(t)}>{t}</a>
-            </span>
-          ))}
+          <Badge tone="good">Official release:</Badge> <Links names={check.tags} />
         </span>
       )
-    case 'commit':
+    case 'not-release': {
+      const c = check.commit
       return (
         <span>
-          <Badge tone="neutral">Not a release</Badge> <a href={check.url}>commit {hash}</a>
-          {check.branches.length > 0 && (
+          <Badge tone="bad">Warning: not official firmware release.</Badge>{' '}
+          {c.kind === 'failed' ? (
+            <>Version check failed to get commit ({hash})</>
+          ) : (
             <>
-              {' '}
-              (head of{' '}
-              {check.branches.map((b, i) => (
-                <span key={b}>
-                  {i > 0 && ', '}
-                  <a href={treeUrl(b)}>{b}</a>
-                </span>
-              ))}
-              )
+              Found commit: <a href={c.url}>{hash}</a>
+              {c.branches === 'failed' ? (
+                <> Version check failed to get branches.</>
+              ) : (
+                c.branches.length > 0 && (
+                  <>
+                    {' '}
+                    Branches @ HEAD: <Links names={c.branches} />
+                  </>
+                )
+              )}
             </>
           )}
         </span>
       )
-    case 'unofficial':
-      return <Badge tone="bad">Not official firmware</Badge>
-    case 'unavailable':
-      return <span className="apwt-section__help">Release check unavailable ({check.reason})</span>
+    }
   }
 }

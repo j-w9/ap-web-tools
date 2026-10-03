@@ -13,21 +13,13 @@ import {
 } from '@apwt/tool-shell'
 import { loadHardwareReport, type HardwareReport } from './analysis/report.js'
 import { bytes } from './ui/common.js'
-import { CanSection, DataRatesSection, SerialPortsSection } from './ui/Comms.js'
+import { CanSection, DataRatesSection } from './ui/Comms.js'
 import { InternalErrorsSection, IomcuSection, WatchdogSection } from './ui/Faults.js'
-import { FilesSection, SysFilesSection } from './ui/Files.js'
+import { FilesSection } from './ui/Files.js'
 import { MissionsSection } from './ui/Missions.js'
 import { ParamChangesSection, ParamExportSection } from './ui/Params.js'
 import { BoardHealthSection, ClockDriftSection, LoggingSection, PerformanceSection } from './ui/Plots.js'
-import {
-  AirspeedSection,
-  BaroSection,
-  CompassSection,
-  GpsSection,
-  InsSection,
-  OffsetsSection,
-  OtherSensorsSection
-} from './ui/Sensors.js'
+import { AirspeedSection, BaroSection, CompassSection, GpsSection, InsSection, OffsetsSection } from './ui/Sensors.js'
 import { FirmwareSection, Warnings } from './ui/Summary.js'
 
 interface Loaded {
@@ -41,7 +33,7 @@ function facts(loaded: Loaded): LogFact[] {
   const out: LogFact[] = [{ label: 'File', value: fileName ?? 'From another tool' }]
   if (report.source === 'log') {
     if (report.firmware.fwString !== undefined) out.push({ label: 'Firmware', value: report.firmware.fwString })
-    const board = report.firmware.boardName ?? report.firmware.flightController?.split(' ')[0]
+    const board = report.firmware.boardName ?? report.firmware.flightController
     if (board !== undefined) out.push({ label: 'Board', value: board })
     out.push({ label: 'Size', value: bytes(report.logStats.totalBytes) })
   } else {
@@ -71,7 +63,7 @@ export function App() {
         document.title = name ? `Hardware Report: ${name}` : 'Hardware Report'
       } catch (e) {
         setLoaded(null)
-        setError(e instanceof Error ? `${e.message}. Open a log that contains parameters, or a .param file.` : String(e))
+        setError(e instanceof Error ? e.message : String(e))
       }
     }, 'Reading file')
   })
@@ -85,7 +77,7 @@ export function App() {
       readmeUrl="https://github.com/ArduPilot/WebTools/blob/main/HardwareReport/Readme.md"
       intro={
         <>
-          Everything a log or parameter file says about the hardware: firmware, sensors and their health, CAN nodes, serial ports,
+          Everything a log or parameter file says about the hardware: firmware, sensors and their health, CAN nodes, data rates,
           board health and performance. Also exports parameters without calibrations for sharing.
         </>
       }
@@ -124,15 +116,12 @@ export function App() {
           <BaroSection baro={report.sensors.baro} />
           <GpsSection gps={report.sensors.gps} />
           <AirspeedSection airspeed={report.sensors.airspeed} />
-          <OtherSensorsSection sensors={report.sensors} />
           <OffsetsSection offsets={report.positionOffsets} />
           {log && <CanSection can={log.can} />}
-          <SerialPortsSection ports={report.serialPorts} />
-          <ParamExportSection key={loaded?.fileName ?? ''} params={report.params} fileName={loaded?.fileName ?? null} />
+          <ParamExportSection params={report.params} fileName={loaded?.fileName ?? null} />
           <ParamChangesSection changes={report.paramChanges} />
           {log && <MissionsSection missions={log.missions} />}
           {log && <FilesSection files={log.files} />}
-          {log && <SysFilesSection sys={log.sysFiles} />}
           {log && <BoardHealthSection plots={log.plots} />}
           {log && <PerformanceSection plots={log.plots} />}
           {log && <DataRatesSection uarts={log.plots.uartRates} cans={log.plots.canRates} />}

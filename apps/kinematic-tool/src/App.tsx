@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PlotlyChart, linkAutorangeReset, linkAxisRanges, type PlotlyHTMLElement } from '@apwt/plot'
 import { ErrorBanner, Section, ToolPage, useLoading } from '@apwt/tool-shell'
 import { COPTER_DEFAULTS, PLANE_DEFAULTS } from './analysis/params.js'
-import { DEFAULT_DEMAND, type Demand, type Vehicle } from './analysis/scenario.js'
+import { DEFAULT_DEMAND, type Vehicle } from './analysis/scenario.js'
 import { simulate, type SimulationSettings } from './analysis/simulate.js'
 import { Rail, type CopterChoices, type PlaneChoices } from './ui/Rail.js'
 import { QUANTITIES, QUANTITY_INFO, quantityPlots, type Quantity } from './ui/traces.js'
@@ -22,9 +22,13 @@ export function App() {
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const [vehicle, setVehicle] = useState<Vehicle>('copter')
-  const [copter, setCopter] = useState<CopterChoices>({ axis: 'R', mode: 'angle', params: COPTER_DEFAULTS })
-  const [plane, setPlane] = useState<PlaneChoices>({ axis: 'R', mode: 'angle', params: PLANE_DEFAULTS })
-  const [demand, setDemand] = useState<Demand>(DEFAULT_DEMAND)
+  const [copter, setCopter] = useState<CopterChoices>({
+    axis: 'R',
+    mode: 'angle',
+    demand: DEFAULT_DEMAND,
+    params: COPTER_DEFAULTS
+  })
+  const [plane, setPlane] = useState<PlaneChoices>({ axis: 'R', mode: 'angle', demand: DEFAULT_DEMAND, params: PLANE_DEFAULTS })
 
   // Fetch and instantiate the ArduPilot and Ruckig WebAssembly once.
   useEffect(() => {
@@ -45,8 +49,8 @@ export function App() {
   }, [run])
 
   const settings: SimulationSettings = useMemo(
-    () => (vehicle === 'copter' ? { vehicle: 'copter', ...copter, demand } : { vehicle: 'plane', ...plane, demand }),
-    [vehicle, copter, plane, demand]
+    () => (vehicle === 'copter' ? { vehicle: 'copter', ...copter } : { vehicle: 'plane', ...plane }),
+    [vehicle, copter, plane]
   )
   const result = useMemo(() => (libs ? simulate(libs, settings) : null), [libs, settings])
   const plots = useMemo(() => quantityPlots(result), [result])
@@ -75,14 +79,13 @@ export function App() {
       intro={INTRO[vehicle]}
       rail={
         <Rail
+          key={vehicle}
           vehicle={vehicle}
           onVehicleChange={setVehicle}
           copter={copter}
           onCopterChange={setCopter}
           plane={plane}
           onPlaneChange={setPlane}
-          demand={demand}
-          onDemandChange={setDemand}
         />
       }
     >

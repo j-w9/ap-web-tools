@@ -3,7 +3,6 @@ import { PlotlyChart as Chart } from '@apwt/plot'
 import { Section } from '@apwt/tool-shell'
 import type { CanInventory } from '../analysis/can.js'
 import { CAN_LIMIT_NOTE, type CanRate, type UartRate } from '../analysis/data-rates.js'
-import type { SerialPortConfig } from '../analysis/serial.js'
 import { SubHeading, Table, hex } from './common.js'
 import { ReleaseInfo } from './ReleaseInfo.js'
 import { canTraces, timeLayout, uartTraces } from './traces.js'
@@ -29,27 +28,6 @@ export function CanSection({ can }: { can: CanInventory }) {
             <td>
               {hex(n.uid1)} {hex(n.uid2)}
             </td>
-          </tr>
-        ))}
-      </Table>
-    </Section>
-  )
-}
-
-/** Serial port configuration from parameters. */
-export function SerialPortsSection({ ports }: { ports: readonly SerialPortConfig[] }) {
-  if (ports.length === 0) return null
-  return (
-    <Section title="Serial ports" help="Protocol and baud rate of each SERIALn port.">
-      <Table head={['Port', 'Protocol', 'Baud', 'Options']}>
-        {ports.map((p) => (
-          <tr key={p.index}>
-            <td>SERIAL{p.index}</td>
-            <td style={{ textAlign: 'left' }}>
-              {p.protocolName} ({p.protocol})
-            </td>
-            <td>{p.protocol <= 0 ? '–' : (p.baud ?? '–')}</td>
-            <td>{p.options === undefined || p.options === 0 ? '–' : p.options}</td>
           </tr>
         ))}
       </Table>

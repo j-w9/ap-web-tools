@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapBaudrate, protocolName, readSerialPorts, uartTitle } from './serial.js'
+import { mapBaudrate, protocolName, uartTitle } from './serial.js'
 
 const p = (o: Record<string, number>): Map<string, number> => new Map(Object.entries(o))
 
@@ -12,6 +12,13 @@ describe('mapBaudrate', () => {
     expect(mapBaudrate(420000)).toBe(420000)
     expect(mapBaudrate(115.9)).toBe(115200)
     expect(mapBaudrate(undefined)).toBeUndefined()
+  })
+})
+
+describe('protocolName', () => {
+  it('names known protocols and numbers the rest', () => {
+    expect([-1, 0, 2, 50].map(protocolName)).toEqual(['None', 'None', 'MAVLink2', 'IOMCU'])
+    expect(protocolName(47)).toBe('protocol 47')
   })
 })
 
@@ -53,19 +60,5 @@ describe('uartTitle', () => {
   it('titles the IOMCU and unknown ports', () => {
     expect(uartTitle(100, p({}))).toEqual({ title: 'IOMCU, 1500000 baud', baud: 1500000 })
     expect(uartTitle(7, p({}))).toEqual({ title: 'UART 7', baud: undefined })
-  })
-})
-
-describe('readSerialPorts', () => {
-  it('lists SERIALn ports in numeric order', () => {
-    const ports = readSerialPorts(
-      p({ SERIAL10_PROTOCOL: 28, SERIAL2_PROTOCOL: -1, SERIAL2_BAUD: 57, SERIAL2_OPTIONS: 4, SERIAL1_PROTOCOL: 50 })
-    )
-    expect(ports).toEqual([
-      { index: 1, protocol: 50, protocolName: 'IOMCU', baud: 1500000, options: undefined },
-      { index: 2, protocol: -1, protocolName: 'None', baud: 57600, options: 4 },
-      { index: 10, protocol: 28, protocolName: 'Scripting', baud: undefined, options: undefined }
-    ])
-    expect(protocolName(0)).toBe('None')
   })
 })

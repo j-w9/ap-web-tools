@@ -1,5 +1,3 @@
-import type { Bounds, Ring } from './geo.js'
-
 /** A map view to restore: centre and zoom. */
 export interface MapView {
   readonly lat: number
@@ -30,35 +28,30 @@ export function parseStoredView(text: string | null): MapView | null {
   return { lat, lng, zoom }
 }
 
-function mercatorY(lat: number): number {
-  return Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))
-}
-
-function inverseMercatorY(y: number): number {
-  return (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * (180 / Math.PI)
+/** A point in Leaflet's projected pixel space at the current zoom. */
+export interface PixelPoint {
+  readonly x: number
+  readonly y: number
 }
 
 /**
- * Starting crop polygon for the visible area (upstream `add_crop`): a rectangle inset from the
- * map edges, computed in Web Mercator so it is a rectangle on screen. Corners run north-east,
- * south-east, south-west, north-west, as upstream. Deviation: upstream insets the top edge to 70%
- * to clear its floating menu; this layout has no overlay, so every edge uses the same `inset`.
+ * Corners of the starting crop polygon (upstream `add_crop`), in pixels: the view's projected
+ * north-east and south-west corners, inset to 95% of the half-size on the left, right and bottom
+ * and to 70% at the top (upstream leaves room for its floating menu; the port keeps the same
+ * rectangle so the same area is cropped). Order as upstream: right-top, right-bottom, left-bottom,
+ * left-top. The map unprojects them back to latitude/longitude.
  */
-export function cropRectangle(bounds: Bounds, inset = 0.95): Ring {
-  const top = mercatorY(bounds.north)
-  const bottom = mercatorY(bounds.south)
-  const midY = (top + bottom) / 2
-  const halfY = ((top - bottom) / 2) * inset
-  const midX = (bounds.east + bounds.west) / 2
-  const halfX = ((bounds.east - bounds.west) / 2) * inset
-  const north = inverseMercatorY(midY + halfY)
-  const south = inverseMercatorY(midY - halfY)
-  const east = midX + halfX
-  const west = midX - halfX
+export function cropCornersPx(northEast: PixelPoint, southWest: PixelPoint): [x: number, y: number][] {
+  const radius = { x: (northEast.x - southWest.x) * 0.5, y: (southWest.y - northEast.y) * 0.5 }
+  const center = { x: (northEast.x + southWest.x) * 0.5, y: (northEast.y + southWest.y) * 0.5 }
+  const top = center.y - radius.y * 0.7
+  const bottom = center.y + radius.y * 0.95
+  const left = center.x - radius.x * 0.95
+  const right = center.x + radius.x * 0.95
   return [
-    [east, north],
-    [east, south],
-    [west, south],
-    [west, north]
+    [right, top],
+    [right, bottom],
+    [left, bottom],
+    [left, top]
   ]
 }

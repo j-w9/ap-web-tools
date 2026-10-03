@@ -43,7 +43,11 @@ export interface Upstream {
   get_compass_param_names(index: number): Record<string, string | string[]>
   param_to_string(value: number): string
   get_param_download_text(params: Record<string, number>): string
+  get_param_value(paramLog: { Name: string[]; Value: number[] }, name: string, allowChange?: boolean): number | undefined
 }
+
+/** Text upstream passed to `console.log` and `alert`, in call order. */
+export const upstreamOutput: { log: string[]; alert: string[] } = { log: [], alert: [] }
 
 let cached: Upstream | undefined
 
@@ -58,12 +62,16 @@ export function loadUpstream(): Upstream {
     'get_param_name_vector3',
     'get_compass_param_names',
     'param_to_string',
-    'get_param_download_text'
+    'get_param_download_text',
+    'get_param_value'
   ]
   const source =
     ['DecodeDevID.js', 'LogHelpers.js', 'Param_Helpers.js'].map((f) => readFileSync(resolve(libDir, f), 'utf8')).join('\n') +
     `\n;({ ${names.join(', ')} })`
-  const context = createContext({ console: { log: () => undefined, error: () => undefined } })
+  const context = createContext({
+    console: { log: (m: string) => upstreamOutput.log.push(m), error: () => undefined },
+    alert: (m: string) => upstreamOutput.alert.push(m)
+  })
   cached = runInContext(source, context, { filename: 'upstream-libraries.js' }) as Upstream
   return cached
 }

@@ -1,38 +1,33 @@
 import { describe, expect, it } from 'vitest'
-import { FENCE_COMMANDS, fenceFileName, fencePointCount, formatWaypoints, generateFence, type Fence } from './fence.js'
-import { openRing, type PolygonRings, type Ring } from './geo.js'
-import { segmentsIntersect } from './simplify.js'
-import { loadUpstream } from '../test-utils/upstream.js'
+import {
+  FENCE_COMMANDS,
+  fenceFileName,
+  fencePointCount,
+  formatWaypoints,
+  generateFence,
+  previewFence,
+  type Fence
+} from './fence.js'
+import type { PolygonRings, Ring } from './geo.js'
+import { loadUpstream, type UpstreamFeature } from '../test-utils/upstream.js'
 import { lakeRing, plainRings } from '../test-utils/fixtures.js'
 
 const upstream = loadUpstream()
 
-/**
- * Upstream drops the closing point then rotates each ring left by 228 places before simplifying
- * (a debugging leftover the port omits). Feeding the port pre-rotated rings makes the two match.
- */
-function rotatedLikeUpstream(rings: PolygonRings): Ring[] {
-  return rings.map((ring) => {
-    const open = openRing(ring)
-    const k = 228 % open.length
-    return [...open.slice(k), ...open.slice(0, k)]
-  })
+function feature(rings: readonly Ring[], name: string): UpstreamFeature {
+  return { id: 'way/1', type: 'Feature', properties: { name }, geometry: { type: 'Polygon', coordinates: plainRings(rings) } }
 }
 
-async function upstreamFile(rings: PolygonRings, name: string) {
-  return upstream.generateFence(
-    { id: 'way/1', type: 'Feature', properties: { name }, geometry: { type: 'Polygon', coordinates: plainRings(rings) } },
-    name
-  )
+/** The port's own copy of the rings, in the mutable form a feature from osmtogeojson has. */
+function portRings(rings: readonly Ring[]): PolygonRings {
+  return rings.map((ring) => ring.map(([lon, lat]): [number, number] => [lon, lat]))
 }
 
-// Upstream converts about the first vertex of the original outer ring, so the outer rings here
-// have a vertex count that divides 228 (the rotation is then a no-op on them); holes can be any size.
 const cases: [string, Ring[]][] = [
-  ['a lake', [lakeRing(228, 8.5, 47.3, 1500, 31)]],
+  ['a lake', [lakeRing(500, 8.5, 47.3, 1500, 31)]],
   [
     'a lake with islands',
-    [lakeRing(228, 8.5, 47.3, 2000, 32), lakeRing(170, 8.5, 47.305, 300, 33), lakeRing(35, 8.51, 47.295, 90, 34)]
+    [lakeRing(400, 8.5, 47.3, 2000, 32), lakeRing(170, 8.5, 47.305, 300, 33), lakeRing(35, 8.51, 47.295, 90, 34)]
   ],
   ['a small pond', [lakeRing(19, -1.2, 52.1, 40, 35)]],
   ['a round pond', [lakeRing(76, -1.2, 52.1, 3, 36, 0)]],
@@ -40,38 +35,52 @@ const cases: [string, Ring[]][] = [
     'a lake with a round island',
     [lakeRing(114, 8.5, 47.3, 2000, 37), lakeRing(60, 8.5, 47.3, 3, 38, 0), lakeRing(301, 8.49, 47.3, 300, 39)]
   ],
-  ['a lake near the antimeridian', [lakeRing(228, 179.98, -16.5, 1200, 39), lakeRing(250, 179.98, -16.5, 400, 40)]]
+  ['a lake near the antimeridian', [lakeRing(228, 179.98, -16.5, 1200, 39), lakeRing(250, 179.98, -16.5, 400, 40)]],
+  ['a ring longer than 228 that does not divide it', [lakeRing(1001, 18.1, 69.6, 3000, 41)]]
 ]
 
 describe('fence file matches upstream generate_fence', () => {
-  it.each(cases)('with the corrected segment test: %s', async (_, rings) => {
-    upstream.setLineIntersects((a, b, c, d) => segmentsIntersect([a[0]!, a[1]!], [b[0]!, b[1]!], [c[0]!, c[1]!], [d[0]!, d[1]!]))
-    const theirs = await upstreamFile(rings, 'Lake')
-    expect(formatWaypoints(generateFence(rotatedLikeUpstream(rings)))).toBe(theirs.text)
+  it.each(cases)('%s', async (_, rings) => {
+    const theirs = await upstream.generateFence(feature(rings, 'Lake'), 'Lake')
+    expect(formatWaypoints(generateFence(portRings(rings)))).toBe(theirs.text)
   })
 
-  it.each(cases)('with upstream’s always-false segment test: %s', async (_, rings) => {
-    upstream.setLineIntersects(() => false)
-    const theirs = await upstreamFile(rings, 'Lake')
-    expect(formatWaypoints(generateFence(rotatedLikeUpstream(rings), () => false))).toBe(theirs.text)
+  it.each(cases)('repeated downloads rotate the rings in place, as upstream: %s', async (_, rings) => {
+    const theirFeature = feature(rings, 'Lake')
+    const mine = portRings(rings)
+    for (let download = 0; download < 3; download++) {
+      const preview = formatWaypoints(previewFence(mine))
+      const theirs = await upstream.generateFence(theirFeature, 'Lake')
+      const text = formatWaypoints(generateFence(mine))
+      expect(text).toBe(theirs.text)
+      // The preview is exactly the next download.
+      expect(preview).toBe(text)
+      expect(mine).toEqual(theirFeature.geometry.coordinates)
+    }
   })
 })
 
 describe('generateFence', () => {
   it('makes the outer ring an inclusion and holes exclusions', () => {
-    const fence = generateFence([lakeRing(400, 8.5, 47.3, 2000, 40), lakeRing(60, 8.5, 47.305, 200, 41)])
+    const fence = generateFence(portRings([lakeRing(400, 8.5, 47.3, 2000, 40), lakeRing(60, 8.5, 47.305, 200, 41)]))
     expect(fence.map((f) => f.role)).toEqual(['inclusion', 'exclusion'])
   })
 
-  it('does not mutate its input', () => {
-    const rings = [lakeRing(300, 8.5, 47.3, 1500, 42)]
-    const copy = plainRings(rings)
+  it('drops the closing point once, then rotates by 228 on every call', () => {
+    const rings = portRings([lakeRing(300, 8.5, 47.3, 1500, 42)])
+    const open = rings[0]!.slice(0, -1)
     generateFence(rings)
-    expect(plainRings(rings)).toEqual(copy)
+    expect(rings[0]).toEqual([...open.slice(228), ...open.slice(0, 228)])
+    generateFence(rings)
+    const k = 456 % open.length
+    expect(rings[0]).toEqual([...open.slice(k), ...open.slice(0, k)])
   })
 
-  it('returns no items for an empty polygon', () => {
-    expect(generateFence([])).toEqual([])
+  it('previewFence leaves its input alone', () => {
+    const rings = portRings([lakeRing(300, 8.5, 47.3, 1500, 43)])
+    const copy = plainRings(rings)
+    previewFence(rings)
+    expect(plainRings(rings)).toEqual(copy)
   })
 })
 
@@ -105,11 +114,12 @@ describe('formatWaypoints', () => {
 })
 
 describe('fenceFileName', () => {
-  it('replaces every path separator', async () => {
-    expect(fenceFileName('A/B/C\\D')).toBe('A_B_C_D.waypoints')
-    // Upstream only replaces the first of each.
-    const theirs = await upstreamFile([lakeRing(19, 0, 0, 40, 1)], 'A/B')
-    expect(theirs.fileName).toBe('A_B.waypoints')
-    expect(fenceFileName('A/B')).toBe(theirs.fileName)
+  it.each(['A/B', 'A/B/C\\D\\E', 'plain', '\\/x/'])('replaces only the first / and \\, as upstream: %s', async (name) => {
+    const theirs = await upstream.generateFence(feature([lakeRing(19, 0, 0, 40, 1)], name), name)
+    expect(fenceFileName(name)).toBe(theirs.fileName)
+  })
+
+  it('keeps later separators', () => {
+    expect(fenceFileName('A/B/C\\D\\E')).toBe('A_B/C_D\\E.waypoints')
   })
 })

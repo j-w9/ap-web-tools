@@ -7,6 +7,8 @@ describe('format', () => {
     expect(formatSize(1023)).toBe('1023.00 B')
     expect(formatSize(1536)).toBe('1.50 kB')
     expect(formatSize(5 * 1024 ** 3)).toBe('5.00 GB')
+    // Upstream indexes past its unit list.
+    expect(formatSize(2 * 1024 ** 5)).toBe('2.00 undefined')
   })
 
   it('distances switch to km at 2 km', () => {
@@ -15,12 +17,12 @@ describe('format', () => {
     expect(formatDistance(2500)).toBe('2.50 km')
   })
 
-  it('flight time like luxon toHuman', () => {
+  it('flight time through luxon toHuman (default locale)', () => {
     expect(formatFlightTime(undefined)).toBe('Unknown')
     expect(formatFlightTime(0)).toBe('-')
-    expect(formatFlightTime(45, 'en')).toBe('45 sec')
-    expect(formatFlightTime(3725, 'en')).toBe('1 hr, 2 min, 5 sec')
-    expect(formatFlightTime(8 * 86400, 'en')).toBe('1 wk, 1 day')
+    expect(formatFlightTime(45)).toBe('45 sec')
+    expect(formatFlightTime(3725)).toBe('1 hr, 2 min, 5 sec')
+    expect(formatFlightTime(8 * 86400)).toBe('1 wk, 1 day')
   })
 
   it('start time in local dd/MM/yyyy hh:mm:ss a', () => {

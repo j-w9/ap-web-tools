@@ -1,5 +1,7 @@
-// Test-only: synthetic water bodies, and the same OSM data as Overpass `out geom` JSON and XML.
-import type { Position, Ring } from '../analysis/geo.js'
+// Test-only: synthetic water bodies, and OSM data as Overpass `out geom` XML (what upstream requests).
+import { isClosed, type Position, type Ring } from '../analysis/geo.js'
+import { DOMParser } from '@xmldom/xmldom'
+import type { XmlDocument } from '../analysis/overpass.js'
 import { rng } from './upstream.js'
 
 const M_PER_DEG = 6378100 * (Math.PI / 180)
@@ -28,7 +30,10 @@ export function plainRings(rings: readonly Ring[]): number[][][] {
   return rings.map((ring) => ring.map(([lon, lat]) => [lon, lat]))
 }
 
-/** One OSM element in a fixture: a tagged closed way, or a multipolygon relation of member rings. */
+/**
+ * One OSM element in a fixture: a tagged way (closed for a polygon, open for a line), or a
+ * multipolygon relation of member rings.
+ */
 export type OsmFixtureElement =
   | { kind: 'way'; id: number; tags: Record<string, string>; ring: Ring }
   | {
@@ -38,38 +43,10 @@ export type OsmFixtureElement =
       members: { ref: number; role: 'outer' | 'inner'; ring: Ring }[]
     }
 
-function bounds(rings: readonly Ring[]) {
+function ringBounds(rings: readonly Ring[]) {
   const lats = rings.flatMap((r) => r.map((p) => p[1]))
   const lons = rings.flatMap((r) => r.map((p) => p[0]))
   return { minlat: Math.min(...lats), minlon: Math.min(...lons), maxlat: Math.max(...lats), maxlon: Math.max(...lons) }
-}
-
-const geometry = (ring: Ring) => ring.map(([lon, lat]) => ({ lat, lon }))
-
-/** Overpass JSON (`[out:json]`, `out geom`) for the fixture. */
-export function overpassJson(elements: readonly OsmFixtureElement[]): unknown {
-  return {
-    version: 0.6,
-    generator: 'Overpass API fixture',
-    elements: elements.map((e) =>
-      e.kind === 'way'
-        ? {
-            type: 'way',
-            id: e.id,
-            bounds: bounds([e.ring]),
-            nodes: e.ring.map((_, i) => (i === e.ring.length - 1 ? e.id * 1000 : e.id * 1000 + i)),
-            geometry: geometry(e.ring),
-            tags: e.tags
-          }
-        : {
-            type: 'relation',
-            id: e.id,
-            bounds: bounds(e.members.map((m) => m.ring)),
-            members: e.members.map((m) => ({ type: 'way', ref: m.ref, role: m.role, geometry: geometry(m.ring) })),
-            tags: e.tags
-          }
-    )
-  }
 }
 
 const esc = (s: string) => s.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
@@ -78,7 +55,7 @@ const tagXml = (tags: Record<string, string>) =>
     .map(([k, v]) => `<tag k="${esc(k)}" v="${esc(v)}"/>`)
     .join('')
 const boundsXml = (rings: readonly Ring[]) => {
-  const b = bounds(rings)
+  const b = ringBounds(rings)
   return `<bounds minlat="${b.minlat}" minlon="${b.minlon}" maxlat="${b.maxlat}" maxlon="${b.maxlon}"/>`
 }
 
@@ -89,7 +66,8 @@ export function overpassXml(elements: readonly OsmFixtureElement[]): string {
       if (e.kind === 'way') {
         const nds = e.ring
           .map(
-            ([lon, lat], i) => `<nd ref="${i === e.ring.length - 1 ? e.id * 1000 : e.id * 1000 + i}" lat="${lat}" lon="${lon}"/>`
+            ([lon, lat], i) =>
+              `<nd ref="${i === e.ring.length - 1 && isClosed(e.ring) ? e.id * 1000 : e.id * 1000 + i}" lat="${lat}" lon="${lon}"/>`
           )
           .join('')
         return `<way id="${e.id}">${boundsXml([e.ring])}${nds}${tagXml(e.tags)}</way>`
@@ -104,4 +82,32 @@ export function overpassXml(elements: readonly OsmFixtureElement[]): string {
     })
     .join('')
   return `<?xml version="1.0" encoding="UTF-8"?><osm version="0.6" generator="Overpass API fixture">${body}</osm>`
+}
+
+/** A sample search area and its OSM data: two ponds and a lake with an island and a second part. */
+export const bounds = { south: 47.25, west: 8.45, north: 47.35, east: 8.6 }
+
+export const elements: OsmFixtureElement[] = [
+  {
+    kind: 'way',
+    id: 101,
+    tags: { natural: 'water', water: 'pond', name: 'Mill/pond', 'name:en': 'Mill pond', 'name:de': 'Mühleweiher' },
+    ring: lakeRing(40, 8.52, 47.31, 80, 1)
+  },
+  { kind: 'way', id: 102, tags: { landuse: 'reservoir' }, ring: lakeRing(25, 8.55, 47.28, 60, 2) },
+  {
+    kind: 'relation',
+    id: 201,
+    tags: { type: 'multipolygon', natural: 'water', water: 'lake', name: 'Lake & "Islands"' },
+    members: [
+      { ref: 301, role: 'outer', ring: lakeRing(320, 8.5, 47.3, 1500, 3) },
+      { ref: 302, role: 'inner', ring: lakeRing(30, 8.5, 47.3, 200, 4) },
+      { ref: 303, role: 'outer', ring: lakeRing(260, 8.58, 47.33, 300, 5) }
+    ]
+  }
+]
+
+/** Parse XML text as the browser's `DOMParser` does (xmldom stands in for it under Node). */
+export function parseXml(text: string): XmlDocument {
+  return new DOMParser().parseFromString(text, 'text/xml')
 }

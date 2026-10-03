@@ -1,18 +1,15 @@
 import intersect from '@turf/intersect'
-import { featureCollection, multiPolygon, polygon as turfPolygon } from '@turf/helpers'
-import type { MultiPolygon, Polygon } from 'geojson'
-import { closeRing, toPolygonRings, type PolygonRings, type Ring } from './geo.js'
+import type { Feature, Geometry, GeoJsonProperties, MultiPolygon, Polygon } from 'geojson'
+import { isPolygonRings, type PolygonRings, type Ring } from './geo.js'
 
 /** OSM tags (plus `id`, as osmtogeojson flattens them). Only string values are kept. */
 export type Tags = Readonly<Record<string, string>>
 
-/** A water body from OpenStreetMap: one polygon for a way, possibly several for a multipolygon relation. */
-export interface WaterFeature {
-  /** osmtogeojson id, `way/123` or `relation/456`. */
-  readonly id: string
-  readonly tags: Tags
-  readonly polygons: readonly PolygonRings[]
-}
+/**
+ * A feature as osmtogeojson (or a Turf crop) returns it. Upstream keeps every feature of the
+ * Overpass response, polygonal or not, and so does the port: cropping runs over all of them.
+ */
+export type OsmFeature = Feature
 
 /** One polygon of a feature, the unit shown on the map and turned into a fence. */
 export interface WaterPolygon {
@@ -20,53 +17,96 @@ export interface WaterPolygon {
   readonly key: string
   readonly featureId: string
   readonly tags: Tags
+  /**
+   * The feature's own coordinate arrays (not a copy), as upstream's map layers share them: a
+   * download edits them in place (see `generateFence`).
+   */
   readonly rings: PolygonRings
 }
 
-/**
- * One map polygon per feature polygon. Upstream `add_feature` adds each part of a MultiPolygon
- * as its own layer, so each part becomes its own fence.
- */
-export function splitPolygons(features: readonly WaterFeature[]): WaterPolygon[] {
-  return features.flatMap((f) =>
-    f.polygons.map((rings, i) => ({ key: `${f.id}#${String(i)}`, featureId: f.id, tags: f.tags, rings }))
-  )
+function featureId(feature: OsmFeature): string {
+  return feature.id === undefined ? '' : String(feature.id)
 }
 
-/** Narrow untyped GeoJSON Polygon/MultiPolygon geometry into polygons; anything else gives `null`. */
-export function geometryPolygons(geometry: unknown): PolygonRings[] | null {
-  if (typeof geometry !== 'object' || geometry === null || !('type' in geometry) || !('coordinates' in geometry)) return null
-  const { type, coordinates } = geometry
-  if (type === 'Polygon') {
-    const rings = toPolygonRings(coordinates)
-    return rings === null ? null : [rings]
+/** String-valued properties of a feature. */
+export function tagsOf(properties: GeoJsonProperties): Tags {
+  const tags: Record<string, string> = {}
+  if (properties === null) return tags
+  for (const [k, v] of Object.entries(properties)) {
+    if (typeof v === 'string') tags[k] = v
   }
-  if (type === 'MultiPolygon' && Array.isArray(coordinates)) {
-    const polygons = coordinates.map(toPolygonRings).filter((p): p is PolygonRings => p !== null)
-    return polygons.length === 0 ? null : polygons
-  }
-  return null
+  return tags
 }
 
-function asCoordinates(rings: PolygonRings): number[][][] {
-  return rings.map((ring) => ring.map(([lon, lat]) => [lon, lat]))
+/** The polygons of one feature: one for a Polygon, one per part of a MultiPolygon, none otherwise. */
+function featurePolygons(geometry: Geometry): PolygonRings[] {
+  switch (geometry.type) {
+    case 'Polygon':
+      return isPolygonRings(geometry.coordinates) ? [geometry.coordinates] : []
+    case 'MultiPolygon':
+      return geometry.coordinates.filter(isPolygonRings)
+    case 'Point':
+    case 'MultiPoint':
+    case 'LineString':
+    case 'MultiLineString':
+    case 'GeometryCollection':
+      return []
+  }
 }
 
 /**
- * Clip every feature to the crop polygon (upstream `apply_crop`, which uses Turf `intersect`).
- * Features outside the crop are dropped; the rest keep their id and tags.
+ * One map polygon per feature polygon (upstream `add_feature`): a MultiPolygon adds each part as
+ * its own layer, so each part becomes its own fence; other geometry types are not shown.
  */
-export function cropFeatures(features: readonly WaterFeature[], crop: Ring): WaterFeature[] {
-  const cropPolygon = turfPolygon([closeRing(crop).map(([lon, lat]) => [lon, lat])])
-  const out: WaterFeature[] = []
+export function splitPolygons(features: readonly OsmFeature[]): WaterPolygon[] {
+  return features.flatMap((f) => {
+    const id = featureId(f)
+    const tags = tagsOf(f.properties)
+    return featurePolygons(f.geometry).map((rings, i) => ({ key: `${id}#${String(i)}`, featureId: id, tags, rings }))
+  })
+}
+
+function isPolygonal(feature: OsmFeature): feature is Feature<Polygon | MultiPolygon> {
+  return feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon'
+}
+
+/** The result of cropping: the clipped features, and the error that stopped it, if any. */
+export interface CropResult {
+  readonly features: OsmFeature[]
+  readonly error: Error | null
+}
+
+/**
+ * Clip every feature to the crop polygon (upstream `apply_crop`, Turf 6 `intersect`). Features
+ * outside the crop are dropped; the rest keep their id and properties. `crop` is the closed ring
+ * Leaflet's `toGeoJSON()` gives for the crop polygon (rounded to 6 decimals, as upstream uses it).
+ *
+ * Upstream hands every feature to `intersect`, which throws on a non-polygon feature (an unclosed
+ * way, say) and stops the crop part way, leaving only the features clipped before it on the map.
+ * The port stops at the same feature with the same partial result and reports the error.
+ */
+export function cropFeatures(features: readonly OsmFeature[], crop: Ring): CropResult {
+  const cropPolygon: Feature<Polygon> = { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [crop] } }
+  const out: OsmFeature[] = []
   for (const feature of features) {
-    const shape = multiPolygon(feature.polygons.map(asCoordinates))
-    const clipped = intersect(featureCollection<Polygon | MultiPolygon>([shape, cropPolygon]))
+    if (!isPolygonal(feature)) {
+      return {
+        features: out,
+        error: new Error(`Turf intersect cannot crop a ${feature.geometry.type} feature (${featureId(feature)})`)
+      }
+    }
+    let clipped: Feature<Polygon | MultiPolygon> | null
+    try {
+      clipped = intersect(feature, cropPolygon)
+    } catch (e) {
+      return { features: out, error: e instanceof Error ? e : new Error(String(e)) }
+    }
     if (clipped === null) continue
-    const polygons = geometryPolygons(clipped.geometry)
-    if (polygons !== null) out.push({ ...feature, polygons })
+    const cropped: OsmFeature = { type: feature.type, geometry: clipped.geometry, properties: feature.properties }
+    if (feature.id !== undefined) cropped.id = feature.id
+    out.push(cropped)
   }
-  return out
+  return { features: out, error: null }
 }
 
 /** Display name and file name for a feature (upstream `create_popup`). */
@@ -89,7 +129,7 @@ export function featureName(tags: Tags, language: string): FeatureName {
   return { label: 'unknown', fileName: 'unknown' }
 }
 
-/** Total positions over all rings, closing duplicates included (the "Points" upstream shows). */
+/** Total positions over all rings as they are now (the "Points" upstream's popup shows when opened). */
 export function pointCount(rings: PolygonRings): number {
   let count = 0
   for (const ring of rings) count += ring.length

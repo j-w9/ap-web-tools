@@ -19,7 +19,7 @@ import {
   type VehicleType
 } from './modes.js'
 import { scanLog, type ScanResult } from './scan.js'
-import { builtinTables, resolveFieldUnits, type FieldUnits, type UnitTables } from './units.js'
+import { builtinTables, resolveFieldUnits, type FieldUnits } from './units.js'
 
 /** Options for {@link DataflashLog.parse}. */
 export interface ParseOptions {
@@ -188,13 +188,15 @@ export class DataflashLog {
     return this.scan.formats.filter((f): f is FormatDefinition => f !== undefined)
   }
 
-  /** Record counts and byte usage per message type that has at least one record. */
+  /**
+   * Record counts and byte usage for every defined message type, in message-id order, including
+   * types with no records (count 0), as upstream `stats()` returns them.
+   */
   stats(): ReadonlyMap<string, MessageStats> {
     const out = new Map<string, MessageStats>()
     for (const fmt of this.scan.formats) {
       if (fmt === undefined) continue
       const count = this.scan.offsets[fmt.id]?.length ?? 0
-      if (count === 0) continue
       const recordSize = fmt.size + HEADER_SIZE
       out.set(fmt.name, { count, recordSize, bytes: count * recordSize })
     }
@@ -429,51 +431,34 @@ export class DataflashLog {
   }
 
   /**
-   * Files embedded in the log via FILE records (e.g. `@SYS/uarts.txt`),
-   * reassembled by concatenating chunks in log order.
+   * Files embedded in the log via FILE records (e.g. `@SYS/uarts.txt`), as upstream
+   * `processFiles()` builds them: the `Data` text of every record (trailing NULs already
+   * stripped by the string decoder) is appended in log order under its `FileName`. `Offset` and
+   * `Length` are ignored, so a file written twice appears twice and trailing zero bytes of a
+   * chunk are lost (upstream bugs, reproduced).
    */
   files(): ReadonlyMap<string, Uint8Array> {
     const out = new Map<string, Uint8Array>()
-    const info = this.infos.get(FILE)
-    if (info === undefined) return out
     const names = this.getStrings(FILE, 'FileName')
-    const lengths = this.getNumbers(FILE, 'Length')
-    const dataIdx = info.format.columns.indexOf('Data')
-    const offsets = this.scan.offsets[info.id]
-    if (names === undefined || dataIdx === -1 || offsets === undefined) return out
-    const dataOffset = info.format.fieldOffsets[dataIdx] as number
-    const dataType = info.format.types[dataIdx] as TypeCode
-    const dataSize =
-      info.format.fieldOffsets[dataIdx + 1] !== undefined
-        ? (info.format.fieldOffsets[dataIdx + 1] as number) - dataOffset
-        : info.format.size - dataOffset
-    // Each FILE record carries the byte `Offset` of its chunk. Files can be written more than
-    // once in a log, so chunks are placed at their offsets (later writes win) rather than
-    // appended; appending would duplicate the content. Logs without `Offset` fall back to
-    // appending in log order.
-    const fileOffsets = this.getNumbers(FILE, 'Offset')
-    const chunks = new Map<string, { at: number; bytes: Uint8Array }[]>()
-    const appendPos = new Map<string, number>()
-    for (let i = 0; i < offsets.length; i++) {
+    if (names === undefined) return out
+    const data = this.getStrings(FILE, 'Data')
+    const parts = new Map<string, Uint8Array[]>()
+    for (let i = 0; i < names.length; i++) {
+      const text = data?.[i] ?? ''
+      const chunk = new Uint8Array(text.length)
+      for (let j = 0; j < text.length; j++) chunk[j] = text.charCodeAt(j)
       const name = names[i]!
-      const start = offsets[i]! + dataOffset
-      let len = lengths === undefined ? dataSize : Math.min(lengths[i]!, dataSize)
-      if (lengths === undefined && STRING_TYPES.has(dataType)) {
-        while (len > 0 && this.bytes[start + len - 1] === 0) len--
-      }
-      const at = fileOffsets === undefined ? (appendPos.get(name) ?? 0) : fileOffsets[i]!
-      appendPos.set(name, at + len)
-      let list = chunks.get(name)
-      if (list === undefined) {
-        list = []
-        chunks.set(name, list)
-      }
-      list.push({ at, bytes: this.bytes.subarray(start, start + len) })
+      const list = parts.get(name)
+      if (list === undefined) parts.set(name, [chunk])
+      else list.push(chunk)
     }
-    for (const [name, list] of chunks) {
-      const size = list.reduce((n, c) => Math.max(n, c.at + c.bytes.byteLength), 0)
-      const file = new Uint8Array(size)
-      for (const c of list) file.set(c.bytes, c.at)
+    for (const [name, list] of parts) {
+      const file = new Uint8Array(list.reduce((n, c) => n + c.byteLength, 0))
+      let at = 0
+      for (const c of list) {
+        file.set(c, at)
+        at += c.byteLength
+      }
       out.set(name, file)
     }
     return out
@@ -482,7 +467,8 @@ export class DataflashLog {
   // ---------------------------------------------------------------- private
 
   private buildMessageTypes(): void {
-    const tables = this.readUnitTables()
+    // Upstream resolves FMTU ids against its built-in tables only; UNIT/MULT records are not read.
+    const tables = builtinTables()
     const fmtu = this.readFmtu()
 
     for (const fmt of this.scan.formats) {
@@ -501,8 +487,10 @@ export class DataflashLog {
 
       let instanceField: string | undefined
       let instances: Map<number, number> | undefined
-      const instField = fields.find((f) => f.isInstance && !f.isString && f.type !== 'a')
-      if (instField !== undefined) {
+      // Upstream splits on the first field whose unit is `#` (`units.indexOf('instance')`). A text
+      // or array instance field, which ArduPilot never logs, is not split.
+      const instField = fields.find((f) => f.isInstance)
+      if (instField !== undefined && !instField.isString && instField.type !== 'a') {
         const split = splitInstances(this.view, offsets, fmt.fieldOffsets[instField.index] as number, instField.type)
         this.instanceOffsets.set(fmt.id, split)
         instanceField = instField.name
@@ -522,30 +510,6 @@ export class DataflashLog {
     }
   }
 
-  /** UNIT/MULT tables from the log layered over the built-in defaults. */
-  private readUnitTables(): UnitTables {
-    const tables = builtinTables()
-    const units = new Map(tables.units)
-    const multipliers = new Map(tables.multipliers)
-    const unitFmt = this.findFormat('UNIT')
-    if (unitFmt !== undefined) {
-      const ids = numeric(this.rawColumn(unitFmt, 'Id'))
-      const labels = this.rawColumn(unitFmt, 'Label')
-      if (ids !== undefined && labels !== undefined && isStringArray(labels)) {
-        for (let i = 0; i < ids.length; i++) units.set(String.fromCharCode(ids[i] as number), labels[i] as string)
-      }
-    }
-    const multFmt = this.findFormat('MULT')
-    if (multFmt !== undefined) {
-      const ids = numeric(this.rawColumn(multFmt, 'Id'))
-      const mults = numeric(this.rawColumn(multFmt, 'Mult'))
-      if (ids !== undefined && mults !== undefined) {
-        for (let i = 0; i < ids.length; i++) multipliers.set(String.fromCharCode(ids[i] as number), mults[i] as number)
-      }
-    }
-    return { units, multipliers }
-  }
-
   /** FMTU records: message id -> unit/multiplier id strings (last record wins). */
   private readFmtu(): Map<number, { unitIds: string; multIds: string }> {
     const out = new Map<number, { unitIds: string; multIds: string }>()
@@ -557,7 +521,11 @@ export class DataflashLog {
     if (types === undefined || unitIds === undefined || multIds === undefined) return out
     if (!isStringArray(unitIds) || !isStringArray(multIds)) return out
     for (let i = 0; i < types.length; i++) {
-      out.set(types[i] as number, { unitIds: unitIds[i] as string, multIds: multIds[i] as string })
+      const type = types[i]!
+      // Upstream `populateUnits()` throws on a FMTU for a type with no FMT, and its catch abandons
+      // every later FMTU record.
+      if (this.scan.formats[type] === undefined) break
+      out.set(type, { unitIds: unitIds[i]!, multIds: multIds[i]! })
     }
     return out
   }

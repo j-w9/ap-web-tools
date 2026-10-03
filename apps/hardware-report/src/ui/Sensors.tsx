@@ -7,11 +7,8 @@ import type { CompassReport } from '../analysis/compass.js'
 import { deviceLines, type SensorDevice } from '../analysis/device.js'
 import type { GpsSensor } from '../analysis/gps.js'
 import type { InsSensor } from '../analysis/ins.js'
-import type { ParamVector3 } from '../analysis/param-arrays.js'
 import type { PositionOffsets } from '../analysis/position-offsets.js'
-import type { PositionedSensor } from '../analysis/position-sensors.js'
-import type { SensorReport } from '../analysis/report.js'
-import { Badge, Health, Table, YesNo, anyPresent, fixed, hex } from './common.js'
+import { Health, Table, YesNo, anyPresent, hex } from './common.js'
 import { offsetLayout, offsetTraces } from './traces.js'
 
 function Device({ device }: { device: SensorDevice }) {
@@ -27,8 +24,9 @@ function Device({ device }: { device: SensorDevice }) {
   )
 }
 
-function Position({ pos }: { pos: ParamVector3 }) {
-  return <>{pos.map((v) => fixed(v, 2)).join(', ')}</>
+/** Upstream's `"Primary: " + (PRIMARY + 1)`, which reads `NaN` when the parameter is missing. */
+function primaryText(primary: number | undefined): string {
+  return String(primary ?? NaN)
 }
 
 function present<T>(list: readonly (T | undefined)[]): T[] {
@@ -70,7 +68,7 @@ export function InsSection({ ins }: { ins: readonly (InsSensor | undefined)[] })
               )}
             </td>
             <td>
-              <YesNo value={s.use === undefined ? undefined : s.use !== 0} />
+              <YesNo value={Boolean(s.use)} />
             </td>
             <td>
               <YesNo value={s.accelCalibrated} />
@@ -107,7 +105,11 @@ export function CompassSection({ compass }: { compass: CompassReport }) {
     <Section
       title="Compasses"
       help="Compasses in priority order, then other detected compasses. Calibration is only known for the prioritised ones."
-      tools={<YesNo value={compass.enabled === undefined ? undefined : compass.enabled !== 0} />}
+      tools={
+        <>
+          Enabled <YesNo value={Boolean(compass.enabled)} />
+        </>
+      }
     >
       <Table head={['Compass', 'Device', 'Use', 'External', 'Calibrated', 'Iron cal', 'Motor cal', 'Health']}>
         {present(compass.sensors).map((s) => {
@@ -118,14 +120,12 @@ export function CompassSection({ compass }: { compass: CompassReport }) {
               <td style={{ textAlign: 'left' }}>
                 <Device device={s.device} />
               </td>
-              <td>{c ? <YesNo value={c.use === undefined ? undefined : c.use !== 0} /> : '–'}</td>
+              <td>{c ? <YesNo value={Boolean(c.use)} /> : '–'}</td>
               <td>{c ? <YesNo value={c.external} /> : '–'}</td>
               <td>{c ? <YesNo value={c.offsetsSet} /> : '–'}</td>
               <td>{c ? <YesNo value={c.matrixSet} /> : '–'}</td>
               <td>{c ? <YesNo value={c.motorSet} /> : '–'}</td>
-              <td>
-                <Health value={s.healthy} />
-              </td>
+              <td>{c ? <Health value={s.healthy} /> : '–'}</td>
             </tr>
           )
         })}
@@ -138,15 +138,18 @@ export function CompassSection({ compass }: { compass: CompassReport }) {
 export function BaroSection({ baro }: { baro: BaroReport }) {
   if (!anyPresent(baro.sensors)) return null
   return (
-    <Section title="Barometers" help="Barometers with wind compensation state and health through the log.">
-      <Table head={['Baro', 'Device', 'Primary', 'Wind compensation', 'Health']}>
+    <Section
+      title="Barometers"
+      help="Barometers with wind compensation state and health through the log."
+      tools={<>Primary: {primaryText(baro.primary)}</>}
+    >
+      <Table head={['Baro', 'Device', 'Wind compensation', 'Health']}>
         {present(baro.sensors).map((s) => (
           <tr key={s.number}>
             <td>{s.number}</td>
             <td style={{ textAlign: 'left' }}>
               <Device device={s.device} />
             </td>
-            <td>{baro.primary === s.number ? <Badge tone="accent">Primary</Badge> : ''}</td>
             <td>
               <YesNo value={s.windCompensation} />
             </td>
@@ -164,17 +167,20 @@ export function BaroSection({ baro }: { baro: BaroReport }) {
 export function AirspeedSection({ airspeed }: { airspeed: AirspeedReport }) {
   if (!anyPresent(airspeed.sensors)) return null
   return (
-    <Section title="Airspeed sensors" help="Airspeed sensors and their health through the log.">
-      <Table head={['Sensor', 'Device', 'Primary', 'Use', 'Health']}>
+    <Section
+      title="Airspeed sensors"
+      help="Airspeed sensors and their health through the log."
+      tools={<>Primary: {primaryText(airspeed.primary)}</>}
+    >
+      <Table head={['Sensor', 'Device', 'Use', 'Health']}>
         {present(airspeed.sensors).map((s) => (
           <tr key={s.number}>
             <td>{s.number}</td>
             <td style={{ textAlign: 'left' }}>
               <Device device={s.device} />
             </td>
-            <td>{airspeed.primary === s.number ? <Badge tone="accent">Primary</Badge> : ''}</td>
             <td>
-              <YesNo value={s.use === undefined ? undefined : s.use !== 0} />
+              <YesNo value={Boolean(s.use)} />
             </td>
             <td>
               <Health value={s.healthy} />
@@ -186,47 +192,19 @@ export function AirspeedSection({ airspeed }: { airspeed: AirspeedReport }) {
   )
 }
 
-/** GPS receivers. */
+/** GPS receivers: as upstream, only those named by a boot message are listed. */
 export function GpsSection({ gps }: { gps: readonly (GpsSensor | undefined)[] }) {
-  if (!anyPresent(gps)) return null
+  const detected = present(gps).filter((g) => g.device !== undefined)
+  if (detected.length === 0) return null
   return (
-    <Section title="GPS" help="Configured receivers; the device is the one detected at boot.">
-      <Table head={['GPS', 'Type', 'Detected device', 'DroneCAN node', 'Position (m)', 'Moving baseline offset (m)']}>
-        {present(gps).map((g) => (
+    <Section title="GPS" help="Configured receivers detected at boot.">
+      <Table head={['GPS', 'Type', 'Detected device', 'DroneCAN node']}>
+        {detected.map((g) => (
           <tr key={g.number}>
             <td>{g.number}</td>
-            <td>{g.typeName === undefined ? g.type : `${g.type}: ${g.typeName}`}</td>
-            <td>{g.device ?? '–'}</td>
-            <td>{g.canName ?? '–'}</td>
-            <td>
-              <Position pos={g.pos} />
-            </td>
-            <td>{g.movingBase ? <Position pos={g.movingBase} /> : '–'}</td>
-          </tr>
-        ))}
-      </Table>
-    </Section>
-  )
-}
-
-/** Rangefinders, optical flow and visual odometry. */
-export function OtherSensorsSection({ sensors }: { sensors: SensorReport }) {
-  const rows: { name: string; s: PositionedSensor }[] = [
-    ...present(sensors.rangefinders).map((s) => ({ name: `Rangefinder ${s.number}`, s })),
-    ...(sensors.flow ? [{ name: 'Optical flow', s: sensors.flow }] : []),
-    ...(sensors.viso ? [{ name: 'Visual odometry', s: sensors.viso }] : [])
-  ]
-  if (rows.length === 0) return null
-  return (
-    <Section title="Rangefinders, flow and odometry" help="Configured type and mounting position.">
-      <Table head={['Sensor', 'Type', 'Position (m)']}>
-        {rows.map((r) => (
-          <tr key={r.name}>
-            <td>{r.name}</td>
-            <td>{r.s.type}</td>
-            <td>
-              <Position pos={r.s.pos} />
-            </td>
+            <td>{g.typeName === undefined ? '' : `${g.type}: ${g.typeName}`}</td>
+            <td>{g.device}</td>
+            <td>{g.canName ?? ''}</td>
           </tr>
         ))}
       </Table>
@@ -238,7 +216,8 @@ export function OtherSensorsSection({ sensors }: { sensors: SensorReport }) {
 export function OffsetsSection({ offsets }: { offsets: PositionOffsets }) {
   const data = useMemo(() => offsetTraces(offsets), [offsets])
   const layout = useMemo(() => offsetLayout(offsets.maxOffset), [offsets])
-  if (offsets.maxOffset <= 0) return null
+  // Upstream shows the plot only when `max_offset > 0`, so a NaN offset hides it.
+  if (!(offsets.maxOffset > 0)) return null
   return (
     <Section
       title="Sensor positions"

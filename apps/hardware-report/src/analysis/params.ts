@@ -2,7 +2,6 @@
  * Parameter sources for the report: the PARM records of a log or a `.param` file.
  * Mirrors upstream HardwareReport.js `load_log()` (PARM loop) and `load_param_file()`.
  */
-import { parseParamFile as parseParamText } from '@apwt/ardupilot'
 import { US_TO_S, type DataflashLog } from '@apwt/dataflash'
 
 /** Parameter values by name. */
@@ -79,16 +78,30 @@ export function readLogParams(log: DataflashLog): ParamData | undefined {
   }
 }
 
+/** Whether `key` is an array index, which JavaScript objects enumerate first, in ascending order. */
+function isArrayIndex(key: string): boolean {
+  return /^(0|[1-9]\d*)$/.test(key) && Number(key) < 2 ** 32 - 1
+}
+
 /**
- * Parse a `.param`/`.parm` file (upstream `load_param_file`); see `@apwt/ardupilot`
- * `parseParamFile` for the accepted syntax.
- *
- * Deviation: upstream stores every line with two tokens, so comment lines become junk
- * entries such as `"#"` → `NaN`. Here comments, lines with an empty name and values that do
- * not parse as numbers are skipped, and lines are trimmed first.
+ * Parse a `.param`/`.parm` file exactly as upstream `load_param_file`: every line (split on `\n`
+ * only) is split on runs of whitespace, `,` and `=`; a line with at least two fields stores
+ * `parseFloat(field 2)` under field 1, later lines winning. Nothing is trimmed or skipped, so
+ * comments become entries such as `"#"` → `NaN`, an indented line stores under `""`, and `NAME,`
+ * stores `NaN` (upstream behaviour, reproduced). Entries keep the order of upstream's `params`
+ * object: integer-like names first in ascending order, then first-seen order.
  */
 export function parseParamFile(text: string): ParamData {
-  return { values: parseParamText(text).values, defaults: new Map(), changes: [] }
+  const parsed = new Map<string, number>()
+  for (const line of text.split('\n')) {
+    const v = line.split(/[\s,=\t]+/)
+    if (v.length >= 2) parsed.set(v[0]!, parseFloat(v[1]!))
+  }
+  const indexKeys = [...parsed.keys()].filter(isArrayIndex).sort((a, b) => Number(a) - Number(b))
+  const values = new Map<string, number>()
+  for (const key of indexKeys) values.set(key, parsed.get(key) ?? NaN)
+  for (const [key, value] of parsed) if (!isArrayIndex(key)) values.set(key, value)
+  return { values, defaults: new Map(), changes: [] }
 }
 
 /**

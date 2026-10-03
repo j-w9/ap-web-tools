@@ -54,6 +54,10 @@ export function scanLog(bytes: Uint8Array, view: DataView, onProgress?: (fractio
   const formats: (FormatDefinition | undefined)[] = new Array<FormatDefinition | undefined>(256).fill(undefined)
   formats[FMT_TYPE] = FMT_DEFINITION
   const lists: (OffsetList | undefined)[] = new Array<OffsetList | undefined>(256).fill(undefined)
+  // Ids whose latest FMT has a type code upstream can not size. Upstream stores such a format
+  // with a NaN size; the first record of that id then sets its read offset to NaN, which ends the
+  // scan. Everything after that record is lost (upstream bug, reproduced).
+  const unsized = new Set<number>()
 
   const end = bytes.byteLength
   let offset = 0
@@ -73,6 +77,7 @@ export function scanLog(bytes: Uint8Array, view: DataView, onProgress?: (fractio
       lists[id] = list
     }
     list.push(offset)
+    if (unsized.has(id)) break
 
     const fmt = formats[id]
     if (fmt !== undefined) {
@@ -83,7 +88,13 @@ export function scanLog(bytes: Uint8Array, view: DataView, onProgress?: (fractio
           continue
         }
         const decoded = decodeFmtRecord(bytes, view, offset)
-        if (decoded !== undefined) formats[decoded.id] = decoded
+        if (decoded.format === undefined) {
+          formats[decoded.id] = undefined
+          unsized.add(decoded.id)
+        } else {
+          formats[decoded.id] = decoded.format
+          unsized.delete(decoded.id)
+        }
       }
       // Skip the body. A truncated final record is removed from the index below.
       offset += fmt.size

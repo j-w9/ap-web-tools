@@ -30,7 +30,7 @@ export interface CanRate {
   readonly title: string
   /** Whether the driver runs CAN FD (`CAN_Dn_UC_OPTION` bit 2). */
   readonly fd: boolean
-  /** Bitrate, when a port is assigned to this driver. */
+  /** Bitrate, when a port is assigned to this driver (NaN when its bitrate parameter is missing). */
   readonly bitrate: number | undefined
   /** Seconds; one shorter than the log because rates are differences. */
   readonly time: Float64Array
@@ -69,13 +69,20 @@ export function readUartRates(log: DataflashLog, params: ParamValues): UartRate[
   return out
 }
 
+/** JavaScript `parseInt` of a parameter value (`undefined` gives NaN), as upstream applies it. */
+function parseIntParam(value: number | undefined): number {
+  return parseInt(String(value))
+}
+
+/**
+ * Bitrate of the first `CAN_Pn` port assigned to `driver`, as upstream computes it. A missing
+ * `CAN_Pn_BITRATE`/`CAN_Pn_FDBITRATE` gives NaN (upstream bug, reproduced: the title reads
+ * `NaNMbit/s` and the limit line is NaN).
+ */
 function canBitrate(params: ParamValues, driver: number, fd: boolean): number | undefined {
   for (let i = 1; i < 10; i++) {
     if (params.get(`CAN_P${i}_DRIVER`) !== driver) continue
-    // Deviation: upstream yields NaN (and a "NaNMbit/s" title) when the bitrate param is missing.
-    const value = params.get(fd ? `CAN_P${i}_FDBITRATE` : `CAN_P${i}_BITRATE`)
-    if (value === undefined) return undefined
-    return fd ? Math.trunc(value) * 1000000 : Math.trunc(value)
+    return fd ? parseIntParam(params.get(`CAN_P${i}_FDBITRATE`)) * 1000000 : parseIntParam(params.get(`CAN_P${i}_BITRATE`))
   }
   return undefined
 }

@@ -1,28 +1,32 @@
-import { OVERPASS_URL, overpassRequestBody, parseOverpassResponse } from '../analysis/overpass.js'
-import type { WaterFeature } from '../analysis/features.js'
+import { OVERPASS_URL, featuresFromXml, overpassRemark, overpassRequestBody } from '../analysis/overpass.js'
+import type { OsmFeature } from '../analysis/features.js'
 import type { Bounds } from '../analysis/geo.js'
-import { fetchJson } from './http.js'
 
-function statusHint(status: number): string | null {
-  if (status === 429) return 'Too many requests from this address: wait a minute and search again.'
-  if (status === 504) return 'The server is busy or the search timed out: try again, or zoom in to a smaller area.'
-  if (status === 400) return 'The search area was rejected: zoom in and try again.'
-  return null
+/** What a search returned: the features upstream would load, and anything worth telling the user. */
+export interface OverpassResponse {
+  readonly features: OsmFeature[]
+  /** HTTP status or Overpass remark, shown as a note; it does not change the features. */
+  readonly notice: string | null
 }
 
-/** Search the Overpass API for water bodies inside `bounds` (upstream `request()`). */
-export async function fetchWaterFeatures(bounds: Bounds): Promise<WaterFeature[]> {
-  const json = await fetchJson(
-    'The Overpass API',
-    OVERPASS_URL,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: overpassRequestBody(bounds)
-    },
-    statusHint
-  )
-  const result = parseOverpassResponse(json)
-  if (!result.ok) throw new Error(result.error)
-  return result.features
+/**
+ * Search the Overpass API for water bodies inside `bounds` (upstream `request()`): the same POST
+ * body, no extra headers, the body read as text and parsed as XML whatever the status. A network
+ * failure throws, as upstream's `fetch` does.
+ */
+export async function fetchWaterFeatures(bounds: Bounds): Promise<OverpassResponse> {
+  let response: Response
+  try {
+    response = await fetch(OVERPASS_URL, { method: 'POST', body: overpassRequestBody(bounds) })
+  } catch {
+    throw new Error('Could not reach the Overpass API. Check your internet connection and try again.')
+  }
+  const text = await response.text()
+  const xml = new DOMParser().parseFromString(text, 'text/xml')
+  const features = featuresFromXml(xml)
+  const remark = overpassRemark(xml)
+  let notice: string | null = null
+  if (!response.ok) notice = `The Overpass API answered with HTTP ${String(response.status)}; try again in a moment or zoom in.`
+  else if (remark !== null) notice = `The Overpass API reported: ${remark}`
+  return { features, notice }
 }

@@ -4,7 +4,7 @@ import { openRing, type Ring } from './geo.js'
 import {
   SIMPLIFY_LIMITS,
   polygonArea,
-  segmentsIntersect,
+  lineIntersects,
   simplifyRings,
   triangleArea,
   type SimplifiedShape,
@@ -39,6 +39,21 @@ function totalPoints(shapes: readonly SimplifiedShape[]): number {
   return shapes.reduce((n, s) => n + (s.kind === 'polygon' ? s.x.length : 1), 0)
 }
 
+/** A correct segment test (what upstream's `line_intersects` was meant to be), to inspect results. */
+function crosses(a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[]): boolean {
+  const r1x = b[0]! - a[0]!
+  const r1y = b[1]! - a[1]!
+  const r2x = d[0]! - c[0]!
+  const r2y = d[1]! - c[1]!
+  const den = r1x * r2y - r1y * r2x
+  if (Math.abs(den) < 1e-9) return false
+  const qx = c[0]! - a[0]!
+  const qy = c[1]! - a[1]!
+  const t = (qx * r2y - qy * r2x) / den
+  const u = (qx * r1y - qy * r1x) / den
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1
+}
+
 function selfIntersects(x: readonly number[], y: readonly number[]): boolean {
   const n = x.length
   for (let i = 0; i < n; i++) {
@@ -48,7 +63,7 @@ function selfIntersects(x: readonly number[], y: readonly number[]): boolean {
       const b = [x[(i + 1) % n]!, y[(i + 1) % n]!] as const
       const c = [x[j]!, y[j]!] as const
       const d = [x[(j + 1) % n]!, y[(j + 1) % n]!] as const
-      if (segmentsIntersect(a, b, c, d)) return true
+      if (crosses(a, b, c, d)) return true
     }
   }
   return false
@@ -69,17 +84,20 @@ describe('areas match upstream', () => {
   })
 })
 
-describe('segmentsIntersect', () => {
-  it('detects crossings, touching ends and misses', () => {
-    expect(segmentsIntersect([0, 0], [10, 10], [0, 10], [10, 0])).toBe(true)
-    expect(segmentsIntersect([0, 0], [10, 0], [10, 0], [10, 10])).toBe(true)
-    expect(segmentsIntersect([0, 0], [10, 0], [0, 1], [10, 1])).toBe(false)
-    expect(segmentsIntersect([0, 0], [4, 4], [5, 0], [6, -10])).toBe(false)
-    expect(segmentsIntersect([0, 0], [10, 0], [5, -1], [5, -0.5])).toBe(false)
+describe('lineIntersects reproduces upstream line_intersects', () => {
+  it('never reports a crossing, like upstream (comma-operator bug)', () => {
+    expect(upstream.line_intersects([0, 0], [10, 10], [0, 10], [10, 0])).toBe(false)
+    expect(lineIntersects([0, 0], [10, 10], [0, 10], [10, 0])).toBe(false)
+    expect(crosses([0, 0], [10, 10], [0, 10], [10, 0])).toBe(true)
   })
 
-  it('fixes upstream line_intersects, which never reports a crossing', () => {
-    expect(upstream.line_intersects([0, 0], [10, 10], [0, 10], [10, 0])).toBe(false)
+  it('agrees with upstream on random segments', () => {
+    const next = rng(5)
+    for (let k = 0; k < 500; k++) {
+      const point = (): [number, number] => [(next() - 0.5) * 100, (next() - 0.5) * 100]
+      const [a, b, c, d] = [point(), point(), point(), point()]
+      expect(lineIntersects(a, b, c, d)).toBe(upstream.line_intersects(a, b, c, d))
+    }
   })
 })
 
@@ -96,16 +114,9 @@ describe('simplifyRings matches upstream simplify_poly', () => {
     ['a lake with a round island', [lakeRing(400, 8.5, 47.3, 2000, 18), lakeRing(60, 8.5, 47.3, 3, 19, 0)]]
   ]
 
-  it.each(cases)('with the corrected segment test: %s', (_, rings) => {
-    upstream.setLineIntersects((a, b, c, d) => segmentsIntersect([a[0]!, a[1]!], [b[0]!, b[1]!], [c[0]!, c[1]!], [d[0]!, d[1]!]))
+  it.each(cases)('%s', (_, rings) => {
     const input = metres(rings)
     expect(simplifyRings(input)).toEqual(upstreamShapes(input))
-  })
-
-  it.each(cases)('with upstream’s always-false segment test: %s', (_, rings) => {
-    upstream.setLineIntersects(() => false)
-    const input = metres(rings)
-    expect(simplifyRings(input, () => false)).toEqual(upstreamShapes(input))
   })
 
   it('does not mutate its input', () => {
@@ -130,10 +141,10 @@ describe('simplifyRings behaviour', () => {
     if (shape?.kind === 'circle') expect(shape.radiusM).toBeCloseTo(3, 0)
   })
 
-  it('never creates a self-intersection, where upstream would', () => {
+  it('can create a self-intersection, exactly as upstream does', () => {
     // A comb of narrow slots cut down from the top edge. Under each slot tip the bottom edge dips
-    // slightly; the dip vertex has the smallest triangle, but removing it puts the bottom edge
-    // straight across the slot.
+    // slightly; the dip vertex has the smallest triangle, and removing it puts the bottom edge
+    // straight across the slot. Upstream's guard never fires, so it removes it anyway.
     const x: number[] = []
     const y: number[] = []
     const teeth = 30
@@ -150,12 +161,10 @@ describe('simplifyRings behaviour', () => {
     x.push(0)
     y.push(100)
     expect(selfIntersects(x, y)).toBe(false)
-    const corrected = simplifyRings([{ x, y }])
-    const shape = corrected[0]
+    const shapes = simplifyRings([{ x, y }])
+    expect(shapes).toEqual(upstreamShapes([{ x, y }]))
+    const shape = shapes[0]
     expect(shape?.kind).toBe('polygon')
-    if (shape?.kind === 'polygon') expect(selfIntersects(shape.x, shape.y)).toBe(false)
-
-    const naive = simplifyRings([{ x, y }], () => false)[0]
-    if (naive?.kind === 'polygon') expect(selfIntersects(naive.x, naive.y)).toBe(true)
+    if (shape?.kind === 'polygon') expect(selfIntersects(shape.x, shape.y)).toBe(true)
   })
 })

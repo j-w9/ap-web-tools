@@ -4,6 +4,7 @@
  */
 import type { VehicleType } from '@apwt/dataflash'
 import { paramDiff, type ParamDiff, type ParamIgnoreKey } from './param-diff.js'
+import { guessSorter, tabulatorSort, type SortDirection, type SorterName, type SortValue } from './sorters.js'
 import { logWarnings, type LogSummary } from './summary.js'
 
 /** A file that was scanned and summarised. `F` is the caller's file handle type. */
@@ -40,7 +41,16 @@ export function commonPath(paths: readonly string[]): string {
   return first
 }
 
-/** Split logs by flight controller, groups in order of first appearance. */
+/** Whether `key` is an array index, which a JavaScript object enumerates before other keys. */
+function isArrayIndex(key: string): boolean {
+  return /^(0|[1-9]\d*)$/.test(key) && Number(key) < 4294967295
+}
+
+/**
+ * Split logs by flight controller. Groups come in upstream's `Object.entries(boards)` order: board
+ * lines that are array indices (e.g. `"123"`) first in ascending order, then the rest in order of
+ * first appearance.
+ */
 export function groupByBoard<F>(logs: readonly ScannedLog<F>[]): BoardGroup<F>[] {
   const groups = new Map<string, ScannedLog<F>[]>()
   for (const log of logs) {
@@ -49,63 +59,85 @@ export function groupByBoard<F>(logs: readonly ScannedLog<F>[]): BoardGroup<F>[]
     if (list === undefined) groups.set(key, [log])
     else list.push(log)
   }
-  return [...groups].map(([board, list]) => ({ board, commonPath: commonPath(list.map((l) => l.relativePath)), logs: list }))
+  const keys = [...groups.keys()]
+  const ordered = [...keys.filter(isArrayIndex).sort((a, b) => Number(a) - Number(b)), ...keys.filter((k) => !isArrayIndex(k))]
+  return ordered.map((board) => {
+    const list = groups.get(board) ?? []
+    return { board, commonPath: commonPath(list.map((l) => l.relativePath)), logs: list }
+  })
 }
 
 // ----------------------------------------------------------------- sorting
 
-/** Sortable columns. Parameter changes and actions are not sortable, as upstream. */
-export type SortKey = 'date' | 'name' | 'size' | 'vehicle' | 'firmware' | 'flightTime' | 'distance'
-export type SortDirection = 'asc' | 'desc'
-export interface SortState {
+/**
+ * Sortable columns: upstream's. Parameter changes and actions are not sortable, as upstream; the
+ * convenience vehicle column is not sortable either, because sorting decides which rows are diffed.
+ */
+export type SortKey = 'date' | 'name' | 'size' | 'firmware' | 'flightTime' | 'distance'
+
+/** Which order the per-row parameter diffs were last computed in (see {@link BoardSort}). */
+export type DiffOrder = 'sorted' | 'data'
+
+/**
+ * Sort state of one board's table. Upstream gives every board its own Tabulator table, so each
+ * is sorted on its own.
+ */
+export interface BoardSort {
   readonly key: SortKey
   readonly direction: SortDirection
+  /** Sorters Tabulator guessed for columns without one, fixed the first time each was sorted. */
+  readonly sorters: Readonly<Partial<Record<SortKey, SorterName>>>
+  /**
+   * `sorted` after a sort: each row is diffed against the row above it. `data` after an ignore
+   * option changes: upstream recomputes the diffs over `table.getRows()`, which is data (scan)
+   * order, so each row is diffed against the log scanned before it until the table is sorted
+   * again (upstream bug, reproduced).
+   */
+  readonly diffOrder: DiffOrder
 }
 
-/** Upstream's initial sort: oldest first. */
-export const DEFAULT_SORT: SortState = { key: 'date', direction: 'asc' }
+/** Upstream's initial sort: `info.time_stamp` ascending with the `datetime` sorter. */
+export const INITIAL_SORT: BoardSort = { key: 'date', direction: 'asc', sorters: {}, diffOrder: 'sorted' }
 
-type SortValue = number | string | undefined
-
+/** Column values as upstream's Tabulator rows hold them. */
 const SORT_VALUES: Readonly<Record<SortKey, (s: ScannedLog<unknown>) => SortValue>> = {
-  date: (l) => l.summary.startTime?.getTime(),
+  date: (l) => l.summary.startTime,
   name: (l) => l.name,
   size: (l) => l.summary.sizeBytes,
-  vehicle: (l) => l.summary.vehicle,
   firmware: (l) => l.summary.version.fwString,
   flightTime: (l) => l.summary.flightTimeS,
-  distance: (l) => l.summary.distanceM
+  // Upstream's `distance_traveled` is `null` (not undefined) without POS.
+  distance: (l) => l.summary.distanceM ?? null
 }
 
-function compareValues(a: number | string, b: number | string): number {
-  if (typeof a === 'number' && typeof b === 'number') return a - b
-  return String(a).localeCompare(String(b), undefined, { numeric: true })
+/** Columns with an explicit sorter; the others are guessed. */
+const EXPLICIT_SORTERS: Readonly<Partial<Record<SortKey, SorterName>>> = { date: 'datetime' }
+
+/** Sort a board's logs, given in data (scan) order, as its Tabulator table does. */
+export function sortLogs<F>(logs: readonly ScannedLog<F>[], sort: BoardSort): ScannedLog<F>[] {
+  const sorter = EXPLICIT_SORTERS[sort.key] ?? sort.sorters[sort.key] ?? guessSorter(logs[0] && SORT_VALUES[sort.key](logs[0]))
+  return tabulatorSort(logs, SORT_VALUES[sort.key], sorter, sort.direction)
 }
 
 /**
- * Sort logs by a column. Missing values (no GPS time, no flight time, ...) go last in either
- * direction; ties keep path order so the result is stable.
+ * Sort state after clicking a column header: toggle direction on the sorted column, else
+ * ascending. A column without a sorter gets one guessed from the first displayed row.
+ *
+ * @param displayed The board's logs in their current display order.
  */
-export function sortLogs<F>(logs: readonly ScannedLog<F>[], sort: SortState): ScannedLog<F>[] {
-  const value = SORT_VALUES[sort.key]
-  const sign = sort.direction === 'asc' ? 1 : -1
-  return [...logs].sort((a, b) => {
-    const va = value(a)
-    const vb = value(b)
-    if (va === undefined || vb === undefined) {
-      if (va !== vb) return va === undefined ? 1 : -1
-    } else {
-      const c = compareValues(va, vb)
-      if (c !== 0) return sign * c
-    }
-    return a.relativePath.localeCompare(b.relativePath)
-  })
+export function nextSort(current: BoardSort, key: SortKey, displayed: readonly ScannedLog<unknown>[]): BoardSort {
+  const direction: SortDirection = current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+  let sorters = current.sorters
+  if (EXPLICIT_SORTERS[key] === undefined && sorters[key] === undefined) {
+    const first = displayed[0]
+    sorters = { ...sorters, [key]: guessSorter(first && SORT_VALUES[key](first)) }
+  }
+  return { key, direction, sorters, diffOrder: 'sorted' }
 }
 
-/** Next sort after clicking a column header: toggle direction on the same column, else ascending. */
-export function nextSort(current: SortState, key: SortKey): SortState {
-  if (current.key !== key) return { key, direction: 'asc' }
-  return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+/** Sort state after an ignore option changes (see {@link BoardSort.diffOrder}). */
+export function afterIgnoreChange(current: BoardSort): BoardSort {
+  return { ...current, diffOrder: 'data' }
 }
 
 // ----------------------------------------------------------------- filtering
@@ -113,7 +145,7 @@ export function nextSort(current: SortState, key: SortKey): SortState {
 /** Vehicle filter value: a vehicle family, or logs that do not identify one. */
 export type VehicleFilterKey = VehicleType | 'unknown'
 
-/** Filters applied to the scanned logs. Not in upstream, which only lists logs. */
+/** Filters applied to the scanned logs (a convenience: upstream lists every log; filters only hide rows). */
 export interface LogFilter {
   /** Case-insensitive text matched against path, firmware, board and OS strings. */
   readonly text: string
@@ -177,52 +209,61 @@ export function parseDateInput(value: string, endOfDay = false): Date | undefine
 
 // ----------------------------------------------------------------- table rows
 
-/** One table row: a log and its parameter changes since the row above. */
+/** One table row: a log and its parameter changes since the log it is compared with. */
 export interface TableRow<F> {
   readonly log: ScannedLog<F>
-  /** `null` for the first row, which has nothing to compare with. */
+  /** `null` for the first row (in the diff order), which has nothing to compare with. */
   readonly paramDiff: ParamDiff | null
 }
 
-/** Column totals shown below a table with more than one row. */
+/** Column totals shown below a board's table when it has more than one log. */
 export interface TableTotals {
   readonly sizeBytes: number
-  /** Sum of known flight times; unknown values count as zero, as Tabulator's `sum`. */
+  /** Sum of flight times; unknown values count as zero, as Tabulator's `sum`. */
   readonly flightTimeS: number
+  /** Sum of distances; logs without POS count as zero. */
   readonly distanceM: number
-  /** Parameter changes from the first row to the last. */
+  /** Parameter changes from the first displayed row to the last (`total_param_diff_calc`). */
   readonly paramDiff: ParamDiff
 }
 
-/** A board's table after filtering and sorting. */
+/** A board's table after sorting, diffing and filtering. */
 export interface BoardTable<F> {
   readonly board: string
   readonly commonPath: string
+  /** Rows passing the filter, in display order. */
   readonly rows: readonly TableRow<F>[]
-  /** `null` with fewer than two rows (upstream hides the calculation row then). */
+  /** Every log on the board in display order, shown or not (Tabulator's active rows). */
+  readonly sorted: readonly ScannedLog<F>[]
+  /** `null` when the board has a single log (upstream turns the calculation row off then). */
   readonly totals: TableTotals | null
 }
 
 /**
- * Diff each row's parameters against the row above, in display order (upstream
- * `update_param_diff`, run after every sort).
+ * Diff each log's parameters against the one before it in `order` (upstream `update_param_diff`):
+ * the first gets `null`.
  */
-export function withParamDiffs<F>(logs: readonly ScannedLog<F>[], ignored: ReadonlySet<ParamIgnoreKey>): TableRow<F>[] {
-  return logs.map((log, i) => {
-    const previous = i > 0 ? logs[i - 1] : undefined
-    return { log, paramDiff: previous === undefined ? null : paramDiff(log.summary.params, previous.summary.params, ignored) }
+export function paramDiffsInOrder<F>(
+  order: readonly ScannedLog<F>[],
+  ignored: ReadonlySet<ParamIgnoreKey>
+): Map<ScannedLog<F>, ParamDiff | null> {
+  const out = new Map<ScannedLog<F>, ParamDiff | null>()
+  order.forEach((log, i) => {
+    const previous = i > 0 ? order[i - 1] : undefined
+    out.set(log, previous === undefined ? null : paramDiff(log.summary.params, previous.summary.params, ignored))
   })
+  return out
 }
 
-/** Totals for a table (upstream `bottomCalc` sums and `total_param_diff_calc`). */
-export function tableTotals(logs: readonly ScannedLog<unknown>[], ignored: ReadonlySet<ParamIgnoreKey>): TableTotals | null {
-  const first = logs[0]
-  const last = logs[logs.length - 1]
-  if (logs.length <= 1 || first === undefined || last === undefined) return null
+/** Totals for a board's sorted logs (upstream `bottomCalc` sums and `total_param_diff_calc`). */
+export function tableTotals(sorted: readonly ScannedLog<unknown>[], ignored: ReadonlySet<ParamIgnoreKey>): TableTotals | null {
+  const first = sorted[0]
+  const last = sorted[sorted.length - 1]
+  if (sorted.length <= 1 || first === undefined || last === undefined) return null
   let sizeBytes = 0
   let flightTimeS = 0
   let distanceM = 0
-  for (const { summary } of logs) {
+  for (const { summary } of sorted) {
     sizeBytes += summary.sizeBytes
     flightTimeS += summary.flightTimeS ?? 0
     distanceM += summary.distanceM ?? 0
@@ -231,26 +272,32 @@ export function tableTotals(logs: readonly ScannedLog<unknown>[], ignored: Reado
 }
 
 /**
- * Build the tables to show: logs grouped by board, then filtered, sorted and diffed. Parameter
- * diffs compare neighbouring visible rows, so a filter changes what each row is compared with.
- * Boards with no visible logs are dropped.
+ * Build the tables to show: logs grouped by board, each board sorted with its own state, diffed
+ * and totalled over all of its logs as upstream does, then filtered. The filter only hides rows:
+ * it never changes what a row is compared with or the totals. Boards with no visible logs are
+ * dropped.
  */
 export function buildTables<F>(
   logs: readonly ScannedLog<F>[],
-  options: { readonly filter: LogFilter; readonly sort: SortState; readonly ignored: ReadonlySet<ParamIgnoreKey> }
+  options: {
+    readonly filter: LogFilter
+    readonly sorts: ReadonlyMap<string, BoardSort>
+    readonly ignored: ReadonlySet<ParamIgnoreKey>
+  }
 ): BoardTable<F>[] {
   const out: BoardTable<F>[] = []
   for (const group of groupByBoard(logs)) {
-    const visible = sortLogs(
-      group.logs.filter((l) => matchesFilter(l, options.filter)),
-      options.sort
-    )
-    if (visible.length === 0) continue
+    const sort = options.sorts.get(group.board) ?? INITIAL_SORT
+    const sorted = sortLogs(group.logs, sort)
+    const diffs = paramDiffsInOrder(sort.diffOrder === 'sorted' ? sorted : group.logs, options.ignored)
+    const rows = sorted.filter((l) => matchesFilter(l, options.filter)).map((log) => ({ log, paramDiff: diffs.get(log) ?? null }))
+    if (rows.length === 0) continue
     out.push({
       board: group.board,
       commonPath: group.commonPath,
-      rows: withParamDiffs(visible, options.ignored),
-      totals: tableTotals(visible, options.ignored)
+      rows,
+      sorted,
+      totals: tableTotals(sorted, options.ignored)
     })
   }
   return out

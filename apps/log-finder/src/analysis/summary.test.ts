@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DataflashLog } from '@apwt/dataflash'
-import { distanceTravelled, flightPath, logWarnings, warningLevel } from './summary.js'
+import { distanceTravelled, flightPathLatLngs, logWarnings, warningLevel } from './summary.js'
 import { readFixture } from './test-utils/upstream.js'
 import { makeSummary } from './test-utils/summary.js'
 
@@ -18,14 +18,13 @@ describe('distanceTravelled', () => {
   })
 })
 
-describe('flightPath', () => {
-  it('starts at the origin and has one point per POS record', () => {
+describe('flightPathLatLngs', () => {
+  it('gives one [lat, lng] in degrees per POS record, and nothing without POS', () => {
     const log = DataflashLog.parse(readFixture('copter-sitl.bin'))
-    const path = flightPath(log)
-    expect(path).toBeDefined()
-    expect(path?.northM[0]).toBe(0)
-    expect(path?.eastM.length).toBe(log.count('POS'))
-    expect(flightPath(DataflashLog.parse(readFixture('copter-files.bin')))).toBeUndefined()
+    const path = flightPathLatLngs(log)
+    expect(path?.length).toBe(log.count('POS'))
+    expect(path?.[0]).toEqual([log.getNumbers('POS', 'Lat')![0]! * 1e-7, log.getNumbers('POS', 'Lng')![0]! * 1e-7])
+    expect(flightPathLatLngs(DataflashLog.parse(readFixture('copter-files.bin')))).toBeUndefined()
   })
 })
 

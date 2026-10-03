@@ -67,12 +67,12 @@ interface RawError {
 }
 
 /**
- * Names of the set bits. Deviation: bits beyond the known table read `"bit N"` instead of
- * upstream's `"undefined"`.
+ * Names of the set bits. Bits beyond the table (30 and 31) read `"undefined"`, as upstream's
+ * string concatenation of a missing entry gives (upstream bug, reproduced).
  */
 export function internalErrorNames(mask: number): string[] {
   const out: string[] = []
-  for (let i = 0; i < 32; i++) if ((mask & (1 << i)) !== 0) out.push(INTERNAL_ERROR_NAMES[i] ?? `bit ${i}`)
+  for (let i = 0; i < 32; i++) if ((mask & (1 << i)) !== 0) out.push(INTERNAL_ERROR_NAMES[i] ?? 'undefined')
   return out
 }
 

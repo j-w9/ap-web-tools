@@ -27,7 +27,9 @@ describe('IMU parameters', () => {
       gyro: { id: 'INS4_GYR_ID', calTemp: 'INS4_GYR_CALTEMP' },
       pos: ['INS4_POS_X', 'INS4_POS_Y', 'INS4_POS_Z']
     })
-    expect(insParamNames(0).tcal.gyro[0]).toEqual(['INS_TCAL1_GYR1_X', 'INS_TCAL1_GYR1_Y', 'INS_TCAL1_GYR1_Z'])
+    // Upstream typos, reproduced: gyro coefficients repeat the ACC names; TMAN for TMAX.
+    expect(insParamNames(0).tcal.gyro[0]).toEqual(['INS_TCAL1_ACC1_X', 'INS_TCAL1_ACC1_Y', 'INS_TCAL1_ACC1_Z'])
+    expect(insParamNames(0).tcal.tMax).toBe('INS_TCAL1_TMAN')
   })
 
   it('derives calibration state', () => {
@@ -70,19 +72,24 @@ describe('IMU parameters', () => {
       INS_ACC2_ID: 0
     }
     const clean = readIns(m(base), undefined, EMPTY_CAN)[0]
+    // Upstream bug, reproduced: the scale check compares the offsets (all 0) with 1.0.
     expect(clean).toMatchObject({
-      accelCalibrated: false,
+      accelCalibrated: true,
       gyroCalibrated: false,
       accelTempCalibrated: false,
       gyroTempCalibrated: false,
       posSet: false,
       combined: true
     })
-    const cal = readIns(m({ ...base, INS_ACCSCAL_Y: 1.01, INS_TCAL1_GYR2_Z: 0.5, INS_POS1_X: 0.1 }), undefined, EMPTY_CAN)[0]
+    // Gyro temperature calibration is judged from the ACC coefficients, so a GYR coefficient
+    // changes nothing and an ACC one sets both.
+    const gyrOnly = readIns(m({ ...base, INS_TCAL1_GYR2_Z: 0.5 }), undefined, EMPTY_CAN)[0]
+    expect(gyrOnly).toMatchObject({ accelTempCalibrated: false, gyroTempCalibrated: false })
+    const cal = readIns(m({ ...base, INS_ACCSCAL_Y: 1.01, INS_TCAL1_ACC2_Z: 0.5, INS_POS1_X: 0.1 }), undefined, EMPTY_CAN)[0]
     expect(cal).toMatchObject({
       accelCalibrated: true,
       gyroCalibrated: false,
-      accelTempCalibrated: false,
+      accelTempCalibrated: true,
       gyroTempCalibrated: true,
       posSet: true
     })

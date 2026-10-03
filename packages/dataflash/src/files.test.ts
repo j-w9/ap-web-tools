@@ -21,19 +21,19 @@ describe('files', () => {
     expect(text(log.files().get('@SYS/a.txt'))).toBe('hello world')
   })
 
-  it('does not duplicate a file written twice (regression: copies were appended)', () => {
+  it('appends a file written twice, as upstream processFiles does (bug, reproduced)', () => {
     const log = fileLog([
       ['@SYS/a.txt', 0, 'first '],
       ['@SYS/a.txt', 6, 'copy'],
       ['@SYS/a.txt', 0, 'second'],
       ['@SYS/a.txt', 6, ' run']
     ])
-    expect(text(log.files().get('@SYS/a.txt'))).toBe('second run')
+    expect(text(log.files().get('@SYS/a.txt'))).toBe('first copysecond run')
   })
 
-  it('omits message types with no records from stats', () => {
+  it('lists message types with no records in stats, as upstream does', () => {
     const log = fileLog([['x', 0, 'y']])
-    expect(log.stats().has('FILE')).toBe(true)
-    expect([...log.stats().values()].every((s) => s.count > 0)).toBe(true)
+    expect(log.stats().get('FILE')?.count).toBe(1)
+    expect(log.stats().get('FMT')?.count).toBe(2)
   })
 })

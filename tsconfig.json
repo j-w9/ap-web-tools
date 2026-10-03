@@ -69,6 +69,9 @@
     },
     {
       "path": "apps/analytic-tune"
+    },
+    {
+      "path": "apps/ai-log-analyzer"
     }
   ]
 }

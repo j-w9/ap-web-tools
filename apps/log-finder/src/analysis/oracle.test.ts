@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { DataflashLog } from '@apwt/dataflash'
 import { ALL_PARAM_IGNORE_KEYS, PARAM_IGNORE_RULES, paramDiff, type ParamDiff, type ParamIgnoreKey } from './param-diff.js'
 import { paramFileText, paramToString } from '@apwt/ardupilot'
-import { readLogSummary, type LogSummary } from './summary.js'
+import { flightPathLatLngs, readLogSummary, type LogSummary } from './summary.js'
 import { FIXTURES, loadUpstreamLogFinder, readFixture, type UpstreamDiff, type UpstreamLogFinder } from './test-utils/upstream.js'
 
 let up: UpstreamLogFinder
@@ -49,6 +49,13 @@ describe.each(FIXTURES)('load_log oracle: %s', (name) => {
     expect(mine.crashDump).toBe(theirs.crash_dump === true)
     expect(mine.distanceM ?? null).toBe(theirs.distance_traveled)
     expect([...mine.messageTypes].sort()).toEqual([...theirs.available_log_messages].sort())
+  })
+})
+
+describe.each(FIXTURES)('map tooltip oracle: %s', (name) => {
+  it('draws the same polyline points', () => {
+    const mine = flightPathLatLngs(DataflashLog.parse(readFixture(name)))
+    expect(mine).toEqual(up.map_latlngs(readFixture(name)))
   })
 })
 

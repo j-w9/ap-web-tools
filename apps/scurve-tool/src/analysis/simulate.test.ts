@@ -3,7 +3,7 @@ import { nodeEngine } from '../wasm/test-utils/node.js'
 import { CURVE_KEYS } from './engine.js'
 import { axisRange, colourValues, sphereMesh } from './path3d.js'
 import { DEFAULT_PARAMS, type ParamValues } from './params.js'
-import { differentiate, magnitude, simulateMission, type Simulation } from './simulate.js'
+import { DT, MAX_TIME, differentiate, magnitude, simulateMission, type Simulation } from './simulate.js'
 import { runUpstream, type UpstreamResult } from './test-utils/upstream.js'
 import { DEFAULT_MISSION, type Mission } from './waypoints.js'
 
@@ -93,6 +93,37 @@ describe('simulateMission matches upstream replot()', () => {
     expect(plain.path[1]!.line!.color).toBe('rgba(0, 0, 0, 1)')
     expect(colourValues(sim, 'none')).toBeNull()
   }, 60_000)
+
+  it('passes an emptied field on as NaN, like upstream', async () => {
+    // An empty number field reads as '' upstream and parseFloat('') is NaN; the port commits the
+    // same NaN (see input.ts), so the WPNav code sees the same value.
+    const mission: Mission = [DEFAULT_MISSION[0], DEFAULT_MISSION[1], DEFAULT_MISSION[2], { north: 100, east: NaN, up: 80 }]
+    const params: ParamValues = { ...DEFAULT_PARAMS, WP_ACC_CNR: NaN }
+    const upstream = await runUpstream(mission, params, { ...NONE, display_wp_vel: true })
+    const sim = simulateMission(await nodeEngine(), mission, params)
+    const target = upstream.path[1]!
+    expect(sim.time.length).toBe(target.x.length)
+    expect(path(sim)).toEqual({ x: target.x, y: target.y, z: target.z })
+    expect(Array.from(colourValues(sim, 'velocity') ?? [])).toEqual(target.line!.color)
+    expect(sim.legs.length).toBe(upstream.curves.length)
+    sim.legs.forEach((leg, i) => {
+      for (const key of CURVE_KEYS) expect(Array.from(leg[key])).toEqual(upstream.curves[i]![key])
+    })
+    const [min, max] = axisRange(mission, params.WP_RADIUS_M)
+    expect(upstream.ranges).toEqual({ x: [max, min], y: [min, max], z: [min, max] })
+  }, 120_000)
+
+  it('stops at the same 1000 s cut-off when the last waypoint is never reached', async () => {
+    // At 0.1 m/s the default mission takes far longer than 1000 s, so both stop at the cut-off.
+    const params: ParamValues = { ...DEFAULT_PARAMS, WP_SPD: 0.1, WP_SPD_UP: 0.1, WP_SPD_DN: 0.1 }
+    const upstream = await runUpstream(DEFAULT_MISSION, params, { ...NONE, display_wp_vel: true })
+    const sim = simulateMission(await nodeEngine(), DEFAULT_MISSION, params)
+    expect(sim.time.length).toBe(upstream.path[1]!.x.length)
+    expect(path(sim)).toEqual({ x: upstream.path[1]!.x, y: upstream.path[1]!.y, z: upstream.path[1]!.z })
+    expect(sim.legs.length).toBe(upstream.curves.length)
+    expect(sim.time.length).toBe(Math.floor(MAX_TIME / DT))
+    expect(sim.completed).toBe(false)
+  }, 120_000)
 
   it('draws the same waypoint-radius spheres', async () => {
     const upstream = await runUpstream(DEFAULT_MISSION, DEFAULT_PARAMS, { ...NONE, display_wp_radius: true })

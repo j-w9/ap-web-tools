@@ -28,15 +28,25 @@ export interface UpstreamPlots {
   ang_jerk: UpstreamPlot
 }
 
-/**
- * Run upstream `run_attitude()` for one page.
- * @param values element id to value, e.g. `{ desired_pos: 30, ATC_INPUT_TC: 0.15 }`
- */
-export async function runUpstream(
-  page: 'copter' | 'plane',
-  radios: { axis: string; mode: string },
-  values: Record<string, number>
-): Promise<UpstreamPlots> {
+export interface UpstreamRun {
+  plots: UpstreamPlots
+  /** Plot ids passed to `Plotly.redraw` during the run, in order. */
+  redrawn: string[]
+  /** What `run_attitude()` threw, if it did (upstream then shows its generic error alert). */
+  error: unknown
+}
+
+export interface UpstreamPage {
+  /**
+   * Set the radios and inputs, then run `run_attitude()` as an input's `onchange` would.
+   * @param values element id to input text, e.g. `{ desired_pos: 30, ATC_INPUT_TC: '' }`;
+   *   ids not given keep their previous value (initially `'0'`)
+   */
+  run(radios: { axis: string; mode: string }, values: Record<string, number | string>): Promise<UpstreamRun>
+}
+
+/** Load one upstream page once, so a sequence of runs sees the state earlier runs left behind. */
+export async function loadUpstreamPage(page: 'copter' | 'plane'): Promise<UpstreamPage> {
   const wasm = await WebAssembly.instantiate(readWasm('control.wasm'), {})
   const exports = wasm.instance.exports as Record<string, ((...args: number[]) => number) | undefined>
   const fn = (name: string) => {
@@ -58,19 +68,21 @@ export async function runUpstream(
   const element = (id: string) => {
     let el = elements.get(id)
     if (!el) {
-      el = { value: id in values ? String(values[id]) : '0', disabled: false, hidden: false }
+      el = { value: '0', disabled: false, hidden: false }
       elements.set(id, el)
     }
     return el
   }
+  let radios = { axis: 'R', mode: 'angle' }
+  let redrawn: string[] = []
   const noop = () => undefined
   const context = createContext({
-    console,
+    console: { ...console, log: noop },
     document: {
       getElementById: element,
       querySelector: (selector: string) => ({ value: selector.includes('"axis"') ? radios.axis : radios.mode })
     },
-    Plotly: { purge: noop, newPlot: noop, redraw: noop },
+    Plotly: { purge: noop, newPlot: noop, redraw: (id: string) => redrawn.push(id) },
     link_plot_axis_range: noop,
     link_plot_reset: noop,
     ControlModule: () => Promise.resolve(controlModule),
@@ -80,6 +92,21 @@ export async function runUpstream(
   const source = read(page === 'copter' ? 'KinematicTool/KinematicTool.js' : 'KinematicTool/plane/KinematicTool.js')
   runInContext(source.replace("import('./Ruckig/ruckig.js')", '__importRuckig()'), context)
   runInContext('initial_load()', context)
-  await (runInContext('run_attitude()', context) as Promise<void>)
-  return runInContext('({ ang_pos, ang_vel, ang_accel, ang_jerk })', context) as UpstreamPlots
+
+  return {
+    async run(nextRadios, values) {
+      radios = nextRadios
+      for (const [id, value] of Object.entries(values)) element(id).value = String(value)
+      redrawn = []
+      let error: unknown = undefined
+      try {
+        await (runInContext('run_attitude()', context) as Promise<void>)
+      } catch (e) {
+        error = e
+      }
+      // Deep copy, so later runs cannot change what this one returned.
+      const plots = structuredClone(runInContext('({ ang_pos, ang_vel, ang_accel, ang_jerk })', context) as UpstreamPlots)
+      return { plots, redrawn, error }
+    }
+  }
 }

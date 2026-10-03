@@ -1,27 +1,28 @@
 import { useMemo, useRef, useState } from 'react'
-import { DataflashLog, type VehicleType } from '@apwt/dataflash'
-import { PlotlyChart } from '@apwt/plot'
-import { ErrorBanner, Section, ToolPage, useLoading, type LogFact } from '@apwt/tool-shell'
-import { formatFlightTime, formatSize } from './analysis/format.js'
+import type { VehicleType } from '@apwt/dataflash'
+import { ErrorBanner, Section, ToolPage, type LogFact } from '@apwt/tool-shell'
 import { ALL_PARAM_IGNORE_KEYS, type ParamIgnoreKey } from './analysis/param-diff.js'
 import { scanLogs, type SkipReason, type SkippedFile } from './analysis/scan.js'
-import { flightPath, type FlightPath } from './analysis/summary.js'
 import {
-  DEFAULT_SORT,
+  INITIAL_SORT,
+  afterIgnoreChange,
   buildTables,
   groupByBoard,
   nextSort,
   parseDateInput,
   vehicleKey,
+  type BoardSort,
   type LogFilter,
   type ScannedLog,
-  type SortState,
+  type SortKey,
   type VehicleFilterKey
 } from './analysis/table.js'
 import { LogTable, VEHICLE_NAMES } from './ui/LogTable.js'
 import { EMPTY_FILTER_INPUTS, Rail, type FilterInputs, type ScanStatus } from './ui/Rail.js'
-import { listSource, pickDirectory, sourceLabel, toLogFileRefs, type LogSource } from './ui/sources.js'
-import { FLIGHT_PATH_LAYOUT, flightPathTraces } from './ui/traces.js'
+import { canPickDirectory, listSource, pickDirectory, sourceLabel, toLogFileRefs, type LogSource } from './ui/sources.js'
+
+/** Upstream `initial_load()` alerts this when `showDirectoryPicker` is missing; shown in the page instead. */
+const NO_DIRECTORY_PICKER = 'This browser does not support directory opening.'
 
 const SKIP_REASONS: Readonly<Record<SkipReason, string>> = {
   'parse-error': 'could not be parsed',
@@ -44,8 +45,6 @@ function toLogFilter(inputs: FilterInputs): LogFilter {
 }
 
 export function App() {
-  const { run } = useLoading()
-
   // ----- Scan -----
   const [source, setSource] = useState<LogSource | null>(null)
   const [logs, setLogs] = useState<readonly ScannedLog<File>[]>([])
@@ -58,9 +57,8 @@ export function App() {
   // ----- View -----
   const [filterInputs, setFilterInputs] = useState<FilterInputs>(EMPTY_FILTER_INPUTS)
   const [ignored, setIgnored] = useState<ReadonlySet<ParamIgnoreKey>>(new Set(ALL_PARAM_IGNORE_KEYS))
-  const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
-  const [path, setPath] = useState<{ log: ScannedLog<File>; path: FlightPath } | null>(null)
-  const pathSection = useRef<HTMLDivElement>(null)
+  /** Each board's table keeps its own sort, as upstream's separate Tabulator tables do. */
+  const [sorts, setSorts] = useState<ReadonlyMap<string, BoardSort>>(new Map())
 
   const scan = async (next: LogSource) => {
     const id = ++scanId.current
@@ -68,7 +66,7 @@ export function App() {
     setSource(next)
     setLogs([])
     setSkipped([])
-    setPath(null)
+    setSorts(new Map())
     setError(null)
     setStatus({ kind: 'listing' })
     document.title = `Logs in: ${sourceLabel(next)}`
@@ -111,36 +109,37 @@ export function App() {
     setStatus({ kind: 'idle' })
   }
 
-  const showPath = (log: ScannedLog<File>) =>
-    void run(async () => {
-      try {
-        const found = flightPath(DataflashLog.parse(await log.file.arrayBuffer()))
-        setPath(found ? { log, path: found } : null)
-        requestAnimationFrame(() => pathSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-      } catch (e) {
-        setError(`Could not read ${log.name} again: ${e instanceof Error ? e.message : String(e)}. Reload the folder.`)
-      }
-    }, 'Reading flight path')
-
   // ----- Derived -----
   const filter = useMemo(() => toLogFilter(filterInputs), [filterInputs])
-  const tables = useMemo(() => buildTables(logs, { filter, sort, ignored }), [logs, filter, sort, ignored])
+  const tables = useMemo(() => buildTables(logs, { filter, sorts, ignored }), [logs, filter, sorts, ignored])
   const vehicles = useMemo(() => {
     const present = new Set(logs.map((l) => vehicleKey(l.summary)))
     return VEHICLE_ORDER.filter((v) => present.has(v))
   }, [logs])
   const boards = useMemo(() => groupByBoard(logs).length, [logs])
   const shownCount = tables.reduce((n, t) => n + t.rows.length, 0)
-  const pathTraces = useMemo(() => (path ? flightPathTraces(path.path) : []), [path])
+
+  const sortBoard = (board: string, key: SortKey) => {
+    const displayed = tables.find((t) => t.board === board)?.sorted ?? []
+    setSorts((current) => new Map(current).set(board, nextSort(current.get(board) ?? INITIAL_SORT, key, displayed)))
+  }
+
+  /** Upstream recomputes every table's diffs when an ignore option changes (see `BoardSort.diffOrder`). */
+  const changeIgnored = (next: ReadonlySet<ParamIgnoreKey>) => {
+    setIgnored(next)
+    setSorts((current) => {
+      const out = new Map(current)
+      for (const { board } of groupByBoard(logs)) out.set(board, afterIgnoreChange(current.get(board) ?? INITIAL_SORT))
+      return out
+    })
+  }
 
   const facts: LogFact[] | null = source
     ? [
         { label: 'Searched', value: sourceLabel(source) },
         { label: 'Logs', value: shownCount === logs.length ? logs.length : `${shownCount} of ${logs.length}` },
         ...(skipped.length > 0 ? [{ label: 'Skipped', value: skipped.length }] : []),
-        { label: 'Boards', value: boards },
-        { label: 'Total size', value: formatSize(logs.reduce((n, l) => n + l.summary.sizeBytes, 0)) },
-        { label: 'Flight time', value: formatFlightTime(logs.reduce((n, l) => n + (l.summary.flightTimeS ?? 0), 0)) }
+        { label: 'Boards', value: boards }
       ]
     : null
 
@@ -175,27 +174,13 @@ export function App() {
           filter={filterInputs}
           onFilterChange={setFilterInputs}
           ignored={ignored}
-          onIgnoredChange={setIgnored}
+          onIgnoredChange={changeIgnored}
         />
       }
     >
       <ErrorBanner message={error} />
 
-      {path && (
-        <div ref={pathSection}>
-          <Section
-            title={`Flight path: ${path.log.name}`}
-            help="Position track from POS messages, in metres from the first fix. Green is the start, red the end."
-            tools={
-              <button type="button" className="apwt-btn apwt-btn--ghost" onClick={() => setPath(null)}>
-                Close
-              </button>
-            }
-          >
-            <PlotlyChart className="apwt-plot" data={pathTraces} layout={FLIGHT_PATH_LAYOUT} />
-          </Section>
-        </div>
-      )}
+      <ErrorBanner message={canPickDirectory() ? null : NO_DIRECTORY_PICKER} />
 
       {tables.map((table) => (
         <Section
@@ -204,11 +189,12 @@ export function App() {
           help={table.commonPath ? <code>{table.commonPath}</code> : undefined}
           tools={
             <span className="apwt-badge apwt-badge--gray">
-              {table.rows.length} {table.rows.length === 1 ? 'log' : 'logs'}
+              {table.rows.length === table.sorted.length ? table.sorted.length : `${table.rows.length} of ${table.sorted.length}`}{' '}
+              {table.sorted.length === 1 ? 'log' : 'logs'}
             </span>
           }
         >
-          <LogTable table={table} sort={sort} onSort={(key) => setSort((s) => nextSort(s, key))} onShowPath={showPath} />
+          <LogTable table={table} sort={sorts.get(table.board) ?? INITIAL_SORT} onSort={(key) => sortBoard(table.board, key)} />
         </Section>
       ))}
 

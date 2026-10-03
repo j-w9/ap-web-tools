@@ -213,7 +213,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Ask an AI agent questions about a log.',
     category: 'logs',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'AILogAnalyzer',
     opens: { kind: 'any' }
   },

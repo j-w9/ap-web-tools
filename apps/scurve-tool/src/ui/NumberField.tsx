@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { parseNumberInput } from '../analysis/input.js'
 
 export interface NumberFieldProps {
   value: number
@@ -12,19 +13,15 @@ export interface NumberFieldProps {
 
 /**
  * A number input that applies its value on blur or Enter, like upstream's `onchange`, so the
- * simulation does not rerun on every keystroke. Text that is not a finite number is discarded.
- * Remount it (`key`) to show a value changed from outside.
+ * simulation does not rerun on every keystroke. The text is parsed as upstream parses it, so an
+ * empty or invalid entry commits `NaN`. Remount it (`key`) to show a value changed from outside.
  */
 export function NumberField({ value, onCommit, min, max, step, title, ariaLabel }: NumberFieldProps) {
-  const [draft, setDraft] = useState(String(value))
+  const [draft, setDraft] = useState(Number.isNaN(value) ? '' : String(value))
 
   const commit = () => {
-    const parsed = draft.trim() === '' ? NaN : Number(draft)
-    if (Number.isFinite(parsed)) {
-      if (parsed !== value) onCommit(parsed)
-    } else {
-      setDraft(String(value))
-    }
+    const parsed = parseNumberInput(draft)
+    if (!Object.is(parsed, value)) onCommit(parsed)
   }
 
   return (

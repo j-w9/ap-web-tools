@@ -42,18 +42,7 @@ describe('buildLogReport on copter-files.bin (real H743 board)', () => {
     expect(r.sensors.gps[0]).toMatchObject({ type: 1, typeName: 'AUTO', device: undefined })
   })
 
-  it('reports serial port configuration', () => {
-    expect(r.serialPorts.map((p) => [p.index, p.protocolName, p.baud])).toEqual([
-      [0, 'MAVLink2', 115200],
-      [1, 'ESC Telemetry', 115200],
-      [2, 'RCIN', 57600],
-      [3, 'GPS', 230400],
-      [4, 'GPS', 230400],
-      [6, 'DisplayPort', 115200],
-      [7, 'GPS', 57600],
-      [8, 'None', 57600],
-      [9, 'MAVLink2', 115200]
-    ])
+  it('titles the UART data rates from the serial parameters', () => {
     expect(r.plots.uartRates.map((u) => u.title)).toEqual([
       'Serial 0: MAVLink2, 115200 baud',
       'Serial 2: RCIN, 57600 baud',
@@ -65,62 +54,24 @@ describe('buildLogReport on copter-files.bin (real H743 board)', () => {
     for (const u of r.plots.uartRates) expect(u.rx.length).toBe(u.time.length)
   })
 
-  it('reassembles embedded files by offset', () => {
-    expect(r.files.map((f) => [f.name, f.data.length])).toEqual([
-      ['@SYS/uarts.txt', 832],
-      ['@SYS/memory.txt', 346],
-      ['@SYS/threads.txt', 1230],
-      ['@SYS/timers.txt', 344],
-      ['@ROMFS/hwdef.dat', 3380],
-      ['@SYS/storage.bin', 32768],
-      ['defaults.parm', 128]
+  it('reassembles embedded files by appending chunks, as upstream processFiles', () => {
+    // uarts.txt is written twice in this log; upstream ignores Offset, so both copies are kept.
+    expect(r.files.map((f) => f.name)).toEqual([
+      '@SYS/uarts.txt',
+      '@SYS/memory.txt',
+      '@SYS/threads.txt',
+      '@SYS/timers.txt',
+      '@ROMFS/hwdef.dat',
+      '@SYS/storage.bin',
+      'defaults.parm'
     ])
-    const threads = new TextDecoder().decode(r.files[2]?.data)
-    expect(threads.match(/ThreadsV2/g)).toHaveLength(1)
-    expect(threads.startsWith('ThreadsV2\nISR ')).toBe(true)
+    expect(r.files[0]?.data.length).toBe(1664)
     expect(r.files.some((f) => f.isCrashDump)).toBe(false)
   })
 
-  it('decodes @SYS uarts, threads, timers and memory', () => {
-    const sys = r.sysFiles
-    expect(sys.uarts).toHaveLength(10)
-    expect(sys.uarts?.[5]).toMatchObject({ index: 5, device: 'EMPTY', empty: true })
-    expect(sys.uarts?.[7]).toMatchObject({
-      index: 7,
-      device: 'UART7',
-      rxDma: true,
-      txDma: false,
-      framingErrors: 8,
-      noiseErrors: 40
-    })
-    expect(sys.uarts?.[0]).toMatchObject({ txBytes: 9990, txRate: 49950 })
-    expect(sys.timers?.map((t) => t.timer)).toEqual(['TIM3', 'TIM2', 'TIM5', 'TIM4', 'TIM1', 'TIM15'])
-    expect(sys.timers?.[0]).toEqual({ timer: 'TIM3', clockMhz: 200, mode: 'PWM', frequency: 7, target: 8 })
-    expect(sys.memory).toHaveLength(6)
-    expect(sys.memory?.[0]).toEqual({ start: '0x30000000', length: 256 * 1024, free: 416, largest: 320, type: 8 })
-    expect(sys.dma).toBeUndefined()
-    expect(sys.threads?.length).toBe(24)
-    expect(sys.threads?.[1]).toEqual({
-      name: 'ArduCopter',
-      priority: 182,
-      stackPointer: '0x30000600',
-      stackFree: 4432,
-      stackSize: 7168
-    })
-  })
-
-  it('thread stack figures agree with STAK records', () => {
-    const stak = new Map(r.plots.stacks.map((s) => [s.name, s]))
-    let compared = 0
-    for (const t of r.sysFiles.threads ?? []) {
-      const s = stak.get(t.name)
-      if (s === undefined) continue
-      expect(t.stackSize).toBe(s.total[0])
-      compared++
-    }
-    expect(compared).toBeGreaterThan(10)
-    // STAK sorted by priority, highest first.
+  it('sorts thread stacks by priority, highest first', () => {
     const pri = r.plots.stacks.map((s) => s.priority)
+    expect(pri.length).toBeGreaterThan(10)
     expect([...pri].sort((a, b) => b - a)).toEqual(pri)
   })
 
@@ -135,7 +86,8 @@ describe('buildLogReport on copter-files.bin (real H743 board)', () => {
     const sum = r.logStats.messages.reduce((n, m) => n + m.bytes, 0)
     expect(sum).toBeGreaterThan(0.9 * r.logStats.totalBytes)
     expect(sum).toBeLessThanOrEqual(r.logStats.totalBytes)
-    expect(r.logStats.messages.every((m) => m.count > 0)).toBe(true)
+    // Upstream's stats() lists defined types without records too.
+    expect(r.logStats.messages.some((m) => m.count === 0)).toBe(true)
   })
 
   it('has params with defaults and no warnings', () => {
@@ -195,7 +147,6 @@ describe('buildLogReport on copter-sitl.bin', () => {
 
   it('has no embedded files', () => {
     expect(r.files).toEqual([])
-    expect(r.sysFiles).toEqual({ uarts: undefined, threads: undefined, timers: undefined, dma: undefined, memory: undefined })
   })
 })
 
@@ -211,7 +162,6 @@ describe('parameter file report', () => {
     // No log: no health, no boot-message GPS device.
     expect(r.sensors.ins[0]?.gyroHealthy).toBeUndefined()
     expect(r.sensors.baro.sensors[0]?.healthy).toBeUndefined()
-    expect(r.serialPorts).toEqual(log.serialPorts)
   })
 
   it('dispatches on the file extension', () => {

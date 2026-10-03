@@ -34,12 +34,15 @@ import { NumberField } from './NumberField.js'
 export interface CopterChoices {
   axis: CopterAxis
   mode: CopterMode
+  /** Each upstream page has its own inputs, so each vehicle keeps its own demand. */
+  demand: Demand
   params: CopterParams
 }
 
 export interface PlaneChoices {
   axis: PlaneAxis
   mode: PlaneMode
+  demand: Demand
   params: PlaneParams
 }
 
@@ -50,8 +53,6 @@ export interface RailProps {
   onCopterChange: (choices: CopterChoices) => void
   plane: PlaneChoices
   onPlaneChange: (choices: PlaneChoices) => void
-  demand: Demand
-  onDemandChange: (demand: Demand) => void
 }
 
 const VEHICLE_OPTIONS = [
@@ -134,7 +135,11 @@ function PlaneControls({ choices, onChange }: { choices: PlaneChoices; onChange:
 /** The control rail: vehicle, axis and mode, the demand, initial conditions and parameters. */
 export function Rail(p: RailProps) {
   const mode = p.vehicle === 'copter' ? p.copter.mode : p.plane.mode
-  const setDemand = (patch: Partial<Demand>) => p.onDemandChange({ ...p.demand, ...patch })
+  const demand = p.vehicle === 'copter' ? p.copter.demand : p.plane.demand
+  const setDemand = (patch: Partial<Demand>) => {
+    if (p.vehicle === 'copter') p.onCopterChange({ ...p.copter, demand: { ...p.copter.demand, ...patch } })
+    else p.onPlaneChange({ ...p.plane, demand: { ...p.plane.demand, ...patch } })
+  }
 
   return (
     <RailCard>
@@ -150,19 +155,20 @@ export function Rail(p: RailProps) {
 
       <ControlGroup label="Inputs">
         <p className="kt-help">
-          Desired angle and rate from the pilot or the {p.vehicle === 'copter' ? 'position' : 'navigation'} controller.
+          Desired angle and rate from the pilot or the {p.vehicle === 'copter' ? 'position' : 'navigation'} controller. End time
+          sets the minimum runtime of the simulation.
         </p>
         <NumberField
           label="Desired angle"
           suffix="deg"
-          value={p.demand.desiredAngle}
+          value={demand.desiredAngle}
           disabled={!usesAngle(mode)}
           onChange={(desiredAngle) => setDemand({ desiredAngle })}
         />
         <NumberField
           label="Desired rate"
           suffix="deg/s"
-          value={p.demand.desiredRate}
+          value={demand.desiredRate}
           disabled={!usesRate(mode)}
           onChange={(desiredRate) => setDemand({ desiredRate })}
         />
@@ -170,7 +176,7 @@ export function Rail(p: RailProps) {
           label="End time"
           suffix="s"
           title="Minimum simulated time. The simulation always runs until the target is reached, then 0.5 s more."
-          value={p.demand.endTime}
+          value={demand.endTime}
           min={END_TIME_LIMITS.min}
           max={END_TIME_LIMITS.max}
           step={END_TIME_LIMITS.step}
@@ -179,16 +185,17 @@ export function Rail(p: RailProps) {
       </ControlGroup>
 
       <ControlGroup label="Initial conditions">
+        <p className="kt-help">The angle and rate that the vehicle starts at.</p>
         <NumberField
           label="Starting angle"
           suffix="deg"
-          value={p.demand.initialAngle}
+          value={demand.initialAngle}
           onChange={(initialAngle) => setDemand({ initialAngle })}
         />
         <NumberField
           label="Starting rate"
           suffix="deg/s"
-          value={p.demand.initialRate}
+          value={demand.initialRate}
           onChange={(initialRate) => setDemand({ initialRate })}
         />
       </ControlGroup>
@@ -208,12 +215,19 @@ export function Rail(p: RailProps) {
             />
           </>
         ) : (
-          <ParamFields<PlaneParamName>
-            fields={PLANE_AXIS_PARAMS[p.plane.axis].map((name) => ({ name, enabled: true }))}
-            docs={PLANE_PARAM_DOCS}
-            values={p.plane.params}
-            onChange={(name, value) => p.onPlaneChange({ ...p.plane, params: { ...p.plane.params, [name]: value } })}
-          />
+          <>
+            {/* Upstream's plane page repeats the copter page's parameter tooltip word for word. */}
+            <p className="kt-help">
+              The ArduPilot parameters that define the input shaping vehicle model. Note that in some flight modes{' '}
+              <code>ATC_SLEW_YAW</code> provides secondary yaw rate limit. Rate time constant also changes for acro mode.
+            </p>
+            <ParamFields<PlaneParamName>
+              fields={PLANE_AXIS_PARAMS[p.plane.axis].map((name) => ({ name, enabled: true }))}
+              docs={PLANE_PARAM_DOCS}
+              values={p.plane.params}
+              onChange={(name, value) => p.onPlaneChange({ ...p.plane, params: { ...p.plane.params, [name]: value } })}
+            />
+          </>
         )}
       </ControlGroup>
     </RailCard>

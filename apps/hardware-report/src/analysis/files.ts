@@ -13,7 +13,11 @@ export interface EmbeddedFile {
   readonly isCrashDump: boolean
 }
 
-/** Embedded files in first-seen order; chunks are placed at their offsets by `DataflashLog.files()`. */
+/**
+ * Embedded files in first-seen order, as upstream `processFiles()` builds them
+ * (`DataflashLog.files()`): every chunk's text appended in log order, so a file written twice
+ * holds both copies and chunks lose their trailing zero bytes (upstream bugs, reproduced).
+ */
 export function readEmbeddedFiles(log: DataflashLog): EmbeddedFile[] {
   if (!log.has('FILE')) return []
   return [...log.files()].map(([name, data]) => ({ name, data, isCrashDump: name.endsWith('crash_dump.bin') }))

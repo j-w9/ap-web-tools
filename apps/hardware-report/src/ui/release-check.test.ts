@@ -39,20 +39,32 @@ describe('ReleaseChecker', () => {
       })
     )
     expect(await checker.check('c664ff23')).toEqual({
-      kind: 'commit',
-      url: 'https://github.com/ArduPilot/ardupilot/commit/c664ff23full',
-      branches: ['master']
+      kind: 'not-release',
+      commit: { kind: 'found', url: 'https://github.com/ArduPilot/ardupilot/commit/c664ff23full', branches: ['master'] }
     })
   })
 
   it('flags hashes unknown to ArduPilot', async () => {
     const checker = new ReleaseChecker(fakeFetch({ '/git/refs/tags': () => json(TAGS) }))
-    expect(await checker.check('deadbeef')).toEqual({ kind: 'unofficial' })
+    expect(await checker.check('deadbeef')).toEqual({ kind: 'not-release', commit: { kind: 'failed' } })
+  })
+
+  it('reports a failed branch lookup as upstream does', async () => {
+    const checker = new ReleaseChecker(
+      fakeFetch({
+        '/git/refs/tags': () => json(TAGS),
+        '/commits/c664ff23': () => json({ sha: 'full', html_url: 'u' })
+      })
+    )
+    expect(await checker.check('c664ff23')).toEqual({
+      kind: 'not-release',
+      commit: { kind: 'found', url: 'u', branches: 'failed' }
+    })
   })
 
   it('fails quietly offline and backs off when rate limited', async () => {
     const offline = new ReleaseChecker(() => Promise.reject(new Error('offline')))
-    expect((await offline.check('92b0cd78')).kind).toBe('unavailable')
+    expect((await offline.check('92b0cd78')).kind).toBe('tags-failed')
 
     const calls: string[] = []
     let now = 1000
@@ -60,8 +72,8 @@ describe('ReleaseChecker', () => {
       fakeFetch({ '/git/refs/tags': () => json({ message: 'rate limit' }, 403, { 'x-ratelimit-reset': '1060' }) }, calls),
       () => now
     )
-    expect(await limited.check('92b0cd78')).toEqual({ kind: 'unavailable', reason: 'could not get release tags' })
-    await limited.check('92b0cd78')
+    expect(await limited.check('92b0cd78')).toEqual({ kind: 'tags-failed' })
+    expect(await limited.check('92b0cd78')).toEqual({ kind: 'rate-limited' })
     expect(calls).toHaveLength(1) // second call suppressed until the reset time
     now = 1061
     await limited.check('92b0cd78')

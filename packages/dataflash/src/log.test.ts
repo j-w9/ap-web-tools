@@ -27,16 +27,18 @@ describe('DataflashLog (synthetic log)', () => {
     expect(log.count('IMU', 1)).toBe(50)
   })
 
-  it('resolves units and multipliers from the log tables', () => {
+  it('resolves units and multipliers from the built-in tables, as upstream does', () => {
     const imu = log.messageType('IMU')
     expect(imu).toBeDefined()
     if (imu === undefined) return
     expect(imu.instanceField).toBe('I')
     expect(imu.fields[1]).toMatchObject({ name: 'I', unitId: '#', isInstance: true })
     expect(imu.fields[2]).toMatchObject({ name: 'GyrX', unit: 'rad/s', multiplier: 1, type: 'f' })
-    expect(imu.fields[0]).toMatchObject({ name: 'TimeUS', unit: 'µs', multiplier: 1e-6 })
+    // Upstream prefixes 1e-6 with `n` (bug, reproduced).
+    expect(imu.fields[0]).toMatchObject({ name: 'TimeUS', unit: 'ns', multiplier: 1e-6 })
     const att = log.messageType('ATT')
-    expect(att?.fields[2]).toMatchObject({ unit: 'deg', multiplierId: 'B', multiplier: 0.01 })
+    // The log's UNIT table says `deg`; upstream ignores it and uses its built-in `°`.
+    expect(att?.fields[2]).toMatchObject({ unit: '°', multiplierId: 'B', multiplier: 0.01 })
     expect(att?.instances).toBeUndefined()
     // No FMTU for TYP1: units unknown.
     expect(log.messageType('TYP1')?.fields[1]).toMatchObject({ unit: '?', multiplier: 1, unitId: undefined })

@@ -46,15 +46,16 @@ export async function pickDirectory(): Promise<LogSource | null> {
 async function* walkHandle(handle: FileSystemDirectoryHandle, path: string): AsyncGenerator<PickedFile> {
   for await (const entry of handle.values()) {
     const relativePath = `${path}/${entry.name}`
-    if (entry.kind === 'file') {
-      if (!isLogFileName(entry.name)) continue
-      yield { file: await entry.getFile(), relativePath }
-    } else {
-      try {
+    // Upstream skips any entry (file or directory) that fails to open.
+    try {
+      if (entry.kind === 'file') {
+        const file = await entry.getFile()
+        if (isLogFileName(file.name)) yield { file, relativePath }
+      } else {
         yield* walkHandle(entry, relativePath)
-      } catch {
-        // Upstream skips directories it is not allowed to open.
       }
+    } catch {
+      continue
     }
   }
 }

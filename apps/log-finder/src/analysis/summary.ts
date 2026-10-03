@@ -8,7 +8,7 @@ import { boardName, getVersionAndBoard, type VersionAndBoard } from '@apwt/ardup
 export interface LogSummary {
   /** File size (upstream `size`). */
   readonly sizeBytes: number
-  /** Vehicle family, when the log identifies it. Not shown upstream; used for filtering. */
+  /** Vehicle family, when the log identifies it. Not computed upstream; a convenience column and filter. */
   readonly vehicle: VehicleType | undefined
   /** Firmware and board identification (upstream `fw_string`, `git_hash`, `board_id`, `fc_string`, ...). */
   readonly version: VersionAndBoard
@@ -25,7 +25,10 @@ export interface LogSummary {
   readonly flightTimeS: number | undefined
   /** A WDOG message is present: the board rebooted from a watchdog. */
   readonly watchdog: boolean
-  /** The log contains an embedded `crash_dump.bin` file. */
+  /**
+   * The log contains an embedded `crash_dump.bin` file. Upstream leaves `crash_dump` undefined
+   * without FILE records and false otherwise; only its truthiness is ever used.
+   */
   readonly crashDump: boolean
   /** 3D distance along the POS track; `undefined` without POS messages (upstream `distance_traveled`). */
   readonly distanceM: number | undefined
@@ -136,29 +139,17 @@ export function readLogSummary(buffer: ArrayBuffer): SummaryResult {
   }
 }
 
-/** A flight path in metres from the first position, for the path plot. */
-export interface FlightPath {
-  readonly northM: Float64Array
-  readonly eastM: Float64Array
-}
-
 /**
- * POS track as north/east metres from the first point, using the same flat-earth scaling as
- * {@link distanceTravelled}. `undefined` without POS. Upstream draws this track on a Leaflet map.
+ * POS track as `[lat, lng]` degrees for the map tooltip (upstream `distance_format` `tippy_show`:
+ * `[Lat * 1e-7, Lng * 1e-7]`). `undefined` without POS, where upstream draws no line.
  */
-export function flightPath(log: DataflashLog): FlightPath | undefined {
-  const lat = log.getNumbers('POS', 'Lat')
-  const lng = log.getNumbers('POS', 'Lng')
-  if (lat === undefined || lng === undefined || lat.length === 0) return undefined
-  const lat0 = lat[0]!
-  const lng0 = lng[0]!
-  const northM = new Float64Array(lat.length)
-  const eastM = new Float64Array(lat.length)
-  for (let i = 0; i < lat.length; i++) {
-    northM[i] = (lat[i]! - lat0) * LATLON_TO_M
-    eastM[i] = diffLongitude(lng[i]!, lng0) * LATLON_TO_M * longitudeScale((lat[i]! + lat0) / 2)
-  }
-  return { northM, eastM }
+export function flightPathLatLngs(log: DataflashLog): [number, number][] | undefined {
+  if (!log.has('POS')) return undefined
+  const lat = log.getNumbers('POS', 'Lat') ?? []
+  const lng = log.getNumbers('POS', 'Lng') ?? []
+  const out: [number, number][] = new Array<[number, number]>(lat.length)
+  for (let i = 0; i < lat.length; i++) out[i] = [lat[i]! * 1e-7, lng[i]! * 1e-7]
+  return out
 }
 
 /** Something about a log worth flagging (upstream `check_warnings`). */

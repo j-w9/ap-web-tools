@@ -73,7 +73,8 @@ export function protocolName(num: number): string {
  */
 export function mapBaudrate(value: number | undefined): number | undefined {
   if (value === undefined) return undefined
-  let rate = Math.trunc(value)
+  // Upstream `parseInt(rate)`: parses the number's decimal text.
+  let rate = parseInt(String(value))
   if (rate <= 0) rate = 57
   const table: Readonly<Record<number, number>> = {
     1: 1200,
@@ -167,41 +168,4 @@ export function uartTitle(inst: number, params: ParamValues): PortTitle {
     droneCanTitle(inst, 2, params) ??
     (inst === 100 ? { title: `IOMCU, ${IOMCU_BAUD} baud`, baud: IOMCU_BAUD } : { title: `UART ${inst}`, baud: undefined })
   )
-}
-
-/** One configured `SERIALn` port. */
-export interface SerialPortConfig {
-  /** Port number n. */
-  readonly index: number
-  /** `SERIALn_PROTOCOL`. */
-  readonly protocol: number
-  /** Protocol name. */
-  readonly protocolName: string
-  /** Baud rate (bits per second), when `SERIALn_BAUD` is set; the IOMCU link is fixed. */
-  readonly baud: number | undefined
-  /** `SERIALn_OPTIONS`, when set. */
-  readonly options: number | undefined
-}
-
-/**
- * All `SERIALn_PROTOCOL` ports in index order. Addition: upstream only uses this information
- * to title the UART data-rate plots; it is listed here so a UI can show a port table for
- * `.param` files and logs without UART records too.
- */
-export function readSerialPorts(params: ParamValues): SerialPortConfig[] {
-  const out: SerialPortConfig[] = []
-  for (const [name, protocol] of params) {
-    const m = /^SERIAL(\d+)_PROTOCOL$/.exec(name)
-    if (m === null) continue
-    const index = Number(m[1])
-    const pName = protocolName(protocol)
-    out.push({
-      index,
-      protocol,
-      protocolName: pName,
-      baud: pName === 'IOMCU' ? IOMCU_BAUD : mapBaudrate(params.get(`SERIAL${index}_BAUD`)),
-      options: params.get(`SERIAL${index}_OPTIONS`)
-    })
-  }
-  return out.sort((a, b) => a.index - b.index)
 }

@@ -50,36 +50,21 @@ export function triangleArea(vertex: Point, prev: Point, next: Point): number {
 }
 
 /**
- * Whether two segments intersect (endpoints included). Upstream `line_intersects` has the same
- * bounding-box early outs, but builds its direction vectors with the comma operator
- * (`(a, b)` evaluates to `b`), so the cross products are `NaN` and it always returns false: its
- * self-intersection guard never fires. Deliberate deviation: this is the intended test from the
- * Stack Overflow answer upstream cites, so simplification really cannot create a crossing.
+ * Upstream `line_intersects`, which is meant to say whether two segments cross. Its bounding-box
+ * early outs work, but it then builds its direction vectors with the comma operator
+ * (`(a, b)` evaluates to `b`, a number), so `r1[0]` is `undefined`, every cross product is `NaN`
+ * and every remaining comparison is false: it never reports a crossing. The port reproduces that
+ * result (see docs/upstream-bugs.md), so simplification can create self-intersecting fences just
+ * as upstream does.
  */
-export function segmentsIntersect(seg1Start: Point, seg1End: Point, seg2Start: Point, seg2End: Point): boolean {
+export function lineIntersects(seg1Start: Point, seg1End: Point, seg2Start: Point, seg2End: Point): boolean {
   if (Math.min(seg1Start[1], seg1End[1]) > Math.max(seg2Start[1], seg2End[1])) return false
   if (Math.max(seg1Start[1], seg1End[1]) < Math.min(seg2Start[1], seg2End[1])) return false
   if (Math.min(seg1Start[0], seg1End[0]) > Math.max(seg2Start[0], seg2End[0])) return false
   if (Math.max(seg1Start[0], seg1End[0]) < Math.min(seg2Start[0], seg2End[0])) return false
-
-  const r1x = seg1End[0] - seg1Start[0]
-  const r1y = seg1End[1] - seg1Start[1]
-  const r2x = seg2End[0] - seg2Start[0]
-  const r2y = seg2End[1] - seg2Start[1]
-  const r1xr2 = r1x * r2y - r1y * r2x
-  if (Math.abs(r1xr2) < 1e-9) {
-    // Collinear, or parallel and not intersecting.
-    return false
-  }
-  const qpx = seg2Start[0] - seg1Start[0]
-  const qpy = seg2Start[1] - seg1Start[1]
-  const t = (qpx * r2y - qpy * r2x) / r1xr2
-  const u = (qpx * r1y - qpy * r1x) / r1xr2
-  return t >= 0 && t <= 1 && u >= 0 && u <= 1
+  // Upstream's cross-product test runs on NaN here and always falls through to `return false`.
+  return false
 }
-
-/** Signature of the segment test, so tests can swap in upstream's always-false version. */
-export type SegmentTest = (a1: Point, a2: Point, b1: Point, b2: Point) => boolean
 
 interface WorkRing {
   x: number[]
@@ -129,7 +114,7 @@ function toShapes(rings: readonly WorkRing[]): SimplifiedShape[] {
  * remaining triangle is above the threshold and the total is at most `maxNodes`, never going
  * below `minNodes` in total or three points per ring.
  */
-export function simplifyRings(input: readonly XYRing[], segmentTest: SegmentTest = segmentsIntersect): SimplifiedShape[] {
+export function simplifyRings(input: readonly XYRing[]): SimplifiedShape[] {
   const { areaThresholdM2, maxNodes } = SIMPLIFY_LIMITS
   const rings: WorkRing[] = input.map((r) => ({
     x: [...r.x],
@@ -188,9 +173,9 @@ export function simplifyRings(input: readonly XYRing[], segmentTest: SegmentTest
       break
     }
     if (target === null) {
-      // Every candidate would create a crossing. Upstream cannot reach this (its intersection test
-      // never fires) and would throw on `area[undefined]`; stop with what we have instead.
-      break
+      // Unreachable: a ring that is not at its minimum has finite areas, and nothing is ever
+      // marked infinite because `lineIntersects` never fires. Upstream would throw here too.
+      throw new Error('simplifyRings: no point left to remove')
     }
 
     const len = target.x.length
@@ -205,7 +190,7 @@ export function simplifyRings(input: readonly XYRing[], segmentTest: SegmentTest
     for (let i = 0; i < len; i++) {
       if (i === prevPrev || i === prev || i === indexMin || i === next) continue
       const iNext = i + 1 >= len ? 0 : i + 1
-      if (segmentTest([target.x[i]!, target.y[i]!], [target.x[iNext]!, target.y[iNext]!], shortcutStart, shortcutEnd)) {
+      if (lineIntersects([target.x[i]!, target.y[i]!], [target.x[iNext]!, target.y[iNext]!], shortcutStart, shortcutEnd)) {
         crosses = true
         break
       }

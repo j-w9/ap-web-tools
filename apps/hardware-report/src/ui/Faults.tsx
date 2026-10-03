@@ -1,8 +1,8 @@
 import { Section } from '@apwt/tool-shell'
 import type { InternalErrorEvent } from '../analysis/internal-errors.js'
 import type { IomcuReport } from '../analysis/iomcu.js'
-import { decodeIcsr, faultName, taskName, watchdogDecodeLine, type WatchdogRecord } from '../analysis/watchdog.js'
-import { Count, SubHeading, Table, hex } from './common.js'
+import { decodeIcsr, faultName, taskName, upstreamHex, watchdogDecodeLine, type WatchdogRecord } from '../analysis/watchdog.js'
+import { Count, SubHeading, Table } from './common.js'
 
 function withName(value: number, name: string | undefined): string {
   return name === undefined ? String(value) : `${value} (${name})`
@@ -11,7 +11,7 @@ function withName(value: number, name: string | undefined): string {
 function WatchdogTable({ w }: { w: WatchdogRecord }) {
   const rows: [string, string][] = [
     ['Scheduler task', withName(w.schedulerTask, taskName(w.schedulerTask))],
-    ['Internal error mask', hex(w.internalErrors)],
+    ['Internal error mask', String(w.internalErrors)],
     ['Internal error count', String(w.internalErrorCount)],
     ['Internal error line', String(w.internalErrorLastLine)],
     ['Last MAVLink message', withName(w.lastMavlinkMsgId, w.lastMavlinkMsgId === 0 ? 'none' : undefined)],
@@ -19,10 +19,10 @@ function WatchdogTable({ w }: { w: WatchdogRecord }) {
     ['Semaphore line', withName(w.semaphoreLine, w.semaphoreLine === 0 ? 'not waiting' : undefined)],
     ['Fault line', String(w.faultLine)],
     ['Fault type', withName(w.faultType, faultName(w.faultType))],
-    ['Fault address', hex(w.faultAddr)],
+    ['Fault address', upstreamHex(w.faultAddr)],
     ['Fault thread priority', String(w.faultThreadPriority)],
-    ['Fault ICS register', hex(w.faultIcsr)],
-    ['Fault link register', hex(w.faultLr)],
+    ['Fault ICS register', upstreamHex(w.faultIcsr)],
+    ['Fault link register', upstreamHex(w.faultLr)],
     ['Fault thread name', w.threadName]
   ]
   return (
@@ -42,7 +42,7 @@ function WatchdogTable({ w }: { w: WatchdogRecord }) {
             <tr key={f.name}>
               <td>{f.bits}</td>
               <td>{f.name}</td>
-              <td>{hex(f.value)}</td>
+              <td>{upstreamHex(f.value)}</td>
               <td>{f.description ?? ''}</td>
             </tr>
           ))}
@@ -76,12 +76,11 @@ export function InternalErrorsSection({ errors }: { errors: readonly InternalErr
   if (errors.length === 0) return null
   return (
     <Section title="Internal errors" help="Errors the firmware detected in itself, each listed when it first appeared.">
-      <Table head={['Time (s)', 'New errors', 'Mask', 'Count', 'Line']}>
+      <Table head={['New errors', 'Mask', 'Count', 'Line']}>
         {errors.map((e, i) => (
           <tr key={i}>
-            <td>{(e.timeUs * 1e-6).toFixed(2)}</td>
             <td style={{ textAlign: 'left' }}>{e.names.join(', ')}</td>
-            <td>{hex(e.maskChange)}</td>
+            <td>{upstreamHex(e.maskChange)}</td>
             <td>{e.displayCount === undefined ? '' : `${e.displayCount} times`}</td>
             <td>{e.displayLine ?? ''}</td>
           </tr>
