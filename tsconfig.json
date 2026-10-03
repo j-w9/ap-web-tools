@@ -84,6 +84,9 @@
     },
     {
       "path": "apps/sysid"
+    },
+    {
+      "path": "proofs"
     }
   ]
 }
