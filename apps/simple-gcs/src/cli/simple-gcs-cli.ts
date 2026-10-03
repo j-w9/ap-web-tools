@@ -39,6 +39,10 @@ function openSocket(url: string): WebSocket {
   return ws
 }
 
+/** The text of a WebSocket error event (Node's WebSocket dispatches an ErrorEvent with a message). */
+const errorMessage = (event: Event): string =>
+  'message' in event && typeof event.message === 'string' && event.message !== '' ? event.message : 'WebSocket error'
+
 const bytesOf = (data: unknown): Uint8Array => (data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(0))
 
 /** upstream `node_ftp.js` */
@@ -122,7 +126,7 @@ function fetchFile(args: readonly string[]): void {
     }
   })
   ws.addEventListener('close', () => finish(null, 'Connection closed'))
-  ws.addEventListener('error', () => finish(null, 'WebSocket error'))
+  ws.addEventListener('error', (event) => finish(null, errorMessage(event)))
 }
 
 function fieldText(value: unknown): string {
@@ -141,7 +145,10 @@ function fieldText(value: unknown): string {
 }
 
 function pretty(msg: ReceivedMessage): string {
-  const fields = Object.entries(msg.fields).map(([name, value]: [string, unknown]) => `${name}=${fieldText(value)}`)
+  // Upstream prints the dialect's snake_case field names, in definition order as the codec does.
+  const fields = Object.entries(msg.fields).map(
+    ([name, value]: [string, unknown]) => `${name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)}=${fieldText(value)}`
+  )
   return `${msg.name} { ${fields.join(', ')} }`
 }
 
@@ -167,22 +174,33 @@ function dump(args: readonly string[]): void {
         console.log('Sent HEARTBEAT')
       } catch (e) {
         console.error('Error sending HEARTBEAT:', e instanceof Error ? e.message : e)
+        if (e instanceof Error) console.error(e.stack)
       }
     }, 1000)
   })
   ws.addEventListener('message', (event) => {
     const buf = bytesOf(event.data)
     console.log(`Received ${buf.length} bytes: [${Buffer.from(buf.subarray(0, 10)).toString('hex')}...]`)
-    for (const msg of parser.push(buf)) {
-      console.log(`MAVLink message ID: ${msg.id}`)
-      console.log(pretty(msg))
+    for (const event of parser.parse(buf)) {
+      if (event.kind === 'message') {
+        console.log(`MAVLink message ID: ${event.message.id}`)
+        console.log(pretty(event.message))
+        continue
+      }
+      // Upstream's parser returns a BAD_DATA message (id -1, no fields) for anything it cannot
+      // decode, one per stray byte as it is fed byte by byte, and prints it like any other.
+      const count = event.kind === 'garbage' && event.reason === 'noise' ? event.bytes.length : 1
+      for (let i = 0; i < count; i++) {
+        console.log('MAVLink message ID: -1')
+        console.log('<invalid MAVLink message>')
+      }
     }
   })
   ws.addEventListener('close', () => {
     console.log('WebSocket closed')
     clearInterval(heartbeat)
   })
-  ws.addEventListener('error', () => console.error('WebSocket error'))
+  ws.addEventListener('error', (event) => console.error('WebSocket error:', errorMessage(event)))
 }
 
 const [command, ...rest] = process.argv.slice(2)

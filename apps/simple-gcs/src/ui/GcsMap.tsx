@@ -107,8 +107,10 @@ export function GcsMap(props: GcsMapProps) {
     }
   }, [latest])
 
-  // Base layer; Google types load the Maps API and fall back to OSM if it fails.
-  const { tiles, googleKey } = props
+  // Base layer; Google types load the Maps API and fall back to OSM if it fails. Upstream reads
+  // the key (`window.GMAPS_API_KEY`) only when a provider is applied: changing it in Settings does
+  // not reload the map ("Refresh page to apply"), so the key is read through `latest`.
+  const { tiles } = props
   useEffect(() => {
     if (map === null) return
     let layer: L.Layer | null = null
@@ -122,7 +124,7 @@ export function GcsMap(props: GcsMapProps) {
     }
     const provider = TILE_PROVIDERS[tiles]
     if (provider.kind === 'google') {
-      loadGoogleMaps(googleKey)
+      loadGoogleMaps(latest.current.googleKey)
         .then(() => import('leaflet.gridlayer.googlemutant'))
         .then(({ default: GoogleMutant }) => {
           if (!cancelled) layer = new GoogleMutant({ type: provider.type }).addTo(map)
@@ -137,7 +139,7 @@ export function GcsMap(props: GcsMapProps) {
       cancelled = true
       layer?.remove()
     }
-  }, [map, tiles, googleKey])
+  }, [map, tiles, latest])
 
   // Vehicle marker, faded while telemetry is stale.
   const { marker, stale } = props
@@ -172,21 +174,38 @@ export function GcsMap(props: GcsMapProps) {
     if (map !== null && recenterRequest > 0 && m !== null) map.setView([m.lat, m.lon], Math.max(map.getZoom(), 16))
   }, [map, recenterRequest, latest])
 
-  // Guided target.
+  // Guided target: one marker moved by each update (upstream `updateTargetPosition`), so an open
+  // "Target Position" popup stays open while the target streams in.
   const { target } = props
+  const targetLayer = useRef<L.CircleMarker | null>(null)
   useEffect(() => {
-    if (map === null || target === null) return
-    const layer = L.circleMarker([target.lat, target.lon], {
-      radius: 8,
-      color: '#f44336',
-      fillColor: '#f44336',
-      fillOpacity: 0.6,
-      weight: 2
-    })
-      .bindPopup('Target Position')
-      .addTo(map)
-    return () => void layer.remove()
+    if (map === null) return
+    if (target === null) {
+      targetLayer.current?.remove()
+      targetLayer.current = null
+      return
+    }
+    if (targetLayer.current === null) {
+      targetLayer.current = L.circleMarker([target.lat, target.lon], {
+        radius: 8,
+        color: '#f44336',
+        fillColor: '#f44336',
+        fillOpacity: 0.6,
+        weight: 2
+      })
+        .addTo(map)
+        .bindPopup('Target Position')
+    } else {
+      targetLayer.current.setLatLng([target.lat, target.lon])
+    }
   }, [map, target])
+  useEffect(
+    () => () => {
+      targetLayer.current?.remove()
+      targetLayer.current = null
+    },
+    []
+  )
 
   // Fences.
   const { fences, fenceEnabled } = props

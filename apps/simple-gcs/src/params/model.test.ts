@@ -1,7 +1,9 @@
 // Port of upstream tests/mavparam.test.cjs (MAVParam client and definitions).
+import { createRequire } from 'node:module'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { FtpCallback } from '../ftp/client.js'
-import { paramsFixture } from '../test-utils/upstream.js'
+import { paramsFixture, UPSTREAM } from '../test-utils/upstream.js'
 import { ParamDefinitions, type DefinitionsCache, type ParamDefinition } from './definitions.js'
 import { MavParam, type ParamFtpPort } from './model.js'
 import { decodeParams, PARAM_DOWNLOAD, PARAM_UPLOAD, parseParamText } from './packed.js'
@@ -134,7 +136,7 @@ describe('MAVParamDefinitions', () => {
     expect(d.get('TEST_I8')!.description).toBe('Motor speed')
     expect(d.get('TEST_I8')!.readOnly).toBe(true)
     expect(d.get('TEST_I8')!.rebootRequired).toBe(true)
-    expect(d.get('TEST_OPTIONS')!.bitmask[2]).toBe('C')
+    expect(d.get('TEST_OPTIONS')!.bitmask).toMatchObject({ 2: 'C' })
     expect(() => ParamDefinitions.parse({})).toThrow()
   })
 
@@ -169,5 +171,36 @@ describe('MAVParamDefinitions', () => {
     expect((await other.load('Rover', { refresh: true })).stale).toBe(true)
     await expect(other.load('Plane')).rejects.toThrow(/offline/)
     await expect(other.load('../bad')).rejects.toThrow(/Unknown/)
+  })
+})
+
+describe('MAVParamDefinitions cache option (oracle against upstream)', () => {
+  it('an explicit undefined cache falls back to Cache Storage and null disables it, as upstream default parameters do', async () => {
+    const { MAVParamDefinitions: Upstream } = createRequire(import.meta.url)(
+      resolve(UPSTREAM, 'modules/MAVLink/mavparam.js')
+    ) as { MAVParamDefinitions: new (options: Record<string, unknown>) => { load(v: string): Promise<{ cached: boolean }> } }
+    const fetch = (): Promise<Response> => Promise.resolve(new Response(JSON.stringify(metadata)))
+    const opened: string[] = []
+    const fakeCaches: DefinitionsCache = {
+      open: (name) => {
+        opened.push(name)
+        return Promise.resolve({ match: () => Promise.resolve(undefined), put: () => Promise.resolve() })
+      }
+    }
+    const saved: unknown = Reflect.get(globalThis, 'caches')
+    Reflect.set(globalThis, 'caches', fakeCaches)
+    try {
+      for (const cache of [undefined, null]) {
+        opened.length = 0
+        await new Upstream({ fetch, cache }).load('Rover')
+        const theirs = [...opened]
+        opened.length = 0
+        await new ParamDefinitions({ fetch, cache }).load('Rover')
+        expect(opened, String(cache)).toEqual(theirs)
+      }
+      expect(opened).toEqual([])
+    } finally {
+      Reflect.set(globalThis, 'caches', saved)
+    }
   })
 })

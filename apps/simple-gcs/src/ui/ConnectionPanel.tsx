@@ -36,6 +36,7 @@ export function ConnectionPanel({ session, snap }: ConnectionPanelProps) {
       </div>
       {snap.dialogOpen && (
         <form
+          noValidate
           className="gcs-connection"
           aria-label="Connection settings"
           onSubmit={(e) => {

@@ -81,6 +81,9 @@
     },
     {
       "path": "apps/video-overlay"
+    },
+    {
+      "path": "apps/sysid"
     }
   ]
 }

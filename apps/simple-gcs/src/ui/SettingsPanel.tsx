@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { ControlGroup } from '@apwt/tool-shell'
 import type { AppSettings, AppSettingsStore } from '../app-settings.js'
 import { availableProviders, isTileProvider } from '../map/tiles.js'
@@ -13,6 +13,15 @@ export interface SettingsPanelProps {
 /** Settings (upstream `openSettingsTip`): parameters, map tiles, Google key, display and auto-fetch. */
 export function SettingsPanel({ store, settings, onParameters, toast }: SettingsPanelProps) {
   const [key, setKey] = useState(settings.googleKey)
+  // Upstream saves on the input's `change` event: on blur or Enter, only when the text differs
+  // from what it was at focus (or at the last save).
+  const committed = useRef(settings.googleKey)
+  const commitKey = (): void => {
+    if (key === committed.current) return
+    committed.current = key
+    store.setGoogleKey(key)
+    toast('API key saved. Refresh page to apply.')
+  }
   const providers = availableProviders(store.hasGoogleKey)
   const flag = (k: 'showGrid' | 'showLocation' | 'showGPSNumSats' | 'autoFetchFence' | 'autoFetchMission', label: string) => (
     <label className="apwt-chip">
@@ -50,10 +59,10 @@ export function SettingsPanel({ store, settings, onParameters, toast }: Settings
           placeholder="Enter API key (optional)"
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          onBlur={() => {
-            if (key === settings.googleKey) return
-            store.setGoogleKey(key)
-            toast('API key saved. Refresh page to apply.')
+          onFocus={() => (committed.current = key)}
+          onBlur={commitKey}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitKey()
           }}
         />
         <p className="gcs-hint">

@@ -12,6 +12,9 @@ import {
   MavlinkSigning,
   POSITION_TARGET_GLOBAL_INT,
   signingKeyFromPassphrase,
+  type EncodableName,
+  type MessageDescriptor,
+  type MessageInput,
   type ReceivedMessage
 } from '@apwt/mavlink'
 import type { Timer } from '../clock.js'
@@ -37,6 +40,8 @@ export interface VehicleState {
   holdTelemetry: boolean
   hangClose: boolean
   rejectSocket: boolean
+  /** New sockets close (code 1006) instead of opening, as an unreachable relay. */
+  refuse: boolean
   target: { x: number; y: number } | null
   closeCodes: number[]
   lastHeartbeatPacket: Uint8Array | null
@@ -49,6 +54,7 @@ export class FakeSocket implements LinkSocket {
   private timer: Timer | null = null
   private encoder: MavlinkEncoder | null = null
   private parser: MavlinkParser | null = null
+  private signing: MavlinkSigning | null = null
   private ftpPath = ''
   private upload: Uint8Array | null = null
 
@@ -61,10 +67,16 @@ export class FakeSocket implements LinkSocket {
     this.handlers = handlers
     clock.after(25, () => {
       if (this.readyState === 3) return
+      if (state.refuse) {
+        this.readyState = 3
+        this.handlers?.close(1006, '')
+        return
+      }
       const signing = new MavlinkSigning({
         secretKey: signingKeyFromPassphrase(state.passphrase),
         timestamp: Math.floor((clock.now() - Date.UTC(2015, 0, 1)) * 100)
       })
+      this.signing = signing
       this.encoder = new MavlinkEncoder({ systemId: state.vehicleSystem, componentId: 1, signing })
       this.parser = new MavlinkParser({ messages: ALL_MESSAGES, signing })
       this.readyState = 1
@@ -89,6 +101,25 @@ export class FakeSocket implements LinkSocket {
     return h === null ? null : (code, reason) => h.close(code, reason)
   }
 
+  /** Sends one message from the vehicle (signed), optionally from another system or component. */
+  emitMessage<N extends EncodableName<2>>(
+    descriptor: MessageDescriptor<N>,
+    fields: MessageInput<N>,
+    from: { readonly systemId?: number; readonly componentId?: number } = {}
+  ): void {
+    const enc = this.encoder
+    if (enc === null || this.signing === null) throw new Error('not open')
+    const sender =
+      from.systemId === undefined && from.componentId === undefined
+        ? enc
+        : new MavlinkEncoder({
+            systemId: from.systemId ?? this.state.vehicleSystem,
+            componentId: from.componentId ?? 1,
+            signing: this.signing
+          })
+    this.emit(sender.encode(descriptor, fields))
+  }
+
   private emit(frame: Uint8Array, heartbeat = false): void {
     if (heartbeat) this.state.lastHeartbeatPacket = frame
     this.handlers?.message(frame)
@@ -98,7 +129,8 @@ export class FakeSocket implements LinkSocket {
     const enc = this.encoder
     if (this.readyState !== 1 || this.state.holdTelemetry || enc === null) return
     if (this.state.silent) {
-      const foreign = new MavlinkEncoder({ systemId: 99, componentId: 1 })
+      // Upstream's fixture signs the foreign relay traffic with the vehicle's own key.
+      const foreign = new MavlinkEncoder({ systemId: 99, componentId: 1, ...(this.signing ? { signing: this.signing } : {}) })
       this.emit(
         foreign.encode(HEARTBEAT, { type: 6, autopilot: 8, baseMode: 0, customMode: 0, systemStatus: 4, mavlinkVersion: 3 })
       )
@@ -286,6 +318,7 @@ export function fakeVehicle(clock: FakeClock) {
     holdTelemetry: false,
     hangClose: false,
     rejectSocket: false,
+    refuse: false,
     target: null,
     closeCodes: [],
     lastHeartbeatPacket: null,

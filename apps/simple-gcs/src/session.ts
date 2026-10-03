@@ -232,10 +232,7 @@ export class GcsSession {
       toast,
       autoFetch: () => deps.settings.current.autoFetchFence,
       parse: parseFence,
-      present: (fences, silent) => {
-        if (!silent) toast(`Loaded ${fences.length} fence items`)
-        return fences
-      },
+      present: presentFence(toast),
       empty: [],
       messages: {
         fetching: 'Fetching fence…',
@@ -537,10 +534,11 @@ export class GcsSession {
     this.heartbeatTimer = NO_TIMER
     if (!link.settings.sendHeartbeat) return
     this.heartbeatTimer = this.clock.every(1000, () => {
+      // Upstream packs before checking the socket, which advances the signing timestamp even
+      // when nothing is sent, and counts the sequence only after a successful send. Its
+      // heartbeat constructor fixes mavlink_version at 3.
+      const sequence = link.encoder.sequence
       try {
-        // Upstream packs before checking the socket, which advances the signing timestamp even
-        // when nothing is sent. Its heartbeat constructor fixes mavlink_version at 3.
-        const sequence = link.encoder.sequence
         const frame = link.encoder.encode(HEARTBEAT, {
           type: 6,
           autopilot: 8,
@@ -555,6 +553,7 @@ export class GcsSession {
         }
         link.socket.send(frame)
       } catch {
+        link.encoder.sequence = sequence
         this.heartbeatTimer.cancel()
         this.heartbeatTimer = NO_TIMER
         this.setConnState('error')
@@ -605,8 +604,10 @@ export class GcsSession {
       sourceComponent: link?.settings.componentId ?? this.gcsComponentId,
       send: (payload, targetSystem, targetComponent) => {
         if (link === null) throw new Error('Disconnected')
-        const frame = link.encoder.encode(FILE_TRANSFER_PROTOCOL, { targetNetwork: 0, targetSystem, targetComponent, payload })
-        link.socket.send(frame)
+        sendCounted(
+          link,
+          link.encoder.encode(FILE_TRANSFER_PROTOCOL, { targetNetwork: 0, targetSystem, targetComponent, payload })
+        )
       }
     }
     return new MavFtpClient(ftpLink, this.clock)
@@ -828,7 +829,7 @@ export class GcsSession {
         y: jspackInt32(y),
         z
       })
-      link.socket.send(frame)
+      sendCounted(link, frame)
       this.toast(request.sentText)
     })
   }
@@ -861,6 +862,14 @@ export class GcsSession {
   }
 }
 
+/** Fence overlay from parsed items, with upstream's toast (suppressed for silent fetches). */
+export function presentFence(toast: (text: string) => void): (fences: FenceItem[], silent: boolean) => readonly FenceItem[] {
+  return (fences, silent) => {
+    if (!silent) toast(`Loaded ${fences.length} fence items`)
+    return fences
+  }
+}
+
 /** Mission overlay from parsed items, with upstream's toasts (shown even for automatic fetches). */
 export function presentMission(toast: (text: string) => void): (items: MissionItem[]) => readonly MissionPoint[] {
   return (items) => {
@@ -871,6 +880,19 @@ export function presentMission(toast: (text: string) => void): (items: MissionIt
     }
     toast(`Loaded mission with ${points.length} points`)
     return points
+  }
+}
+
+/**
+ * Sends a frame just encoded (which advanced the sequence). Upstream increments `MAVLink.seq` only
+ * after `ws.send` returns, so a throwing send leaves the sequence where it was.
+ */
+function sendCounted(link: Link, frame: Uint8Array): void {
+  try {
+    link.socket.send(frame)
+  } catch (error) {
+    link.encoder.sequence = (link.encoder.sequence + 255) & 0xff
+    throw error
   }
 }
 

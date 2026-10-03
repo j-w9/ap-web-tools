@@ -49,7 +49,8 @@ interface Drag {
 export function VideoPanel({ hidden, protocol, config, onProtocol, onNewWindow, onSettings, onClose }: VideoPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [geometry, setGeometry] = useState<Geometry>(() =>
-    defaultGeometry(document.querySelector('.gcs-map-wrap')?.clientWidth ?? window.innerWidth)
+    // Upstream: `#map` width, else (also when 0) the window width.
+    defaultGeometry(document.querySelector('.gcs-map-wrap')?.clientWidth || window.innerWidth)
   )
   const [status, setStatus] = useState<VideoStatus>({ text: protocol === 'webrtc' ? 'WebRTC' : 'HLS', tone: 'waiting' })
   const [editing, setEditing] = useState<VideoSettingsAnswers | null>(null)
@@ -59,7 +60,7 @@ export function VideoPanel({ hidden, protocol, config, onProtocol, onNewWindow, 
   useEffect(() => {
     const onResize = (): void => {
       if (!isMobile()) return
-      setGeometry(defaultGeometry(panelRef.current?.parentElement?.clientWidth ?? window.innerWidth))
+      setGeometry(defaultGeometry(panelRef.current?.parentElement?.clientWidth || window.innerWidth))
     }
     window.addEventListener('resize', onResize)
     window.addEventListener('orientationchange', onResize)
@@ -101,18 +102,18 @@ export function VideoPanel({ hidden, protocol, config, onProtocol, onNewWindow, 
     const dx = event.clientX - d.x
     const dy = event.clientY - d.y
     if (kind === 'grip') {
-      setGeometry({ left: d.left, top: d.top, width: Math.max(280, d.width + dx), height: Math.max(160, d.height + dy) })
+      // Upstream only changes the size: a panel still anchored bottom-right grows up and left.
+      setGeometry((g) => ({ ...g, width: Math.max(280, d.width + dx), height: Math.max(160, d.height + dy) }))
       return
     }
     const parent = panelRef.current?.parentElement
     const w = parent?.clientWidth ?? window.innerWidth
     const h = parent?.clientHeight ?? window.innerHeight
-    setGeometry({
+    setGeometry((g) => ({
+      ...g,
       left: Math.max(0, Math.min(w - 80, d.left + dx)),
-      top: Math.max(0, Math.min(h - 36, d.top + dy)),
-      width: d.width,
-      height: d.height
-    })
+      top: Math.max(0, Math.min(h - 36, d.top + dy))
+    }))
   }
 
   const fallback = useCallback(() => onProtocol('webrtc'), [onProtocol])

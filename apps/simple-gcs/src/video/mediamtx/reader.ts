@@ -359,7 +359,9 @@ export class MediaMTXWebRTCReader {
           throw new Error('stream not found')
         case 400: {
           const e = (await res.json()) as { error?: unknown }
-          throw new Error(String(e.error))
+          // Upstream's `new Error(e.error)`: the value is converted as `Error` converts it
+          // (undefined gives an empty message).
+          throw new Error(...([e.error] as [string?]))
         }
         default:
           throw new Error(`bad status code ${res.status}`)

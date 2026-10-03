@@ -173,7 +173,7 @@ export const TOOLS: readonly ToolInfo[] = [
     description: 'Identify state-space or transfer-function models of vehicle dynamics.',
     category: 'logs',
     stable: false,
-    home: 'original',
+    home: 'ported',
     upstreamDir: 'SysID',
     opens: NONE
   },

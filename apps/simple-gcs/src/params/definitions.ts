@@ -10,16 +10,23 @@ export interface ParamRange {
   readonly high: unknown
 }
 
+/**
+ * One parameter's description. Text fields keep the published JSON value (normally a string) so
+ * that upstream's truthiness tests (`if (d.label)`, `d.description || …`) and string interpolation
+ * give the same result for any JSON; display them with `jsonText`.
+ */
 export interface ParamDefinition {
   readonly name: string
-  readonly label: string
-  readonly description: string
-  readonly units: string
+  readonly label: unknown
+  readonly description: unknown
+  readonly units: unknown
   /** As published: usually `{low, high}`, displayed as-is otherwise. */
   readonly range: unknown
   readonly increment: unknown
-  readonly values: Readonly<Record<string, unknown>>
-  readonly bitmask: Readonly<Record<string, unknown>>
+  /** As published: normally `{value: text}`; upstream iterates any value with `Object.entries`. */
+  readonly values: unknown
+  /** As published: normally `{bit: text}`. */
+  readonly bitmask: unknown
   readonly readOnly: boolean
   readonly rebootRequired: boolean
 }
@@ -40,7 +47,8 @@ export interface DefinitionsCache {
 
 export interface DefinitionsOptions {
   readonly fetch?: (url: string, init: RequestInit) => Promise<Response>
-  readonly cache?: DefinitionsCache | undefined
+  /** Cache Storage; omitted or `undefined` uses `globalThis.caches` (a default parameter upstream), `null` disables it. */
+  readonly cache?: DefinitionsCache | null | undefined
   readonly maxAge?: number
   readonly baseUrl?: string
   readonly now?: () => number
@@ -54,15 +62,29 @@ function firstTruthy(...values: unknown[]): unknown {
   return values[values.length - 1]
 }
 
-/** Display text of a JSON value, as string interpolation shows it. */
-function asText(v: unknown): string {
+/** A JSON value as string interpolation (`${v}`) shows it. */
+export function jsonText(v: unknown): string {
   if (typeof v === 'string') return v
-  if (!v) return ''
-  if (Array.isArray(v)) return v.map(asText).join(',')
-  if (typeof v === 'object') return Object.prototype.toString.call(v)
-  return typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint' ? String(v) : ''
+  if (Array.isArray(v)) return v.map((e: unknown) => (e === null || e === undefined ? '' : jsonText(e))).join(',')
+  if (typeof v === 'object' && v !== null) return '[object Object]'
+  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return String(v)
+  return v === null ? 'null' : 'undefined'
 }
-const asRecord = (v: unknown): Readonly<Record<string, unknown>> => (isRecord(v) ? v : {})
+
+/** `Object.entries(v)` for a JSON value (strings give their characters, numbers and booleans nothing). */
+export function jsonEntries(v: unknown): [string, unknown][] {
+  if (typeof v === 'string') return Object.entries(v)
+  return isRecord(v) ? Object.entries(v) : []
+}
+
+/** `Object.hasOwn(v, key)` for a JSON value that upstream guarantees is truthy. */
+export function jsonHasOwn(v: unknown, key: string): boolean {
+  if (typeof v === 'string') {
+    const index = Number(key)
+    return key === 'length' || (String(index) === key && Number.isInteger(index) && index >= 0 && index < v.length)
+  }
+  return isRecord(v) && Object.hasOwn(v, key)
+}
 
 /** Directory per vehicle; canonical names avoid legacy redirects without CORS headers. */
 const DIRECTORIES: Readonly<Record<ParamVehicle, string>> = {
@@ -84,7 +106,7 @@ interface CachedDefinitions {
 
 export class ParamDefinitions {
   private readonly fetcher: (url: string, init: RequestInit) => Promise<Response>
-  private readonly cache: DefinitionsCache | undefined
+  private readonly cache: DefinitionsCache | null | undefined
   private readonly maxAge: number
   private readonly baseUrl: string
   private readonly now: () => number
@@ -92,7 +114,7 @@ export class ParamDefinitions {
 
   constructor(options: DefinitionsOptions = {}) {
     this.fetcher = options.fetch ?? ((url, init) => globalThis.fetch(url, init))
-    this.cache = 'cache' in options ? options.cache : globalThis.caches
+    this.cache = options.cache === undefined ? globalThis.caches : options.cache
     this.maxAge = options.maxAge ?? 7 * 86400000
     this.baseUrl = options.baseUrl ?? 'https://autotest.ardupilot.org/Parameters'
     this.now = options.now ?? Date.now
@@ -108,13 +130,13 @@ export class ParamDefinitions {
         if (!validParamName(name)) continue
         result.set(name, {
           name,
-          label: asText(firstTruthy(p.DisplayName, p.displayName, p.humanName, '')),
-          description: asText(firstTruthy(p.Description, p.description, p.documentation, '')),
-          units: asText(firstTruthy(p.Units, '')),
+          label: firstTruthy(p.DisplayName, p.displayName, p.humanName, ''),
+          description: firstTruthy(p.Description, p.description, p.documentation, ''),
+          units: firstTruthy(p.Units, ''),
           range: p.Range,
           increment: p.Increment,
-          values: asRecord(firstTruthy(p.Values, {})),
-          bitmask: asRecord(firstTruthy(p.Bitmask, {})),
+          values: firstTruthy(p.Values, {}),
+          bitmask: firstTruthy(p.Bitmask, {}),
           readOnly: String(p.ReadOnly).toLowerCase() === 'true',
           rebootRequired: String(p.RebootRequired).toLowerCase() === 'true'
         })

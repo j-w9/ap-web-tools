@@ -4,7 +4,7 @@
  */
 import type { FtpCallback } from '../ftp/client.js'
 import type { GetFileOptions, PutFileOptions } from '../ftp/manager.js'
-import type { ParamDefinition } from './definitions.js'
+import { jsonText, type ParamDefinition } from './definitions.js'
 import { decodeParams, encodeUpload, PARAM_DOWNLOAD, PARAM_UPLOAD, valueForType, type Param } from './packed.js'
 
 /** The FTP operations the model needs (implemented by `FtpManager`). */
@@ -134,7 +134,7 @@ export class MavParam {
       .filter((p) => {
         if (nonDefault && (p.defaultValue === undefined || p.value === p.defaultValue)) return false
         const d = this.definitions.get(p.name)
-        const text = `${p.name} ${d?.label ?? ''} ${d?.description ?? ''}`.toLowerCase()
+        const text = `${p.name} ${jsonText(d?.label || '')} ${jsonText(d?.description || '')}`.toLowerCase()
         return terms.every((term) => text.includes(term))
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'en'))

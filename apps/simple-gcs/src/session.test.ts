@@ -2,6 +2,7 @@
 // signed vehicle, fake clock, fake Web Locks and in-memory storage. DOM-only checks (map pixel
 // gestures, video drag, viewport sizes) are covered by component code and listed as manual in
 // docs/audit/simple-gcs.md.
+import { BATTERY_STATUS, COMMAND_ACK, GPS_RAW_INT, MavResult, NAMED_VALUE_FLOAT, STATUSTEXT, SYS_STATUS } from '@apwt/mavlink'
 import { describe, expect, it } from 'vitest'
 import { AppSettingsStore } from './app-settings.js'
 import { armCommand, disarmCommand, guardedCommand } from './commands/commands.js'
@@ -345,11 +346,15 @@ describe('deployment defaults and identities', () => {
       expect(h.state.sockets.length).toBe(0)
       mode = 'normal'
       h.state.rejectSocket = false
+      h.session.openDialog()
       for (const invalid of ['ws://127.0.0.1:5763/#fragment', 'ws://127.0.0.1:5763/#', 'ws://', 'https://example.org']) {
         const before = { url: h.local.data.get('gcs.url'), sockets: h.state.sockets.length }
         h.session.editDraft({ url: invalid })
         await h.session.submit()
         expect({ url: h.local.data.get('gcs.url'), sockets: h.state.sockets.length }).toEqual(before)
+        expect(h.session.snapshot.dialogOpen, 'the editor stays open').toBe(true)
+        expect(h.session.snapshot.submitting).toBe(false)
+        expect(h.toasts.at(-1)).toBe('Enter a ws:// or wss:// URL without a fragment (#).')
       }
       h.session.editDraft({ url: 'ws://127.0.0.1:5763' })
       await h.session.submit()
@@ -385,5 +390,227 @@ describe('deployment defaults and identities', () => {
     expect(h.state.sockets.length).toBe(sockets)
     expect(h.session.snapshot.submitting).toBe(false)
     expect(h.sessionStore.data.get('gcs.componentId')).toBe(oldId)
+
+    // Repeat with a new Connect before the cancelled reservation completes.
+    grant = null
+    released = false
+    const second = h.session.submit()
+    await flush()
+    expect(grant).not.toBeNull()
+    h.session.requestDisconnect()
+    h.session.editDraft({ componentId: oldId })
+    expect(await h.session.submit()).toEqual({ kind: 'connected' })
+    await h.run(600)
+    expect(h.session.snapshot.marker).not.toBeNull()
+    const afterNewConnect = h.state.sockets.length
+    grant!()
+    expect(await second).toEqual({ kind: 'cancelled' })
+    await flush()
+    expect(released).toBe(true)
+    expect(h.state.sockets.length).toBe(afterNewConnect)
+    expect(h.sessionStore.data.get('gcs.componentId')).toBe(oldId)
+  })
+})
+
+describe('link timing and telemetry (upstream app.js rules)', () => {
+  it('reports the startup faults with upstream texts', async () => {
+    const fragment = setup({ local: { 'gcs.url': 'ws://127.0.0.1:5763/#fragment' } })
+    await fragment.session.start()
+    expect(fragment.toasts).toEqual(['Cannot open connection: Enter a ws:// or wss:// URL without a fragment (#).'])
+    expect(fragment.session.snapshot.connectTone).toBe('error')
+    const blocked = setup({ local: { 'gcs.url': 'ws://127.0.0.1:5763' } })
+    blocked.state.rejectSocket = true
+    await blocked.session.start()
+    expect(blocked.toasts).toEqual(['Cannot open connection: Connection blocked by browser'])
+    await blocked.run(60000)
+    expect(blocked.state.sockets.length, 'no automatic retry after a constructor error').toBe(0)
+    const exhausted = setup({ locks: { request: (_name, _options, callback) => Promise.resolve(callback(null)) } })
+    await exhausted.session.start()
+    expect(exhausted.toasts).toEqual(['All GCS component IDs are in use. Close an unused GCS tab.'])
+  })
+
+  it('reconnect back-off doubles from 2 s to a 30 s cap and is reset by vehicle traffic', async () => {
+    const h = await connected()
+    h.state.refuse = true
+    h.state.sockets.at(-1)!.serverClose()
+    const opened: number[] = []
+    const start = h.clock.now()
+    let count = h.state.sockets.length
+    for (let t = 0; t < 120000; t += 50) {
+      await h.run(50)
+      if (h.state.sockets.length !== count) {
+        count = h.state.sockets.length
+        opened.push(Math.round((h.clock.now() - start) / 50) * 50)
+      }
+    }
+    // Each refused socket closes 25 ms after it is created; the next delay counts from that close.
+    const gaps = opened.map((t, i) => t - (i === 0 ? 0 : opened[i - 1]! + 25))
+    expect(gaps.map((g) => Math.round(g / 1000) * 1000)).toEqual([2000, 4000, 8000, 16000, 30000, 30000])
+    h.state.refuse = false
+    await h.run(31000)
+    expect(h.session.snapshot.linkStatus).toBe('Live')
+    const before = h.state.sockets.length
+    h.state.sockets.at(-1)!.serverClose()
+    await h.run(1900)
+    expect(h.state.sockets.length).toBe(before)
+    await h.run(200)
+    expect(h.state.sockets.length, 'vehicle traffic reset the back-off to 2 s').toBe(before + 1)
+  })
+
+  it('waits for a vehicle, counts the lag on the Connect button and forces a reconnect after 15 s', async () => {
+    const h = setup()
+    h.state.holdTelemetry = true
+    await h.session.start()
+    h.session.editDraft({ passphrase: 'test-signing' })
+    await h.session.submit()
+    expect(h.session.snapshot.connectTone).toBe('connecting')
+    await h.run(100)
+    expect(h.session.snapshot.linkStatus).toBe('Waiting for vehicle')
+    expect(h.toasts).toContain('Connected')
+    await h.run(3400)
+    expect(h.session.snapshot.connectLabel).toBe('Connect')
+    await h.run(100)
+    expect([h.session.snapshot.linkStatus, h.session.snapshot.connectLabel, h.session.snapshot.connectTone]).toEqual([
+      'Waiting for vehicle',
+      'Connect (4s)',
+      'error'
+    ])
+    await h.run(11900)
+    expect(h.state.closeCodes, 'no close before 15 s of silence').toEqual([])
+    await h.run(100)
+    expect(h.state.closeCodes).toEqual([4000])
+    expect([h.session.snapshot.linkStatus, h.session.snapshot.connectLabel, h.session.snapshot.connectTone]).toEqual([
+      'Disconnected',
+      'Connect',
+      'error'
+    ])
+    await h.run(2000)
+    expect(h.state.sockets.length).toBe(2)
+  })
+
+  it('sends the GCS heartbeat at 1 Hz with upstream field values', async () => {
+    const h = setup()
+    await h.session.start()
+    h.session.editDraft({ passphrase: 'test-signing' })
+    await h.session.submit()
+    await h.run(3050)
+    const heartbeats = h.state.sent.filter((m) => m.name === 'HEARTBEAT')
+    expect(heartbeats.length).toBe(3)
+    const first = heartbeats[0]!
+    expect({ ...first.fields }).toEqual({
+      type: 6,
+      autopilot: 8,
+      baseMode: 0,
+      customMode: 0,
+      systemStatus: 4,
+      mavlinkVersion: 3
+    })
+    expect([first.header.systemId, first.header.componentId]).toEqual([255, 190])
+  })
+
+  it('matches ACKs only when addressed to this GCS; in-progress extends the deadline', async () => {
+    const h = await connected()
+    h.state.noAck = true
+    const socket = h.state.sockets.at(-1)!
+    h.session.sendCommand(armCommand())
+    const ack = (result: MavResult, targetSystem: number, targetComponent: number): void =>
+      socket.emitMessage(COMMAND_ACK, { command: 400, result, progress: 0, resultParam2: 0, targetSystem, targetComponent })
+    ack(MavResult.MAV_RESULT_DENIED, 254, 190)
+    ack(MavResult.MAV_RESULT_DENIED, 255, 191)
+    expect(h.toasts.some((t) => t.startsWith('CMD '))).toBe(false)
+    await h.run(4000)
+    ack(MavResult.MAV_RESULT_IN_PROGRESS, 255, 190)
+    await h.run(4000)
+    expect(h.toasts.some((t) => t.startsWith('CMD '))).toBe(false)
+    ack(MavResult.MAV_RESULT_COMMAND_LONG_ONLY, 255, 190)
+    expect(h.toasts.at(-1)).toBe('CMD COMPONENT_ARM_DISARM: RESULT 7')
+    h.session.sendCommand(armCommand())
+    ack(MavResult.MAV_RESULT_ACCEPTED, 255, 190)
+    expect(h.toasts.at(-1)).toBe('ARM sent')
+  })
+
+  it('updates telemetry, LTE, fence state and the message log from vehicle messages', async () => {
+    const h = await connected()
+    const socket = h.state.sockets.at(-1)!
+    socket.emitMessage(BATTERY_STATUS, {
+      id: 0,
+      batteryFunction: 0,
+      type: 0,
+      temperature: 0,
+      voltages: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      currentBattery: 1234,
+      currentConsumed: 0,
+      energyConsumed: 0,
+      batteryRemaining: 37
+    })
+    expect(h.session.snapshot.telemetry).toMatchObject({ batteryPct: 37, currentA: 12.34, lastUpdate: h.clock.now() })
+    const gps = (satellitesVisible: number): void =>
+      socket.emitMessage(GPS_RAW_INT, {
+        timeUsec: 0n,
+        fixType: 3,
+        lat: 0,
+        lon: 0,
+        alt: 0,
+        eph: 0,
+        epv: 0,
+        vel: 0,
+        cog: 0,
+        satellitesVisible
+      })
+    gps(21)
+    expect(h.session.snapshot.telemetry.numSats).toBe(21)
+    gps(255)
+    expect(h.session.snapshot.telemetry.numSats).toBeNull()
+    const sysStatus = (enabled: number): void =>
+      socket.emitMessage(SYS_STATUS, {
+        onboardControlSensorsPresent: 0,
+        onboardControlSensorsEnabled: enabled,
+        onboardControlSensorsHealth: 0,
+        load: 0,
+        voltageBattery: 0,
+        currentBattery: 0,
+        batteryRemaining: 0,
+        dropRateComm: 0,
+        errorsComm: 0,
+        errorsCount1: 0,
+        errorsCount2: 0,
+        errorsCount3: 0,
+        errorsCount4: 0
+      })
+    sysStatus(0)
+    expect(h.session.snapshot.fenceEnabled).toBe(false)
+    sysStatus(0x100000)
+    expect(h.session.snapshot.fenceEnabled).toBe(true)
+    socket.emitMessage(STATUSTEXT, { severity: 4, text: 'PreArm: test' })
+    expect(h.session.snapshot.statusLog.at(-1)).toMatchObject({ severity: 4, text: 'PreArm: test' })
+    // Another component of the vehicle's system supplies LTE values; telemetry from it is ignored.
+    socket.emitMessage(NAMED_VALUE_FLOAT, { timeBootMs: 0, name: 'LTE_MCCMNC', value: 50501.4 }, { componentId: 7 })
+    socket.emitMessage(NAMED_VALUE_FLOAT, { timeBootMs: 0, name: 'LTE_RSRP', value: -853 }, { componentId: 7 })
+    socket.emitMessage(STATUSTEXT, { severity: 2, text: 'ignored' }, { componentId: 7 })
+    expect(h.session.snapshot.statusLog.at(-1)?.text).toBe('PreArm: test')
+    expect(h.session.snapshot.lteCarrier).toBe('—')
+    await h.run(1000)
+    expect([h.session.snapshot.lteCarrier, h.session.snapshot.lteRsrp]).toEqual(['AU Telstra', '-85.3 dBm'])
+    socket.emitMessage(NAMED_VALUE_FLOAT, { timeBootMs: 0, name: 'LTE_MCCMNC', value: 31026 })
+    await h.run(1000)
+    expect(h.session.snapshot.lteCarrier).toBe('31026')
+    h.session.requestDisconnect()
+    expect([h.session.snapshot.lteCarrier, h.session.snapshot.lteRsrp, h.session.snapshot.fenceEnabled]).toEqual([
+      '—',
+      '— dBm',
+      true
+    ])
+  })
+
+  it('clears a guided target that is not refreshed for 5 s', async () => {
+    const h = await connected()
+    h.session.reposition(-35.001, 149.002)
+    await h.run(600)
+    expect(h.session.snapshot.target).not.toBeNull()
+    h.state.target = null
+    await h.run(5000)
+    expect(h.session.snapshot.target).not.toBeNull()
+    await h.run(1100)
+    expect(h.session.snapshot.target).toBeNull()
   })
 })

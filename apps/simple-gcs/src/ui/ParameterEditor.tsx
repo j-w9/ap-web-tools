@@ -1,10 +1,32 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type SyntheticEvent } from 'react'
 import { downloadText, useLatest } from '@apwt/tool-shell'
 import { ParamDefinitions, type ParamDefinition } from '../params/definitions.js'
+import {
+  BITMASK_ERROR,
+  bitChecked,
+  clientStatus,
+  defaultText,
+  importHeading,
+  importPlan,
+  MAX_FILE_BYTES,
+  metaStatusText,
+  PAGE_SIZE,
+  pageView,
+  rowBits,
+  rowDescription,
+  rowHints,
+  rowLabel,
+  rowOptions,
+  savedMessage,
+  saveFileName,
+  saveSelection,
+  selectedOption,
+  skippedText,
+  toggleBit
+} from '../params/editor.js'
 import { errorMessage, type MavParam, type ParamChange } from '../params/model.js'
 import { formatParamValue, parseParamText, saveParamText, type Param, type ParamVehicle } from '../params/packed.js'
 
-const PAGE_SIZE = 50
 const sharedDefinitions = new ParamDefinitions()
 
 export interface ParameterEditorProps {
@@ -32,38 +54,26 @@ interface ImportPreview {
 /** Re-renders whenever the model emits (it is mutable, so a counter stands for its version). */
 function useModelVersion(client: MavParam | null): number {
   const version = useRef(0)
-  return useSyncExternalStore(
-    (notify) =>
+  const subscribe = useCallback(
+    (notify: () => void) =>
       client === null
         ? () => {}
         : client.subscribe(() => {
             version.current++
             notify()
           }),
-    () => version.current
+    [client]
   )
-}
-
-/** A JSON value as string interpolation shows it. */
-function displayValue(v: unknown): string {
-  if (typeof v === 'string') return v
-  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return String(v)
-  if (v === undefined || v === null) return String(v)
-  return Array.isArray(v) ? v.map(displayValue).join(',') : Object.prototype.toString.call(v)
-}
-
-function describeRange(range: unknown): string {
-  if (typeof range === 'object' && range !== null) {
-    const r = range as Record<string, unknown>
-    return `${displayValue(r.low)} to ${displayValue(r.high)}`
-  }
-  return displayValue(range)
+  return useSyncExternalStore(subscribe, () => version.current)
 }
 
 /**
  * Parameter editor (upstream `modules/MAVLink/mavparam-ui.js`, class `MAVParamUI`): fetch values
  * and defaults, search, edit, reset, save to and load from a file, with descriptions from
- * ArduPilot's parameter definitions. The parent remounts it (via `key`) when the client changes.
+ * ArduPilot's parameter definitions. Like upstream's single dialog, it lives across clients: a
+ * new client (upstream `setClient`) clears drafts, the import preview and the page and sets the
+ * status message, while the search, the non-default filter, the save scope and the descriptions
+ * status are kept. Decisions and texts come from `params/editor.ts`.
  */
 export function ParameterEditor({
   client,
@@ -76,15 +86,7 @@ export function ParameterEditor({
   useModelVersion(client)
   const dialogRef = useRef<HTMLDialogElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const [status, setStatus] = useState<Status>({
-    text:
-      client !== null
-        ? 'Fetch parameters to begin.'
-        : everDisconnected
-          ? 'Disconnected. Reconnect to fetch current parameters.'
-          : 'Connect to a vehicle to fetch parameters.',
-    error: false
-  })
+  const [status, setStatus] = useState<Status>({ text: clientStatus(client !== null, everDisconnected), error: false })
   const [metaStatus, setMetaStatus] = useState('Descriptions not loaded.')
   const [loadingDefinitions, setLoadingDefinitions] = useState(false)
   const loadingRef = useRef(false)
@@ -94,6 +96,23 @@ export function ParameterEditor({
   const [saveScope, setSaveScope] = useState<'all' | 'changed'>('all')
   const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(new Map())
   const [preview, setPreview] = useState<ImportPreview | null>(null)
+  const [shownClient, setShownClient] = useState(client)
+  const [shownCleared, setShownCleared] = useState(everDisconnected)
+  const [generation, setGeneration] = useState(0)
+  const clientRef = useLatest(client)
+  const openRef = useLatest(open)
+
+  // Upstream `setClient`: a different client, or the first clearing (every connect starts with
+  // one), resets the per-vehicle state. Later clearings while there is no client change nothing.
+  if (shownClient !== client || shownCleared !== everDisconnected) {
+    setShownClient(client)
+    setShownCleared(everDisconnected)
+    setGeneration(generation + 1)
+    setDrafts(new Map())
+    setPreview(null)
+    setPage(0)
+    setStatus({ text: clientStatus(client !== null, true), error: false })
+  }
 
   const message = (text: string, error = false): void => setStatus({ text, error })
 
@@ -112,14 +131,16 @@ export function ParameterEditor({
       return next
     })
 
+  // Messages from an operation are dropped once the client has changed (upstream `run`).
   const run = async (text: string, action: () => Promise<unknown>, success: string): Promise<void> => {
-    if (client === null || client.busy) return
+    const owner = client
+    if (owner === null || owner.busy) return
     message(text)
     try {
       await action()
-      message(success)
+      if (clientRef.current === owner) message(success)
     } catch (e) {
-      message(errorMessage(e), true)
+      if (clientRef.current === owner) message(errorMessage(e), true)
     }
   }
 
@@ -127,19 +148,23 @@ export function ParameterEditor({
     run('Fetching parameters and defaults…', () => client?.refresh() ?? Promise.resolve(), 'Parameters refreshed.')
 
   const loadDefinitions = async (force = false): Promise<void> => {
-    if (client === null || loadingRef.current) return
+    const owner = client
+    if (owner === null || loadingRef.current) return
     loadingRef.current = true
     setLoadingDefinitions(true)
     setMetaStatus(`Loading ${vehicle} descriptions…`)
     try {
       const result = await definitions.load(vehicle, { refresh: force })
-      client.setDefinitions(result.definitions)
-      setMetaStatus(`${vehicle} descriptions${result.stale ? ' (offline cached copy)' : result.cached ? ' (cached)' : ''}.`)
+      if (clientRef.current !== owner) return
+      owner.setDefinitions(result.definitions)
+      setMetaStatus(metaStatusText(vehicle, result))
     } catch {
-      setMetaStatus('Descriptions unavailable. Parameter values can still be edited.')
+      if (clientRef.current === owner) setMetaStatus('Descriptions unavailable. Parameter values can still be edited.')
     } finally {
       loadingRef.current = false
       setLoadingDefinitions(false)
+      // A client that arrived during the load gets its own descriptions.
+      if (clientRef.current !== null && clientRef.current !== owner && openRef.current) void actions.current.loadDefinitions()
     }
   }
 
@@ -153,18 +178,17 @@ export function ParameterEditor({
 
   const busy = client === null || client.busy || !client.connected
   const params = client?.search(search, changedOnly) ?? []
-  const pages = Math.max(1, Math.ceil(params.length / PAGE_SIZE))
-  const current = Math.min(page, pages - 1)
-  const start = current * PAGE_SIZE
   const total = client?.params.size ?? 0
+  const view = pageView(page, params.length, total)
+  // Upstream stores the clamped page, so it stays clamped when matches grow again.
+  if (view.page !== page) setPage(view.page)
+  const { start } = view
 
   const save = (): void => {
     if (client === null) return
-    const list = [...client.params.values()].filter(
-      (p) => saveScope === 'all' || (p.defaultValue !== undefined && p.value !== p.defaultValue)
-    )
-    downloadText(`${vehicle.toLowerCase()}-${saveScope}.parm`, saveParamText(list))
-    message(`Saved ${list.length} parameters. Search does not limit file exports.`)
+    const list = saveSelection(client.params.values(), saveScope)
+    downloadText(saveFileName(vehicle, saveScope), saveParamText(list))
+    message(savedMessage(list.length))
   }
 
   const loadFile = async (): Promise<void> => {
@@ -172,17 +196,13 @@ export function ParameterEditor({
     const file = input?.files?.[0]
     if (input !== null) input.value = ''
     if (file === undefined || client === null) return
+    const owner = client
     try {
-      if (file.size > 4 * 1024 * 1024) throw new Error('Parameter file exceeds 4 MiB')
+      if (file.size > MAX_FILE_BYTES) throw new Error('Parameter file exceeds 4 MiB')
       const values = parseParamText(await file.text())
-      const skipped: string[] = []
-      for (const name of [...values.keys()]) {
-        if (client.params.has(name) && client.definitions.get(name)?.readOnly === true) {
-          skipped.push(name)
-          values.delete(name)
-        }
-      }
-      setPreview({ fileName: file.name, values, changes: client.changes(values), skipped })
+      if (clientRef.current !== owner) return
+      const { changes, skipped } = importPlan(owner, values)
+      setPreview({ fileName: file.name, values, changes, skipped })
     } catch (e) {
       setPreview(null)
       message(errorMessage(e), true)
@@ -253,10 +273,8 @@ export function ParameterEditor({
       </div>
       {preview !== null && (
         <section className="gcs-params__import">
-          <h3>
-            {preview.fileName}: {preview.changes.length} changes
-          </h3>
-          {preview.skipped.length > 0 && <p>Skipped read-only parameters: {preview.skipped.join(', ')}</p>}
+          <h3>{importHeading(preview.fileName, preview.changes.length)}</h3>
+          {preview.skipped.length > 0 && <p>{skippedText(preview.skipped)}</p>}
           <div className="gcs-params__preview">
             {preview.changes.map((p) => (
               <div key={p.name}>
@@ -293,7 +311,7 @@ export function ParameterEditor({
         ) : (
           params.slice(start, start + PAGE_SIZE).map((p) => (
             <ParamRow
-              key={p.name}
+              key={`${generation}:${p.name}`}
               param={p}
               definition={client?.definitions.get(p.name)}
               busy={busy}
@@ -325,14 +343,11 @@ export function ParameterEditor({
         )}
       </div>
       <footer className="gcs-params__foot">
-        <span>
-          {params.length ? start + 1 : 0}–{Math.min(start + PAGE_SIZE, params.length)} of {params.length} matches · {total}{' '}
-          parameters
-        </span>
-        <button type="button" className="apwt-btn" disabled={current === 0} onClick={() => setPage(current - 1)}>
+        <span>{view.countText}</span>
+        <button type="button" className="apwt-btn" disabled={view.page === 0} onClick={() => setPage(view.page - 1)}>
           Previous
         </button>
-        <button type="button" className="apwt-btn" disabled={current + 1 >= pages} onClick={() => setPage(current + 1)}>
+        <button type="button" className="apwt-btn" disabled={view.page + 1 >= view.pages} onClick={() => setPage(view.page + 1)}>
           Next
         </button>
       </footer>
@@ -356,25 +371,19 @@ function ParamRow({ param: p, definition: d, busy, draft, onDraft, onMessage, on
   const changed = p.defaultValue !== undefined && p.value !== p.defaultValue
   const readOnly = d?.readOnly === true
   const value = draft ?? formatParamValue(p)
-  const values = Object.entries(d?.values ?? {})
-  const bits = Object.entries(d?.bitmask ?? {}).filter(([bit]) => /^\d+$/.test(bit) && Number(bit) <= 31)
-  const hints: string[] = []
-  if (d?.units) hints.push(`Units: ${d.units}`)
-  if (d?.range) hints.push(`Range: ${describeRange(d.range)}`)
-  if (d?.increment) hints.push(`Increment: ${displayValue(d.increment)}`)
-  if (d?.rebootRequired === true) hints.push('Reboot required')
+  const label = rowLabel(d)
+  const options = rowOptions(d)
+  const bits = rowBits(d)
   const submit = (e: SyntheticEvent): void => {
     e.preventDefault()
     onApply(value, d)
   }
-  const bitSet = (bit: string): boolean =>
-    Number.isFinite(Number(value)) && (BigInt(Math.trunc(Number(value))) & (1n << BigInt(bit))) !== 0n
 
   return (
     <article className={`gcs-param${changed ? ' gcs-param--changed' : ''}`} data-parameter={p.name}>
       <div>
         <strong>{p.name}</strong>
-        {d?.label && <div className="gcs-param__label">{d.label}</div>}
+        {label !== null && <div className="gcs-param__label">{label}</div>}
         {readOnly && <small>Read-only</small>}
       </div>
       <form className="gcs-param__value" onSubmit={submit}>
@@ -394,20 +403,20 @@ function ParamRow({ param: p, definition: d, busy, draft, onDraft, onMessage, on
         <button type="submit" className="apwt-btn" disabled={busy || readOnly}>
           Apply
         </button>
-        {values.length > 0 && (
+        {options.length > 0 && (
           <select
             className="apwt-input"
             aria-label={`${p.name} options`}
             disabled={busy || readOnly}
-            defaultValue={Object.hasOwn(d?.values ?? {}, String(p.value)) ? String(p.value) : ''}
+            defaultValue={selectedOption(d, p)}
             onChange={(e) => {
               if (e.target.value !== '') onDraft(e.target.value)
             }}
           >
             <option value="">Choose an option</option>
-            {values.map(([v, text]) => (
+            {options.map(([v, text]) => (
               <option key={v} value={v}>
-                {v}: {displayValue(text)}
+                {text}
               </option>
             ))}
           </select>
@@ -419,29 +428,24 @@ function ParamRow({ param: p, definition: d, busy, draft, onDraft, onMessage, on
               <label key={bit} className="gcs-param__bit">
                 <input
                   type="checkbox"
-                  checked={bitSet(bit)}
+                  checked={bitChecked(value, bit)}
                   disabled={busy || readOnly}
                   onChange={(e) => {
                     try {
-                      let v = BigInt(value)
-                      const mask = 1n << BigInt(bit)
-                      v = e.target.checked ? v | mask : v & ~mask
-                      // Packed int32 bitmasks retain bit 31 without float rounding.
-                      if (p.type === 3) v = BigInt.asIntN(32, v)
-                      onDraft(String(v))
+                      onDraft(toggleBit(value, bit, e.target.checked, p.type))
                     } catch {
-                      onMessage('Enter an integer before changing bitmask options.', true)
+                      onMessage(BITMASK_ERROR, true)
                     }
                   }}
                 />{' '}
-                {bit}: {displayValue(text)}
+                {text}
               </label>
             ))}
           </details>
         )}
       </form>
       <div className="gcs-param__default">
-        <span>Default: {p.defaultValue === undefined ? 'unavailable' : formatParamValue(p, p.defaultValue)}</span>
+        <span>{defaultText(p, formatParamValue)}</span>
         {changed && (
           <button
             type="button"
@@ -455,8 +459,8 @@ function ParamRow({ param: p, definition: d, busy, draft, onDraft, onMessage, on
         )}
       </div>
       <div className="gcs-param__help">
-        <p>{d?.description || 'No description available.'}</p>
-        <small>{hints.join(' · ')}</small>
+        <p>{rowDescription(d)}</p>
+        <small>{rowHints(d)}</small>
       </div>
     </article>
   )

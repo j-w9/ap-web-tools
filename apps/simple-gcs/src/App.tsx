@@ -170,7 +170,6 @@ export function App({ session, settings, local }: AppProps) {
       </Section>
 
       <ParameterEditor
-        key={snap.paramEpoch}
         client={vehicle?.params ?? null}
         vehicle={vehicle?.paramVehicle ?? 'Rover'}
         everDisconnected={snap.paramEpoch > 0}
