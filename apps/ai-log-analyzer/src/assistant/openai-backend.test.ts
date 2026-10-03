@@ -13,6 +13,7 @@ import {
   ASSISTANT_MODEL,
   ASSISTANT_NAME,
   OpenAiAssistantBackend,
+  isUnauthorizedError,
   mapRunStream,
   openAiAssistantsApi,
   toBackendError,
@@ -132,6 +133,7 @@ class FakeApi implements AssistantsApi {
   }
   cancelRun(threadId: string, runId: string) {
     this.calls.push({ op: 'cancelRun', threadId, runId })
+    this.check('cancelRun')
     return Promise.resolve()
   }
   listFiles() {
@@ -217,8 +219,27 @@ describe('OpenAiAssistantBackend.connect', () => {
         (e: unknown) => e
       )
     expect(error).toBeInstanceOf(BackendError)
-    expect(error).toMatchObject({ kind: 'auth' })
-    expect((error as Error).message).not.toContain('sk-')
+    expect(error).toMatchObject({ kind: 'auth', message: 'Invalid API key (401)', promptForKey: true })
+    expect((error as BackendError).detail).not.toContain('sk-')
+  })
+
+  it('throws upstream texts for other failures, without asking for the key', async () => {
+    const api = new FakeApi()
+    api.failWith.listAssistants = new APIConnectionError({ message: 'offline' })
+    await expect(backendFor(api).connect()).rejects.toMatchObject({
+      message: 'Could not initialize assistant',
+      kind: 'network',
+      promptForKey: false
+    })
+    const api2 = new FakeApi()
+    api2.failWith.createThread = new InternalServerError(500, { message: 'oops' }, undefined, new Headers())
+    await expect(backendFor(api2).connect()).rejects.toMatchObject({ message: 'Could not create conversation thread' })
+  })
+
+  it('resolves to whether a thread was created', async () => {
+    const backend = backendFor(new FakeApi())
+    expect(await backend.connect()).toBe(true)
+    expect(await backend.connect()).toBe(false)
   })
 
   it('retries the thread after a failed connect', async () => {
@@ -250,10 +271,12 @@ describe('OpenAiAssistantBackend.sendMessage', () => {
       threadId: 'thread_1',
       message: { role: 'user', content: 'Show GPS', attachments: null }
     })
-    expect(events[0]).toEqual({ type: 'text', messageId: 'msg_1', delta: 'Hello' })
-    expect(events[1]).toEqual({ type: 'text', messageId: 'msg_1', delta: ' there' })
-    expect(events[2]).toMatchObject({ type: 'image', fileId: 'file_img' })
-    expect(events[3]).toEqual({
+    // The thread was opened by this message: upstream then said "Connected to AI assistant!".
+    expect(events[0]).toEqual({ type: 'connected' })
+    expect(events[1]).toEqual({ type: 'text', messageId: 'msg_1', delta: 'Hello' })
+    expect(events[2]).toEqual({ type: 'text', messageId: 'msg_1', delta: ' there' })
+    expect(events[3]).toMatchObject({ type: 'image', fileId: 'file_img' })
+    expect(events[4]).toEqual({
       type: 'tool-calls',
       runId: 'run_1',
       calls: [{ id: 'call_1', name: 'get', arguments: '{"message_type":"GPS"}' }]
@@ -265,8 +288,11 @@ describe('OpenAiAssistantBackend.sendMessage', () => {
     api.failWith.fileContent = new APIConnectionError({ message: 'offline' })
     api.runs = [[imageDelta('file_img'), textDelta('m', 'done')]]
     const events = await collect(backendFor(api).sendMessage('plot'))
-    expect(events[0]?.type).toBe('image-error')
-    expect(events[1]).toEqual({ type: 'text', messageId: 'm', delta: 'done' })
+    expect(events[1]).toMatchObject({
+      type: 'image-error',
+      error: { message: 'Failed to load a graph for visualization. offline', kind: 'network' }
+    })
+    expect(events[2]).toEqual({ type: 'text', messageId: 'm', delta: 'done' })
   })
 
   it('wraps errors thrown while streaming', async () => {
@@ -277,7 +303,26 @@ describe('OpenAiAssistantBackend.sendMessage', () => {
       undefined,
       new Headers()
     )
-    await expect(collect(backendFor(api).sendMessage('x'))).rejects.toMatchObject({ kind: 'rate-limit' })
+    await expect(collect(backendFor(api).sendMessage('x'))).rejects.toMatchObject({
+      kind: 'rate-limit',
+      message: 'Error receiving response from assistant: 429 slow down'
+    })
+  })
+
+  it('reports connection and posting failures with upstream text; only a 401 while connecting asks for the key', async () => {
+    const unauthorized = new AuthenticationError(401, { message: 'Incorrect API key' }, undefined, new Headers())
+    const api = new FakeApi()
+    api.failWith.createThread = unauthorized
+    await expect(collect(backendFor(api).sendMessage('x'))).rejects.toMatchObject({
+      message: 'Sorry, there was an error processing your message. Please try again.',
+      promptForKey: true
+    })
+    const api2 = new FakeApi()
+    api2.failWith.createMessage = unauthorized
+    await expect(collect(backendFor(api2).sendMessage('x'))).rejects.toMatchObject({
+      message: 'Sorry, there was an error processing your message. Please try again.',
+      promptForKey: false
+    })
   })
 })
 
@@ -370,6 +415,7 @@ describe('OpenAiAssistantBackend.submitToolOutputs', () => {
   it('a no-data failure clears the remembered file, other failures keep it', async () => {
     const api = new FakeApi()
     const backend = backendFor(api)
+    await backend.connect()
     await collect(backend.submitToolOutputs('run_1', [{ callId: 'a', result: dataResult('{}') }]))
     await collect(backend.submitToolOutputs('run_2', [{ callId: 'b', result: failureResult }]))
     api.calls = []
@@ -384,7 +430,26 @@ describe('OpenAiAssistantBackend.submitToolOutputs', () => {
     await collect(backend.submitToolOutputs('run_3', [{ callId: 'c', result: noData }]))
     api.calls = []
     await collect(backend.sendMessage('cleared'))
-    expect(api.calls[0]).toMatchObject({ message: { attachments: null } })
+    // Upstream's fileId is now undefined, so `attachments: fileId && [...]` is left out of the request.
+    expect(api.calls[0]).toEqual({ op: 'createMessage', threadId: 'thread_1', message: { role: 'user', content: 'cleared' } })
+  })
+
+  it('with every call answered, posts upstream text even for an empty call list', async () => {
+    const api = new FakeApi()
+    const backend = backendFor(api)
+    await backend.connect()
+    api.calls = []
+    await collect(backend.submitToolOutputs('run_1', []))
+    expect(api.calls[1]).toEqual({
+      op: 'createMessage',
+      threadId: 'thread_1',
+      message: {
+        role: 'user',
+        content:
+          'The data for the requested message has been extracted. Continue processing using the output.json file with id: null',
+        attachments: [{ tools: [{ type: 'code_interpreter' }] }]
+      }
+    })
   })
 
   it('stops at a crashed call without submitting anything', async () => {
@@ -409,8 +474,52 @@ describe('OpenAiAssistantBackend.submitToolOutputs', () => {
     api.files = [{ id: 'file_old', filename: 'output.json' }]
     api.deleteFile = () => Promise.reject(new Error('gone'))
     api.runs = [[]]
-    await collect(backendFor(api).submitToolOutputs('run_1', [{ callId: 'a', result: dataResult('{}') }]))
+    const backend = backendFor(api)
+    await backend.connect()
+    const error = console.error
+    console.error = () => undefined
+    try {
+      await collect(backend.submitToolOutputs('run_1', [{ callId: 'a', result: dataResult('{}') }]))
+    } finally {
+      console.error = error
+    }
     expect(api.ops()).toContain('uploadFile')
+  })
+
+  it('starts every deletion and uploads without waiting for them, as upstream did', async () => {
+    const api = new FakeApi()
+    api.files = [
+      { id: 'file_a', filename: 'output.json' },
+      { id: 'file_b', filename: 'other.json' },
+      { id: 'file_c', filename: 'output.json' }
+    ]
+    const started: string[] = []
+    api.deleteFile = (id: string) => {
+      started.push(id)
+      api.calls.push({ op: 'deleteFile', id })
+      return new Promise<void>(() => undefined)
+    }
+    api.runs = [[]]
+    const backend = backendFor(api)
+    await backend.connect()
+    api.calls = []
+    await collect(backend.submitToolOutputs('run_1', [{ callId: 'a', result: dataResult('{}') }]))
+    expect(started).toEqual(['file_a', 'file_c'])
+    expect(api.ops()).toEqual(['listFiles', 'deleteFile', 'deleteFile', 'uploadFile', 'cancelRun', 'createMessage', 'streamRun'])
+  })
+
+  it('names failures in the tool flow, and stream errors with upstream text', async () => {
+    const api = new FakeApi()
+    const backend = backendFor(api)
+    await backend.connect()
+    api.runs = [[ev({ event: 'error', data: { code: null, message: 'server broke', param: null, type: 'server_error' } })]]
+    await expect(collect(backend.submitToolOutputs('run_1', [{ callId: 'a', result: failureResult }]))).rejects.toMatchObject({
+      message: 'Error receiving response from assistant: server broke'
+    })
+    api.failWith.cancelRun = new APIConnectionError({ message: 'offline' })
+    await expect(collect(backend.submitToolOutputs('run_2', []))).rejects.toMatchObject({
+      message: "The assistant's function call could not be handled: offline"
+    })
   })
 })
 
@@ -419,6 +528,7 @@ describe('OpenAiAssistantBackend conversation and assistant reset', () => {
     const api = new FakeApi()
     api.runs = [[]]
     const backend = backendFor(api)
+    await backend.connect()
     await collect(backend.submitToolOutputs('run_1', [{ callId: 'c', result: dataResult('{}') }]))
     await backend.newConversation()
     api.calls = []
@@ -437,9 +547,34 @@ describe('OpenAiAssistantBackend conversation and assistant reset', () => {
     const backend = backendFor(api)
     await backend.connect()
     api.calls = []
-    await backend.recreateAssistant()
+    expect(await backend.recreateAssistant()).toBe(true)
     expect(api.ops()).toEqual(['deleteAssistant', 'listAssistants', 'createAssistant', 'createThread'])
     expect(api.calls[0]).toEqual({ op: 'deleteAssistant', id: 'asst_log' })
+  })
+
+  it('recreateAssistant does nothing before an assistant exists', async () => {
+    const api = new FakeApi()
+    expect(await backendFor(api).recreateAssistant()).toBe(false)
+    expect(api.calls).toEqual([])
+  })
+
+  it('recreateAssistant failures use upstream text; a 401 while reconnecting asks for the key', async () => {
+    const api = new FakeApi()
+    const backend = backendFor(api)
+    await backend.connect()
+    api.deleteAssistant = () => Promise.reject(new InternalServerError(500, { message: 'oops' }, undefined, new Headers()))
+    await expect(backend.recreateAssistant()).rejects.toMatchObject({
+      message: 'Failed to update the assistant: 500 oops',
+      promptForKey: false
+    })
+    const api2 = new FakeApi()
+    const backend2 = backendFor(api2)
+    await backend2.connect()
+    api2.failWith.listAssistants = new AuthenticationError(401, { message: 'bad key' }, undefined, new Headers())
+    await expect(backend2.recreateAssistant()).rejects.toMatchObject({
+      message: 'Failed to update the assistant: Invalid API key (401)',
+      promptForKey: true
+    })
   })
 })
 
@@ -458,20 +593,27 @@ describe('mapRunStream', () => {
           }),
           ev({ event: 'thread.run.failed', data: { id: 'r', last_error: { code: 'server_error', message: 'boom' } } }),
           ev({ event: 'thread.run.failed', data: { id: 'r', last_error: null } }),
-          ev({ event: 'thread.run.expired', data: { id: 'r' } }),
-          ev({ event: 'error', data: { code: null, message: 'bad', param: null, type: 'server_error' } })
+          ev({ event: 'thread.run.expired', data: { id: 'r' } })
         ]),
         () => Promise.reject(new Error('unused'))
       )
     )
-    expect(events.map((e) => (e.type === 'failed' ? e.error.kind : e.type))).toEqual([
-      'quota',
-      'rate-limit',
-      'api',
-      'api',
-      'api',
-      'api'
-    ])
+    expect(events.map((e) => (e.type === 'failed' ? e.error.kind : e.type))).toEqual(['quota', 'rate-limit', 'api', 'api', 'api'])
+    // Upstream's fixed text for a failed run, with the reason as the port's detail.
+    expect(events.slice(0, 4).map((e) => (e.type === 'failed' ? e.error.message : ''))).toEqual(
+      new Array(4).fill('Sorry, there was an error processing your request. Please try again.')
+    )
+  })
+
+  it('throws for an error event, as the SDK does', async () => {
+    await expect(
+      collect(
+        mapRunStream(
+          iterate([ev({ event: 'error', data: { code: null, message: 'bad', param: null, type: 'server_error' } })]),
+          () => Promise.reject(new Error('unused'))
+        )
+      )
+    ).rejects.toThrow('bad')
   })
 
   it('ignores progress events and empty deltas', async () => {
@@ -559,7 +701,7 @@ describe('openAiAssistantsApi', () => {
       )
     )
     const backend = new OpenAiAssistantBackend(openAiAssistantsApi('test-key-not-real', fetch))
-    await expect(backend.connect()).rejects.toMatchObject({ kind: 'auth' })
+    await expect(backend.connect()).rejects.toMatchObject({ kind: 'auth', promptForKey: true })
   })
 })
 
@@ -568,11 +710,47 @@ describe('OpenAiAssistantBackend.switchApi', () => {
     const first = new FakeApi()
     first.runs = [[]]
     const backend = new OpenAiAssistantBackend(first)
+    await backend.connect()
     await collect(backend.submitToolOutputs('run_1', [{ callId: 'c', result: dataResult('{}') }]))
     const second = new FakeApi()
     backend.switchApi(second)
     await collect(backend.sendMessage('again'))
     expect(second.ops().slice(0, 4)).toEqual(['listAssistants', 'createAssistant', 'createThread', 'createMessage'])
     expect(second.calls[3]).toMatchObject({ message: { attachments: [{ file_id: 'file_1' }] } })
+  })
+})
+
+describe('isUnauthorizedError', () => {
+  it('matches upstream isUnauthorizedError on every kind of value', async () => {
+    const { readFileSync: read } = await import('node:fs')
+    const vm = await import('node:vm')
+    const source = read(resolve(__dirname, '../../../../upstream/AILogAnalyzer/logAnalyzer.js'), 'utf8')
+    const match = /function isUnauthorizedError\(error\) \{[\s\S]*?\n\}/.exec(source)
+    expect(match).not.toBeNull()
+    const upstream: unknown = vm.runInNewContext(`(${match?.[0] ?? ''})`)
+    if (typeof upstream !== 'function') throw new Error('not a function')
+    const cases: unknown[] = [
+      new AuthenticationError(401, { message: 'Incorrect API key' }, undefined, new Headers()),
+      new RateLimitError(429, { message: 'slow' }, undefined, new Headers()),
+      new InternalServerError(500, { message: 'invalid api key' }, undefined, new Headers()),
+      { status: 401 },
+      { response: { status: 401 } },
+      { code: 401 },
+      { code: '401' },
+      { error: { type: 'invalid_request_error' }, message: 'Invalid API key provided' },
+      { error: { type: 'invalid_request_error' }, message: 'Unauthorized' },
+      { error: { type: 'invalid_request_error' }, message: 'quota' },
+      { error: { type: 'invalid_request_error' } },
+      new Error('401 Unauthorized'),
+      new Error('401 nope'),
+      new Error('unauthorized'),
+      '401 invalid API key',
+      null,
+      undefined,
+      0
+    ]
+    for (const value of cases) {
+      expect(isUnauthorizedError(value), String(value)).toBe((upstream as (e: unknown) => boolean)(value))
+    }
   })
 })

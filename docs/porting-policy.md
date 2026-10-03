@@ -38,9 +38,10 @@ handling. See [`typescript-standard.md`](typescript-standard.md).
 An upstream bug is fixed in the port only by an explicit decision, recorded here and in
 [`upstream-bugs.md`](upstream-bugs.md), with a test that pins the original behaviour.
 
-| Tool        | Upstream bug                                                                                                                        | Port behaviour                                                                     | Decided    |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- |
-| Filter Tool | `index.html` never loads `Libraries/Param_Helpers.js`, so Save Parameters throws `param_to_string is not defined` and saves nothing | Saves the file `save_parameters` builds, formatted by upstream's `param_to_string` | 2026-10-03 |
+| Tool        | Upstream bug                                                                                                                                                                           | Port behaviour                                                                     | Decided    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- |
+| DFU Loader  | Flash Bootloader stays enabled during a flash; a second press (or Enter in a DfuSe field) starts a second download whose USB transfers interleave with the first and corrupt the write | Presses are ignored while a flash runs and the button shows as disabled            | 2026-10-03 |
+| Filter Tool | `index.html` never loads `Libraries/Param_Helpers.js`, so Save Parameters throws `param_to_string is not defined` and saves nothing                                                    | Saves the file `save_parameters` builds, formatted by upstream's `param_to_string` | 2026-10-03 |
 
 Every difference that is not purely code structure is listed, with its reason, in the tool's file
 under `docs/audit/`.

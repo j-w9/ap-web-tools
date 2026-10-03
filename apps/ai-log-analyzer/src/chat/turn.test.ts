@@ -23,7 +23,7 @@ class ScriptedBackend implements AssistantBackend {
     private readonly failure?: Error
   ) {}
   connect() {
-    return Promise.resolve()
+    return Promise.resolve(true)
   }
   sendMessage(text: string) {
     this.sent.push(text)
@@ -41,7 +41,7 @@ class ScriptedBackend implements AssistantBackend {
     return Promise.resolve()
   }
   recreateAssistant() {
-    return Promise.resolve()
+    return Promise.resolve(true)
   }
 }
 
@@ -102,30 +102,62 @@ describe('runTurn', () => {
     expect(backend.submitted[0]!.outputs[0]!.result).toMatchObject({ status: 'failure', reason: 'no-log' })
   })
 
-  it('reports failed runs and image errors as errors', async () => {
-    const failed = new BackendError('rate-limit', 'slow down')
+  it('reports failed runs and image errors as notices, with the detail', async () => {
+    const failed = new BackendError('rate-limit', 'slow down', { detail: 'wait' })
     const backend = new ScriptedBackend([
       [
-        { type: 'image-error', message: 'no image' },
+        { type: 'image-error', error: new BackendError('api', 'no image') },
         { type: 'failed', error: failed }
       ]
     ])
     const events = await turn(backend)
     expect(events).toEqual([
-      { type: 'error', error: new BackendError('api', 'no image') },
-      { type: 'error', error: failed }
+      { type: 'notice', notice: { tone: 'error', text: 'no image', detail: null } },
+      { type: 'notice', notice: { tone: 'error', text: 'slow down', detail: 'wait' } }
     ])
   })
 
-  it('turns thrown errors into an error event instead of rejecting', async () => {
+  it('announces a new conversation with upstream text', async () => {
+    const events = await turn(new ScriptedBackend([[{ type: 'connected' }]]))
+    expect(events).toEqual([
+      {
+        type: 'notice',
+        notice: {
+          tone: 'info',
+          text: 'Connected to AI assistant! Upload a log file or ask a question about drone flight analysis.',
+          detail: null
+        }
+      }
+    ])
+  })
+
+  it('turns thrown errors into notices instead of rejecting', async () => {
     const backend = new ScriptedBackend(
       [[{ type: 'text', messageId: 'm', delta: 'partial' }]],
       new BackendError('network', 'offline')
     )
     const events = await turn(backend)
-    expect(events.at(-1)).toEqual({ type: 'error', error: new BackendError('network', 'offline') })
+    expect(events.at(-1)).toEqual({ type: 'notice', notice: { tone: 'error', text: 'offline', detail: null } })
     const plain = await turn(new ScriptedBackend([[]], new Error('boom')))
-    expect(plain).toEqual([{ type: 'error', error: new BackendError('unknown', 'boom') }])
+    expect(plain).toEqual([{ type: 'notice', notice: { tone: 'error', text: 'boom', detail: null } }])
+  })
+
+  it('a key rejected while connecting shows the 401 line, asks for the key, then the error', async () => {
+    const error = new BackendError('auth', 'Sorry, there was an error processing your message. Please try again.', {
+      promptForKey: true
+    })
+    const events = await turn(new ScriptedBackend([[]], error))
+    expect(events).toEqual([
+      {
+        type: 'notice',
+        notice: { tone: 'error', text: 'Invalid OpenAI API key (401). Please enter a valid key.', detail: null }
+      },
+      { type: 'prompt-key' },
+      {
+        type: 'notice',
+        notice: { tone: 'error', text: 'Sorry, there was an error processing your message. Please try again.', detail: null }
+      }
+    ])
   })
 
   it('passes crashed calls to the backend, which reports them', async () => {

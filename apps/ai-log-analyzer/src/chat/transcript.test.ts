@@ -5,10 +5,10 @@ const run = (...actions: TranscriptAction[]): Transcript => actions.reduce(trans
 
 describe('transcriptReducer', () => {
   it('appends user messages and notices with increasing ids', () => {
-    const t = run({ type: 'user', text: 'hi' }, { type: 'notice', tone: 'error', text: 'oops' })
+    const t = run({ type: 'user', text: 'hi' }, { type: 'notice', notice: { tone: 'error', text: 'oops', detail: null } })
     expect(t.entries).toEqual([
       { kind: 'user', id: 1, text: 'hi' },
-      { kind: 'notice', id: 2, tone: 'error', text: 'oops' }
+      { kind: 'notice', id: 2, tone: 'error', text: 'oops', detail: null }
     ])
   })
 
@@ -27,7 +27,7 @@ describe('transcriptReducer', () => {
   it('starts a new bubble when something comes between deltas of one message', () => {
     const t = run(
       { type: 'text', messageId: 'a', delta: 'one' },
-      { type: 'notice', tone: 'info', text: 'between' },
+      { type: 'notice', notice: { tone: 'info', text: 'between', detail: null } },
       { type: 'text', messageId: 'a', delta: 'two' }
     )
     expect(t.entries.map((e) => e.kind)).toEqual(['assistant', 'notice', 'assistant'])

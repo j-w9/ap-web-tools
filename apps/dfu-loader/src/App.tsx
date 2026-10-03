@@ -72,7 +72,7 @@ export function App() {
                   onChange={(e) => session.editStartAddress(e.target.value)}
                   onBlur={() => session.commitStartAddress()}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') session.commitStartAddress()
+                    if (e.key === 'Enter') void session.pressEnter('startAddress')
                   }}
                 />
               </label>
@@ -86,6 +86,9 @@ export function App() {
                   disabled={dfuse.uploadSize.disabled}
                   aria-invalid={invalid?.field === 'uploadSize'}
                   onChange={(e) => session.editUploadSize(e.target.value, e.target.validity.badInput)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void session.pressEnter('uploadSize')
+                  }}
                 />
               </label>
               {invalid && <p className="dfu-invalid">{invalid.message}</p>}
@@ -156,6 +159,12 @@ export function App() {
       {state.connected && (
         <Section title="Device" help="What the board reports about its USB DFU interface.">
           <DeviceInfo info={state.connected} interfaces={state.interfaces} />
+        </Section>
+      )}
+
+      {!state.connected && state.strandedDfuInfo !== '' && (
+        <Section title="Device" help="What the board reported before connecting stopped.">
+          <pre className="dfu-pre">{state.strandedDfuInfo.replace(/^\n/, '')}</pre>
         </Section>
       )}
 

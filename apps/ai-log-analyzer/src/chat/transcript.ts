@@ -4,20 +4,28 @@
  */
 import type { ToolResult } from '../analysis/tool-calls.js'
 import type { RequestedToolCall } from '../assistant/backend.js'
+import type { Notice, NoticeTone } from './turn.js'
 
 export type ToolActivity =
   | { readonly status: 'running' }
   | { readonly status: 'done'; readonly summary: string }
   | { readonly status: 'failed'; readonly message: string }
 
-export type NoticeTone = 'info' | 'error'
+export type { NoticeTone }
 
 export type ChatEntry =
   | { readonly kind: 'user'; readonly id: number; readonly text: string }
   /** Markdown text streamed from one assistant message. */
   | { readonly kind: 'assistant'; readonly id: number; readonly messageId: string; readonly markdown: string }
   /** Status lines from the page itself (upstream "system" and "error" messages). */
-  | { readonly kind: 'notice'; readonly id: number; readonly tone: NoticeTone; readonly text: string }
+  | {
+      readonly kind: 'notice'
+      readonly id: number
+      readonly tone: NoticeTone
+      readonly text: string
+      /** The port's explanation, shown under upstream's text. */
+      readonly detail: string | null
+    }
   /** A function call answered from the log. */
   | {
       readonly kind: 'tool'
@@ -35,7 +43,7 @@ export interface Transcript {
 
 export type TranscriptAction =
   | { readonly type: 'user'; readonly text: string }
-  | { readonly type: 'notice'; readonly tone: NoticeTone; readonly text: string }
+  | { readonly type: 'notice'; readonly notice: Notice }
   | { readonly type: 'text'; readonly messageId: string; readonly delta: string }
   | { readonly type: 'tool-started'; readonly call: RequestedToolCall }
   | { readonly type: 'tool-finished'; readonly callId: string; readonly result: ToolResult }
@@ -56,7 +64,7 @@ export function transcriptReducer(state: Transcript, action: TranscriptAction): 
     case 'user':
       return append(state, { kind: 'user', id: state.nextId, text: action.text })
     case 'notice':
-      return append(state, { kind: 'notice', id: state.nextId, tone: action.tone, text: action.text })
+      return append(state, { kind: 'notice', id: state.nextId, ...action.notice })
     case 'text': {
       // Deltas extend the latest entry of the same message; anything in between starts a new bubble.
       const last = state.entries.at(-1)

@@ -48,7 +48,10 @@ function Entry({ entry }: { entry: ChatEntry }) {
       return (
         <div className={`ala-notice ala-notice--${entry.tone}`} role={entry.tone === 'error' ? 'alert' : undefined}>
           {entry.tone === 'error' ? <AlertTriangle /> : <Info />}
-          {entry.text}
+          <span>
+            {entry.text}
+            {entry.detail !== null && <small className="ala-notice__detail">{entry.detail}</small>}
+          </span>
         </div>
       )
     case 'tool':

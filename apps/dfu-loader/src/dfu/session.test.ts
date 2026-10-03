@@ -69,7 +69,7 @@ function view(p: Pair) {
       connect: s.connectLabel,
       usbInfo: s.connected?.usbInfo ?? '',
       // Upstream shows the summary and memory summary in one block.
-      dfuInfo: s.connected ? `${s.connected.summary}\n${s.connected.memorySummary}` : '',
+      dfuInfo: s.connected ? `${s.connected.summary}\n${s.connected.memorySummary}` : s.strandedDfuInfo,
       flashDisabled: !s.flashEnabled,
       fileDisabled: !s.fileEnabled,
       dfuseHidden: s.dfuse.hidden,
@@ -220,10 +220,24 @@ describe('connect', () => {
     const p = setup(dfuse({ alternates: [{ alternateSetting: 0, interfaceName: 'STM32 BOOTLOADER' }] }))
     await connect(p)
     expect(p.portFake.calls).toEqual(p.upFake.calls)
-    const { upstream, port } = view(p)
     // Upstream stops part way through connecting and leaves the properties line in its DFU info.
-    expect(port).toEqual({ ...upstream, dfuInfo: '' })
-    expect(port.status).toBe('Not a DfuSe memory descriptor: "STM32 BOOTLOADER"')
+    expectSameView(p)
+    expect(p.state().strandedDfuInfo).toBe(
+      '\nWillDetach=true, ManifestationTolerant=false, CanUpload=true, CanDnload=true, TransferSize=1024, DetachTimeOut=255, Version=011a'
+    )
+    expect(p.state().status?.text).toBe('Not a DfuSe memory descriptor: "STM32 BOOTLOADER"')
+  })
+
+  it('accumulates the stranded properties line over failed attempts until a disconnect clears it', async () => {
+    const p = setup(dfuse({ alternates: [{ alternateSetting: 0, interfaceName: 'STM32 BOOTLOADER' }] }))
+    await connect(p)
+    await connect(p)
+    expectSameView(p)
+    expect(p.state().strandedDfuInfo.split('\n')).toHaveLength(3)
+    p.upUsb.disconnect(p.upFake)
+    p.portUsb.disconnect(p.portFake)
+    await settle(p.upFake, p.portFake)
+    expectSameView(p)
   })
 
   it('refuses a DFU interface that cannot download (upstream crashes with a ReferenceError)', async () => {
@@ -236,6 +250,7 @@ describe('connect', () => {
     )
     expect(p.state().connectLabel).toBe(p.page.el.connect.textContent)
     expect(p.state().flashEnabled).toBe(!p.page.el.download.disabled)
+    expect(p.state().strandedDfuInfo).toBe(String(p.page.el.dfuInfo.textContent))
   })
 
   it('disconnects with the Connect button', async () => {
@@ -307,6 +322,26 @@ describe('start address field', () => {
       p.session.commitStartAddress()
       expectSameView(p)
     }
+  })
+
+  it('runs the change handler only when the text changed, as the browser fires change', async () => {
+    const p = setup(dfuse())
+    await connect(p)
+    p.page.changeStartAddress('0x20000000')
+    p.session.editStartAddress('0x20000000')
+    p.session.commitStartAddress()
+    expect(p.state().dfuse.startAddress.customValidity).toBe('Address outside of memory map')
+    p.page.click('connect')
+    await p.session.connectClick()
+    await settle(p.upFake, p.portFake)
+    // Focus and leave the field without editing: no change event, so the old verdict stays.
+    p.session.commitStartAddress()
+    expectSameView(p)
+    expect(p.state().dfuse.startAddress.customValidity).toBe('Address outside of memory map')
+    // Connecting again sets the value by script, which neither fires change nor clears the verdict.
+    await connect(p)
+    p.session.commitStartAddress()
+    expectSameView(p)
   })
 
   it('validates without a device', () => {
@@ -429,6 +464,61 @@ describe('flash', () => {
     await flash(p)
     expectSameRun(p)
     expect(p.state().log.at(-1)).toEqual({ kind: 'error', text: 'DFU DOWNLOAD failed state=10, status=6' })
+  })
+
+  it('Enter in the start address field changes it, then flashes (implicit form submission)', async () => {
+    const p = setup(dfuse())
+    await connect(p)
+    await chooseFile(p, 'bl.bin', firmware(1500))
+    p.page.el.dfuseUploadSize.value = '1024'
+    p.session.editUploadSize('1024')
+    // The browser fires change, then clicks the form's default button, Flash Bootloader.
+    p.page.changeStartAddress('0x08020000')
+    p.session.editStartAddress('0x08020000')
+    await Promise.all([p.page.flash(), p.session.pressEnter('startAddress')])
+    await settle(p.upFake, p.portFake)
+    expectSameRun(p)
+    expect(p.state().log.at(-1)).toEqual({ kind: 'info', text: 'Done!' })
+  })
+
+  it('Enter in the upload size field flashes too, but not while Flash Bootloader is disabled', async () => {
+    const p = setup(dfuse())
+    await connect(p)
+    await chooseFile(p, 'bl.bin', firmware(700))
+    await Promise.all([p.page.flash(), p.session.pressEnter('uploadSize')])
+    await settle(p.upFake, p.portFake)
+    expectSameRun(p)
+    const runtime = setup(dfuse({ alternates: [{ alternateSetting: 0, interfaceName: 'Runtime', interfaceProtocol: 1 }] }))
+    await connect(runtime)
+    const before = runtime.portFake.calls.length
+    await runtime.session.pressEnter('uploadSize')
+    expect(runtime.portFake.calls.length).toBe(before)
+  })
+
+  it('ignores a second press during a flash (deliberate fix; upstream starts a second, interleaved download)', async () => {
+    // Upstream: both presses reach the device and block 0 is sent twice, interleaving the writes.
+    // The scripted device stops answering after a few transfers so the runs end with an error.
+    let limit = Infinity
+    const p = setup(dfuse({ dfuVersion: 0x0110, bmAttributes: 0x05, throwOn: (_c, i) => i >= limit }))
+    await connect(p)
+    await chooseFile(p, 'bl.bin', firmware(3000))
+    limit = p.upFake.calls.length + 14
+    const upstreamFirst = p.page.flash()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.all([upstreamFirst, p.page.flash()])
+    await settle(p.upFake)
+    const blockZero = (calls: typeof p.portFake.calls) => calls.filter((c) => c.op === 'out' && c.request === 1 && c.value === 0)
+    expect(blockZero(p.upFake.calls)).toHaveLength(2)
+
+    // Port: the second press is ignored while the first runs.
+    limit = Infinity
+    const portFirst = p.session.flash()
+    expect(p.state().flashing).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.all([portFirst, p.session.flash()])
+    await settle(p.portFake)
+    expect(p.state().flashing).toBe(false)
+    expect(blockZero(p.portFake.calls)).toHaveLength(1)
   })
 
   it('does nothing without a file', async () => {

@@ -235,13 +235,12 @@ describe('device requests', () => {
     expect(port.error).toBeNull()
   })
 
-  it('fails abort-to-idle when the device stays in error (message differs only in the state value)', async () => {
+  it('fails abort-to-idle when the device stays in error, with upstream\'s "state undefined" text', async () => {
     const options: FakeOptions = { alternates: [{ alternateSetting: 0, interfaceName: F4 }], abortState: 10, clearState: 10 }
     const up = await runUpstream(options, 'dfu', (d) => d.abortToIdle())
     const port = await runPort(options, plain, (d) => d.abortToIdle())
-    expect(port.calls).toEqual(up.calls)
-    expect(up.error).toBe('Failed to return to idle state after abort: state undefined')
-    expect(port.error).toBe('Failed to return to idle state after abort: state 10')
+    expectSame(port, up)
+    expect(port.error).toBe('Failed to return to idle state after abort: state undefined')
   })
 
   it('waits for the disconnect event', async () => {
@@ -255,6 +254,47 @@ describe('device requests', () => {
     const [a, b] = await both
     expect(a).toBe(upDevice)
     expect(b).toBe(portDevice)
+    expect(portDevice.disconnected).toBe(true)
+  })
+
+  it('times out like upstream: no rejection reason, and the listener stays until the device disconnects', async () => {
+    const fake = new FakeUsbDevice({ alternates: [{ alternateSetting: 0, interfaceName: F4 }] })
+    const upUsb = new FakeUsb([fake])
+    const portUsb = new FakeUsb([fake])
+    const counts = (usb: FakeUsb) => {
+      let listeners = 0
+      const add = usb.addEventListener.bind(usb)
+      const remove = usb.removeEventListener.bind(usb)
+      usb.addEventListener = (...args: Parameters<EventTarget['addEventListener']>) => {
+        listeners++
+        add(...args)
+      }
+      usb.removeEventListener = (...args: Parameters<EventTarget['removeEventListener']>) => {
+        listeners--
+        remove(...args)
+      }
+      return () => listeners
+    }
+    const upListeners = counts(upUsb)
+    const portListeners = counts(portUsb)
+    const up = loadUpstreamDfu(upUsb)
+    const upDevice = new up.dfu.Device(fake.usb, up.dfu.findDeviceDfuInterfaces(fake.usb)[0])
+    const portDevice = new DfuDevice(fake.usb, findDeviceDfuInterfaces(fake.usb)[0]!)
+    const reasons = await Promise.all([
+      upDevice.waitDisconnected(10).then(
+        () => 'resolved',
+        (reason: unknown) => reason
+      ),
+      portDevice.waitDisconnected(10, portUsb.usb).then(
+        () => 'resolved',
+        (reason: unknown) => reason
+      )
+    ])
+    expect(reasons).toEqual([undefined, undefined])
+    expect([upListeners(), portListeners()]).toEqual([1, 1])
+    upUsb.disconnect(fake)
+    portUsb.disconnect(fake)
+    expect([upListeners(), portListeners()]).toEqual([0, 0])
     expect(portDevice.disconnected).toBe(true)
   })
 })

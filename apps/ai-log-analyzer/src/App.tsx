@@ -15,19 +15,26 @@ import {
   type LogFact
 } from '@apwt/tool-shell'
 import { summarizeLog } from './analysis/log-summary.js'
-import { BackendError, type AssistantBackend } from './assistant/backend.js'
-import { OpenAiAssistantBackend, openAiAssistantsApi, toBackendError } from './assistant/openai-backend.js'
+import type { AssistantBackend } from './assistant/backend.js'
+import { OpenAiAssistantBackend, openAiAssistantsApi } from './assistant/openai-backend.js'
+import { INVALID_KEY_TEXT, LOG_UPLOADED_TEXT, processingText } from './assistant/upstream-text.js'
+import { connectAssistant, updateAssistant as runUpdate } from './chat/session.js'
 import { EMPTY_TRANSCRIPT, isThinking, transcriptReducer } from './chat/transcript.js'
-import { runTurn, type TurnEvent } from './chat/turn.js'
+import { runTurn, type Notice, type TurnEvent } from './chat/turn.js'
 import { ApiKeyPanel, type ConnectionView, type UpdateState } from './ui/ApiKeyPanel.js'
 import { ChatPanel } from './ui/ChatPanel.js'
 import { Visualizations, type Visualization } from './ui/Visualizations.js'
 import './ai-log-analyzer.css'
 
+/**
+ * `ready`: a key was given (upstream's `apiKey` and client exist). Upstream kept the key when the
+ * first connection failed for any reason other than a 401 and connected again on the next message,
+ * so the port stays ready then too.
+ */
 type Connection =
   | { readonly status: 'disconnected'; readonly error: string | null }
   | { readonly status: 'connecting' }
-  | { readonly status: 'connected'; readonly backend: AssistantBackend }
+  | { readonly status: 'ready'; readonly backend: AssistantBackend }
 
 interface LoadedLog {
   readonly log: DataflashLog
@@ -63,10 +70,10 @@ export function App() {
   useEffect(() => () => imagesRef.current.forEach((v) => URL.revokeObjectURL(v.url)), [imagesRef])
 
   const { file, openFile } = useLogFile(async (buffer, name) => {
-    dispatch({ type: 'notice', tone: 'info', text: `Processing ${name ?? 'log'}...` })
+    dispatch({ type: 'notice', notice: { tone: 'info', text: processingText(name ?? 'log'), detail: null } })
     // Upstream offered .bin and .log files but only parsed .bin; a .log file leaves the log as it was.
     if (name === null || name.toLowerCase().endsWith('.bin')) {
-      dispatch({ type: 'notice', tone: 'info', text: 'Log file uploaded successfully. You can now ask questions about the log.' })
+      dispatch({ type: 'notice', notice: { tone: 'info', text: LOG_UPLOADED_TEXT, detail: null } })
       await run(() => {
         try {
           setLoaded({ log: DataflashLog.parse(buffer), fileName: name })
@@ -77,7 +84,7 @@ export function App() {
           const message = `Could not read this log: ${e instanceof Error ? e.message : String(e)}. Check that it is an ArduPilot .bin file.`
           setLoaded(null)
           setLogError(message)
-          dispatch({ type: 'notice', tone: 'error', text: message })
+          dispatch({ type: 'notice', notice: { tone: 'error', text: message, detail: null } })
         }
       }, 'Reading log')
     }
@@ -89,32 +96,22 @@ export function App() {
     setUpdate('idle')
   }, [])
 
-  /** Bad keys send the user back to the key form, as upstream's `handleInvalidApiKey` did. */
-  const reportError = useCallback(
-    (error: BackendError) => {
-      dispatch({ type: 'notice', tone: 'error', text: error.message })
-      if (error.kind === 'auth') disconnect(error.message)
-    },
-    [disconnect]
-  )
+  const notice = (n: Notice) => dispatch({ type: 'notice', notice: n })
 
+  /** Upstream `connectIfNeeded` after the key form was submitted. */
   const connect = async (apiKey: string) => {
     setConnection({ status: 'connecting' })
+    let backend: OpenAiAssistantBackend
     try {
       const api = openAiAssistantsApi(apiKey)
-      const backend = backendRef.current ?? new OpenAiAssistantBackend(api)
+      backend = backendRef.current ?? new OpenAiAssistantBackend(api)
       backend.switchApi(api)
       backendRef.current = backend
-      await backend.connect()
-      setConnection({ status: 'connected', backend })
-      dispatch({
-        type: 'notice',
-        tone: 'info',
-        text: 'Connected to the AI assistant. Open a log or ask a question about flight log analysis.'
-      })
-    } catch (e) {
-      disconnect(toBackendError(e).message)
+    } catch {
+      disconnect('Could not connect to OpenAI')
+      return
     }
+    if ((await connectAssistant(backend, onTurnEvent)) === 'ready') setConnection({ status: 'ready', backend })
   }
 
   const onTurnEvent = (event: TurnEvent) => {
@@ -137,14 +134,17 @@ export function App() {
         setImages((list) => [...list, image])
         break
       }
-      case 'error':
-        reportError(event.error)
+      case 'notice':
+        notice(event.notice)
+        break
+      case 'prompt-key':
+        disconnect(INVALID_KEY_TEXT)
         break
     }
   }
 
   const send = async (text: string) => {
-    if (connection.status !== 'connected' || busy) return
+    if (connection.status !== 'ready' || busy) return
     dispatch({ type: 'user', text })
     setBusy(true)
     try {
@@ -159,25 +159,20 @@ export function App() {
     dispatch({ type: 'clear' })
     images.forEach((v) => URL.revokeObjectURL(v.url))
     setImages([])
-    if (connection.status === 'connected') await connection.backend.newConversation()
+    if (connection.status === 'ready') await connection.backend.newConversation()
   }
 
+  /** Upstream `updateAssistant`. */
   const updateAssistant = async () => {
-    if (connection.status !== 'connected') return
+    if (connection.status !== 'ready') return
     setUpdate('updating')
-    try {
-      await connection.backend.recreateAssistant()
-      setUpdate('updated')
-      dispatch({
-        type: 'notice',
-        tone: 'info',
-        text: 'Connected to the AI assistant. Open a log or ask a question about flight log analysis.'
-      })
-    } catch (e) {
-      const error = toBackendError(e)
-      setUpdate('failed')
-      reportError(new BackendError(error.kind, `Failed to update the assistant: ${error.message}`))
+    const outcome = await runUpdate(connection.backend, onTurnEvent)
+    if (outcome === 'skipped') {
+      // No assistant yet: upstream's button did nothing.
+      setUpdate('idle')
+      return
     }
+    setUpdate((u) => (u === 'updating' ? outcome : u))
     setTimeout(() => setUpdate((u) => (u === 'updated' || u === 'failed' ? 'idle' : u)), UPDATE_RESET_MS)
   }
 
@@ -192,13 +187,9 @@ export function App() {
         ]
       : null
 
-  const connectionView: ConnectionView = connection.status === 'connected' ? { status: 'connected' } : connection
+  const connectionView: ConnectionView = connection.status === 'ready' ? { status: 'connected' } : connection
   const blockedReason =
-    connection.status !== 'connected'
-      ? 'Connect with your OpenAI API key to start chatting'
-      : busy
-        ? 'Assistant is working…'
-        : null
+    connection.status !== 'ready' ? 'Connect with your OpenAI API key to start chatting' : busy ? 'Assistant is working…' : null
 
   return (
     <ToolPage

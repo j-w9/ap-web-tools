@@ -526,26 +526,24 @@ export class DfuDevice {
 
   /**
    * Resolves when `usb` reports this device disconnected; rejects after `timeout` ms (if > 0).
-   * Upstream rejects with no reason and leaves its listener attached after a timeout; here the
-   * rejection carries a message and the listener is removed. Neither is visible on the page.
+   *
+   * Reproduced upstream bug: upstream writes an `onTimeout` handler (remove the listener, reject
+   * with "Disconnect timeout expired") but passes `reject` itself to `setTimeout`. So a timeout
+   * rejects with no reason and the listener stays attached until this device disconnects.
    */
   waitDisconnected(timeout: number, usb: USB = navigator.usb): Promise<this> {
     return new Promise((resolve, reject) => {
       let timeoutID: ReturnType<typeof setTimeout> | undefined
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- reproduces upstream's reasonless rejection
+      if (timeout > 0) timeoutID = setTimeout(() => reject(), timeout)
       const onDisconnect = (event: USBConnectionEvent) => {
         if (event.device === this.usbDevice) {
-          clearTimeout(timeoutID)
+          if (timeout > 0) clearTimeout(timeoutID)
           this.disconnected = true
           usb.removeEventListener('disconnect', onDisconnect)
           event.stopPropagation()
           resolve(this)
         }
-      }
-      if (timeout > 0) {
-        timeoutID = setTimeout(() => {
-          usb.removeEventListener('disconnect', onDisconnect)
-          reject(new DfuError('Disconnect timeout expired'))
-        }, timeout)
       }
       usb.addEventListener('disconnect', onDisconnect)
     })
@@ -595,8 +593,8 @@ export class DfuDevice {
       state = await this.getState()
     }
     if (state !== DfuState.dfuIDLE) {
-      // Upstream prints `state.state` (always "undefined"); this prints the state number.
-      throw new DfuError(`Failed to return to idle state after abort: state ${state}`)
+      // Reproduced upstream bug: it prints `state.state` of a number, which is always undefined.
+      throw new DfuError('Failed to return to idle state after abort: state undefined')
     }
   }
 

@@ -73,6 +73,12 @@ export interface Snapshot {
   readonly status: Status | null
   readonly connectLabel: 'Connect' | 'Disconnect'
   readonly connected: ConnectedInfo | null
+  /**
+   * What upstream leaves in `#dfuInfo` when connecting stops after the functional descriptor was
+   * read (a non-DfuSe name, or CanDnload=false): "\n" and the properties line, once per failed
+   * attempt. Cleared by a disconnect or a successful connect.
+   */
+  readonly strandedDfuInfo: string
   /** DFU interfaces of the chosen device; upstream always uses the first. */
   readonly interfaces: readonly string[]
   readonly flashEnabled: boolean
@@ -80,6 +86,7 @@ export interface Snapshot {
   readonly dfuse: DfuseFields
   readonly firmware: Firmware | null
   readonly log: readonly LogEntry[]
+  /** A flash is running (upstream allows several at once; see `flash`). */
   readonly flashing: boolean
   /** Why the last Flash press was refused (upstream's form validation message). */
   readonly invalid: FieldProblem | null
@@ -143,6 +150,12 @@ export class LoaderSession {
   private readonly fromLandingPage: boolean
   private autoConnectStarted = false
   private fileToken = 0
+  private flashesRunning = 0
+  /**
+   * The start address text as of its last change event (or programmatic set), which browsers
+   * compare with the current text to decide whether blur or Enter fires `change`.
+   */
+  private startAddressAtLastChange = ''
 
   constructor(
     private readonly usb: USB | undefined,
@@ -156,6 +169,7 @@ export class LoaderSession {
       status: usb === undefined ? { kind: 'error', text: 'WebUSB not available.' } : null,
       connectLabel: 'Connect',
       connected: null,
+      strandedDfuInfo: '',
       interfaces: [],
       flashEnabled: false,
       fileEnabled: false,
@@ -250,6 +264,7 @@ export class LoaderSession {
       ...(reason ? { status: reason } : {}),
       connectLabel: 'Connect',
       connected: null,
+      strandedDfuInfo: '',
       flashEnabled: false,
       fileEnabled: false
     })
@@ -286,6 +301,8 @@ export class LoaderSession {
     const protocol = device.settings.alternate.interfaceProtocol
     if (desc) {
       properties = formatProperties(desc)
+      // Upstream appends this line to #dfuInfo and overwrites it only if connecting succeeds.
+      this.patch({ strandedDfuInfo: `${this.snapshot.strandedDfuInfo}\n${properties}` })
       this.transferSize = desc.TransferSize
       if (desc.CanDnload) this.manifestationTolerant = desc.ManifestationTolerant
 
@@ -312,6 +329,7 @@ export class LoaderSession {
       log: [],
       status: null,
       connectLabel: 'Disconnect',
+      strandedDfuInfo: '',
       connected: {
         usbInfo: formatUsbInfo(connected.usbDevice),
         summary: formatDFUSummary(connected),
@@ -330,8 +348,11 @@ export class LoaderSession {
       if (segment) {
         connected.startAddress = segment.start
         const maxReadSize = connected.getMaxReadSize(segment.start)
+        const value = '0x' + segment.start.toString(16)
+        // A value set by script is the new baseline for the field's change event.
+        this.startAddressAtLastChange = value
         this.patchDfuse({
-          startAddress: { value: '0x' + segment.start.toString(16) },
+          startAddress: { value },
           uploadSize: { value: String(maxReadSize), badInput: false, max: maxReadSize }
         })
       }
@@ -411,9 +432,15 @@ export class LoaderSession {
     this.patch({ invalid: null })
   }
 
-  /** The start address field's change event: validate it and move the start address. */
+  /**
+   * The start address field lost focus or Enter was pressed. As in a browser, upstream's `change`
+   * handler runs only if the text changed since the last change event: it validates the text and
+   * moves the start address.
+   */
   commitStartAddress(): void {
     const value = this.snapshot.dfuse.startAddress.value
+    if (value === this.startAddressAtLastChange) return
+    this.startAddressAtLastChange = value
     const address = parseInt(value, 16)
     const device = this.link.kind === 'none' ? null : this.link.device
     if (isNaN(address)) {
@@ -428,6 +455,17 @@ export class LoaderSession {
     } else {
       this.patchDfuse({ startAddress: { customValidity: '' } })
     }
+  }
+
+  /**
+   * Enter in a DfuSe field. Upstream's fields sit in a form whose first submit button is Flash
+   * Bootloader, so the browser fires the field's change event, then submits the form implicitly,
+   * which clicks Flash Bootloader unless it is disabled (reproduced upstream behaviour, see
+   * docs/upstream-bugs.md).
+   */
+  async pressEnter(field: FieldProblem['field']): Promise<void> {
+    if (field === 'startAddress') this.commitStartAddress()
+    if (this.snapshot.flashEnabled) await this.flash()
   }
 
   /** Typing in the DfuSe upload size field. */
@@ -456,17 +494,25 @@ export class LoaderSession {
     }
   }
 
-  /** The Flash Bootloader button. */
+  /**
+   * The Flash Bootloader button. As upstream, it stays enabled while a flash runs, and pressing it
+   * again starts a second download whose transfers interleave with the first (reproduced upstream
+   * behaviour, see docs/upstream-bugs.md).
+   */
   async flash(): Promise<void> {
+    // Deliberate fix (docs/porting-policy.md): upstream lets a second press start a second download
+    // whose transfers interleave with the first and corrupt the write. Ignore presses while flashing.
+    if (this.flashesRunning > 0) return
     const invalid = validateDfuseFields(this.snapshot.dfuse)
     this.patch({ invalid })
     if (invalid) return
 
     const device = this.link.kind === 'none' ? null : this.link.device
     const firmware = this.snapshot.firmware
-    if (!device || !firmware || this.snapshot.flashing) return
+    if (!device || !firmware) return
 
     this.logging = true
+    this.flashesRunning++
     this.patch({ log: [], flashing: true })
     try {
       const status = await device.getStatus()
@@ -495,7 +541,8 @@ export class LoaderSession {
       this.appendLog('error', String(error))
       this.logging = false
     } finally {
-      this.patch({ flashing: false })
+      this.flashesRunning--
+      this.patch({ flashing: this.flashesRunning > 0 })
     }
   }
 }

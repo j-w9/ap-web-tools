@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { KeyRound, LogOut, RefreshCw } from 'lucide-react'
 import { ErrorBanner } from '@apwt/tool-shell'
 import { ASSISTANT_MODEL, ASSISTANT_NAME } from '../assistant/openai-backend.js'
+import { UPDATE_LABELS } from '../assistant/upstream-text.js'
 
 /** Progress of upstream's "Update Assistant" button. */
 export type UpdateState = 'idle' | 'updating' | 'updated' | 'failed'
@@ -22,12 +23,7 @@ export interface ApiKeyPanelProps {
   busy: boolean
 }
 
-const UPDATE_LABEL: Readonly<Record<UpdateState, string>> = {
-  idle: 'Update assistant',
-  updating: 'Updating…',
-  updated: 'Updated',
-  failed: 'Update failed'
-}
+const UPDATE_LABEL: Readonly<Record<UpdateState, string>> = UPDATE_LABELS
 
 /** OpenAI key entry and assistant controls (upstream: API key modal and "Update Assistant"). */
 export function ApiKeyPanel({ connection, onConnect, onDisconnect, update, onUpdateAssistant, busy }: ApiKeyPanelProps) {

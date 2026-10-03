@@ -6,7 +6,7 @@
  * assistants, threads and runs; a Responses API backend can replace it behind the same interface.
  *
  * The API key is passed straight to the SDK client, which sends it only to api.openai.com. It is
- * never stored (no localStorage), logged, or put in an error message.
+ * never stored (no localStorage) or logged.
  */
 import OpenAI, { APIConnectionError, APIError, AuthenticationError, RateLimitError } from 'openai'
 import type { AssistantStreamEvent, AssistantTool } from 'openai/resources/beta/assistants'
@@ -14,8 +14,17 @@ import type { MessageCreateParams } from 'openai/resources/beta/threads/messages
 import type { RunSubmitToolOutputsParams } from 'openai/resources/beta/threads/runs/runs'
 import { OUTPUT_FILE_NAME } from '../analysis/tool-calls.js'
 import { ASSISTANT_TOOLS } from '../analysis/tool-definitions.js'
-import { BackendError, type AssistantBackend, type BackendEvent, type ToolOutput } from './backend.js'
+import { BackendError, type AssistantBackend, type BackendErrorKind, type BackendEvent, type ToolOutput } from './backend.js'
 import instructions from './instructions.txt?raw'
+import {
+  MESSAGE_FAILED_TEXT,
+  REQUEST_FAILED_TEXT,
+  SESSION_TEXT,
+  imageFailedText,
+  streamFailedText,
+  updateFailedText,
+  upstreamMessage
+} from './upstream-text.js'
 
 /** Upstream `TARGET_ASSISTANT_NAME`: an existing assistant with this name is reused. */
 export const ASSISTANT_NAME = 'Log Analyzer'
@@ -98,43 +107,74 @@ export function openAiAssistantsApi(apiKey: string, fetch?: typeof globalThis.fe
 
 // ------------------------------------------------------------------------------------- errors
 
-/** Classify anything the SDK throws into the kinds the UI explains. */
-export function toBackendError(error: unknown): BackendError {
-  if (error instanceof BackendError) return error
+function field(value: unknown, key: string): unknown {
+  return typeof value === 'object' && value !== null ? (value as Readonly<Record<string, unknown>>)[key] : undefined
+}
+
+/** Upstream `isUnauthorizedError`, check for check. */
+export function isUnauthorizedError(error: unknown): boolean {
+  const message = field(error, 'message')
+  const text = String(error)
+  return (
+    field(error, 'status') === 401 ||
+    field(field(error, 'response'), 'status') === 401 ||
+    field(error, 'code') === 401 ||
+    (field(field(error, 'error'), 'type') === 'invalid_request_error' &&
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- upstream's RegExp.test converts any value this way
+      /unauthorized|invalid api key/i.test(message ? String(message) : '')) ||
+    (/401/.test(text) && /unauthorized|invalid api key/i.test(text))
+  )
+}
+
+/** The port's explanation of an SDK error, shown under upstream's message. Never includes the key. */
+export function classifyError(error: unknown): { readonly kind: BackendErrorKind; readonly detail: string | null } {
+  if (error instanceof BackendError) return { kind: error.kind, detail: error.detail }
   if (error instanceof AuthenticationError) {
-    // The SDK's message echoes part of the key, so it is replaced, not shown.
-    return new BackendError('auth', 'OpenAI rejected the API key (401). Check that it is correct and active, then connect again.')
+    return { kind: 'auth', detail: 'OpenAI rejected the API key (401). Check that it is correct and active, then connect again.' }
   }
   if (error instanceof RateLimitError) {
     return error.code === 'insufficient_quota'
-      ? new BackendError(
-          'quota',
-          'Your OpenAI account has no quota left (429). Check your plan and billing on platform.openai.com.'
-        )
-      : new BackendError('rate-limit', 'OpenAI rate limit reached (429). Wait a moment, then try again.')
+      ? {
+          kind: 'quota',
+          detail: 'Your OpenAI account has no quota left (429). Check your plan and billing on platform.openai.com.'
+        }
+      : { kind: 'rate-limit', detail: 'OpenAI rate limit reached (429). Wait a moment, then try again.' }
   }
   if (error instanceof APIConnectionError) {
-    return new BackendError('network', 'Could not reach OpenAI. Check your internet connection, then try again.')
+    return { kind: 'network', detail: 'Could not reach OpenAI. Check your internet connection, then try again.' }
   }
-  if (error instanceof APIError) {
-    return new BackendError(
-      'api',
-      `OpenAI returned an error${error.status === undefined ? '' : ` (${error.status})`}: ${error.message}`
-    )
-  }
-  return new BackendError('unknown', error instanceof Error ? error.message : String(error))
+  if (error instanceof APIError) return { kind: 'api', detail: null }
+  return { kind: 'unknown', detail: null }
 }
 
-/** Error for a run that failed on OpenAI's side (`thread.run.failed`). */
-export function runFailure(lastError: { readonly code: string; readonly message: string } | null): BackendError {
-  // Upstream showed only "Sorry, there was an error processing your request. Please try again."
-  if (lastError === null) return new BackendError('api', 'The assistant could not finish this request. Please try again.')
+/** A {@link BackendError} with `message`, classified from the original `error`. */
+function failure(error: unknown, message: string): BackendError {
+  const { kind, detail } = classifyError(error)
+  return new BackendError(kind, message, { detail, promptForKey: error instanceof BackendError && error.promptForKey })
+}
+
+/** Any thrown value as a {@link BackendError}; its message is upstream's `error.message`. */
+export function toBackendError(error: unknown): BackendError {
+  return error instanceof BackendError ? error : failure(error, upstreamMessage(error))
+}
+
+/** The port's explanation of a `thread.run.failed` event (upstream showed only its fixed text). */
+export function runFailureDetail(lastError: { readonly code: string; readonly message: string } | null): {
+  readonly kind: BackendErrorKind
+  readonly detail: string
+} {
+  if (lastError === null) return { kind: 'api', detail: 'The assistant could not finish this request.' }
   if (lastError.code === 'rate_limit_exceeded') {
     return /quota/i.test(lastError.message)
-      ? new BackendError('quota', `Your OpenAI account has no quota left: ${lastError.message}`)
-      : new BackendError('rate-limit', `OpenAI rate limit reached: ${lastError.message}`)
+      ? { kind: 'quota', detail: `Your OpenAI account has no quota left: ${lastError.message}` }
+      : { kind: 'rate-limit', detail: `OpenAI rate limit reached: ${lastError.message}` }
   }
-  return new BackendError('api', `The assistant could not finish this request: ${lastError.message}`)
+  return { kind: 'api', detail: `The assistant could not finish this request: ${lastError.message}` }
+}
+
+/** Errors the port reports where upstream threw inside its unawaited tool handler. */
+function toolFlowFailure(error: unknown): BackendError {
+  return failure(error, `The assistant's function call could not be handled: ${upstreamMessage(error)}`)
 }
 
 // ------------------------------------------------------------------------------------- stream
@@ -154,13 +194,13 @@ export async function* mapRunStream(
           if (item.type === 'text') {
             const delta = item.text?.value
             if (delta !== undefined && delta !== '') yield { type: 'text', messageId: event.data.id, delta }
-          } else if (item.type === 'image_file') {
-            const fileId = item.image_file?.file_id
-            if (fileId === undefined) continue
+          } else if (item.type === 'image_file' && item.image_file) {
+            // Upstream requested `files.content(file_id)` even when the id was missing.
+            const fileId = String(item.image_file.file_id)
             try {
               yield { type: 'image', fileId, image: await fetchImage(fileId) }
             } catch (error) {
-              yield { type: 'image-error', message: `Failed to load a graph for visualization. ${toBackendError(error).message}` }
+              yield { type: 'image-error', error: failure(error, imageFailedText(upstreamMessage(error))) }
             }
           }
         }
@@ -168,7 +208,7 @@ export async function* mapRunStream(
       case 'thread.run.requires_action': {
         const calls = event.data.required_action?.submit_tool_outputs.tool_calls
         if (calls === undefined) {
-          // Upstream threw "passed event does not require action" here.
+          // Upstream threw "passed event does not require action" in its unawaited tool handler.
           yield { type: 'failed', error: new BackendError('api', 'passed event does not require action') }
           break
         }
@@ -179,18 +219,21 @@ export async function* mapRunStream(
         }
         break
       }
-      case 'thread.run.failed':
-        yield { type: 'failed', error: runFailure(event.data.last_error) }
+      case 'thread.run.failed': {
+        const { kind, detail } = runFailureDetail(event.data.last_error)
+        yield { type: 'failed', error: new BackendError(kind, REQUEST_FAILED_TEXT, { detail }) }
         break
+      }
       case 'thread.run.expired':
+        // Upstream ignored this event; the port says why the reply stopped.
         yield {
           type: 'failed',
           error: new BackendError('api', 'The assistant took too long and the request expired. Please try again.')
         }
         break
       case 'error':
-        yield { type: 'failed', error: new BackendError('api', `OpenAI stream error: ${event.data.message}`) }
-        break
+        // The SDK throws an APIError for `error` events before they reach here; throw the same message.
+        throw new Error(event.data.message)
       default:
         // Progress events (created, queued, steps, completed, …) carry nothing to show.
         break
@@ -200,18 +243,53 @@ export async function* mapRunStream(
 
 // ------------------------------------------------------------------------------------ backend
 
+/**
+ * Upstream's global `fileId`: `null` before any upload, the id of the last `output.json`
+ * uploaded, or `undefined` after a no-data failure assigned the tool's result to it.
+ */
+type RememberedFile =
+  { readonly state: 'none' } | { readonly state: 'uploaded'; readonly id: string } | { readonly state: 'cleared' }
+
 function attachment(fileId: string): MessageCreateParams.Attachment {
   return { file_id: fileId, tools: [{ type: 'code_interpreter' }] }
+}
+
+/** Upstream `attachments: fileId && [...]`: null, omitted (undefined) or the file. */
+function userAttachments(file: RememberedFile): Pick<MessageCreateParams, 'attachments'> {
+  switch (file.state) {
+    case 'none':
+      return { attachments: null }
+    case 'cleared':
+      return {}
+    case 'uploaded':
+      return { attachments: [attachment(file.id)] }
+  }
+}
+
+/** `${fileId}` in upstream's template literal. */
+function fileIdText(file: RememberedFile): string {
+  switch (file.state) {
+    case 'none':
+      return 'null'
+    case 'cleared':
+      return 'undefined'
+    case 'uploaded':
+      return file.id
+  }
+}
+
+interface Session {
+  readonly assistantId: string
+  readonly threadId: string
+  /** A thread was created by this call (upstream then said "Connected to AI assistant!"). */
+  readonly threadCreated: boolean
 }
 
 export class OpenAiAssistantBackend implements AssistantBackend {
   private assistantId: string | null = null
   private threadId: string | null = null
-  /**
-   * Upstream's global `fileId`: the last `output.json` uploaded, attached to every later user
-   * message. It survives new conversations and assistant updates, as upstream's did.
-   */
-  private fileId: string | null = null
+  /** Attached to every later user message. It survives new conversations, assistant updates and key changes. */
+  private file: RememberedFile = { state: 'none' }
 
   constructor(private api: AssistantsApi) {}
 
@@ -225,51 +303,92 @@ export class OpenAiAssistantBackend implements AssistantBackend {
     this.threadId = null
   }
 
-  async connect(): Promise<void> {
-    await this.session()
+  async connect(): Promise<boolean> {
+    return (await this.session()).threadCreated
   }
 
-  /** Upstream `connectIfNeeded`: reuse the named assistant or create it, then open a thread. */
-  private async session(): Promise<{ assistantId: string; threadId: string }> {
-    try {
-      if (this.assistantId === null) {
+  /**
+   * Upstream `connectIfNeeded`: reuse the named assistant or create it, then open a thread. Throws
+   * upstream's error texts; a 401 forgets the session and asks for the key (`handleInvalidApiKey`).
+   */
+  private async session(): Promise<Session> {
+    if (this.assistantId === null) {
+      try {
         const existing = (await this.api.listAssistants()).find((a) => a.name === ASSISTANT_NAME)
         this.assistantId = existing ? existing.id : (await this.api.createAssistant(ASSISTANT_CONFIG)).id
+      } catch (error) {
+        throw this.sessionFailure(error, SESSION_TEXT.assistant)
       }
-      this.threadId ??= (await this.api.createThread()).id
-      return { assistantId: this.assistantId, threadId: this.threadId }
-    } catch (error) {
-      const failure = toBackendError(error)
-      // Upstream `handleInvalidApiKey`: forget the session so the next attempt starts over.
-      if (failure.kind === 'auth') {
-        this.assistantId = null
-        this.threadId = null
-      }
-      throw failure
     }
+    let threadCreated = false
+    if (this.threadId === null) {
+      try {
+        this.threadId = (await this.api.createThread()).id
+        threadCreated = true
+      } catch (error) {
+        throw this.sessionFailure(error, SESSION_TEXT.thread)
+      }
+    }
+    return { assistantId: this.assistantId, threadId: this.threadId, threadCreated }
   }
 
-  private async *stream(open: () => Promise<AsyncIterable<AssistantStreamEvent>>): AsyncGenerator<BackendEvent> {
+  private sessionFailure(error: unknown, message: string): BackendError {
+    const { kind, detail } = classifyError(error)
+    if (!isUnauthorizedError(error)) return new BackendError(kind, message, { detail })
+    this.assistantId = null
+    this.threadId = null
+    return new BackendError(kind, SESSION_TEXT.invalidKey, { detail, promptForKey: true })
+  }
+
+  /** The ids the tool flow uses, as upstream read its globals. */
+  private current(): { assistantId: string; threadId: string } {
+    if (this.assistantId === null || this.threadId === null) {
+      throw new BackendError('unknown', 'The conversation was reset while the assistant was waiting for data.')
+    }
+    return { assistantId: this.assistantId, threadId: this.threadId }
+  }
+
+  /**
+   * Stream a run. `openFailure` names errors from starting the run; errors while reading it are
+   * upstream's "Error receiving response from assistant: …".
+   */
+  private async *stream(
+    open: () => Promise<AsyncIterable<AssistantStreamEvent>>,
+    openFailure: (error: unknown) => BackendError
+  ): AsyncGenerator<BackendEvent> {
+    let events: AsyncIterable<AssistantStreamEvent>
     try {
-      yield* mapRunStream(await open(), (id) => this.api.fileContent(id))
+      events = await open()
     } catch (error) {
-      throw toBackendError(error)
+      throw openFailure(error)
+    }
+    try {
+      yield* mapRunStream(events, (id) => this.api.fileContent(id))
+    } catch (error) {
+      throw failure(error, streamFailedText(upstreamMessage(error)))
     }
   }
 
+  /** Upstream `processUserMessage`. */
   async *sendMessage(text: string): AsyncGenerator<BackendEvent> {
-    const { assistantId, threadId } = await this.session()
-    const fileId = this.fileId
+    let session: Session
     try {
-      await this.api.createMessage(threadId, {
-        role: 'user',
-        content: text,
-        attachments: fileId === null ? null : [attachment(fileId)]
-      })
+      session = await this.session()
     } catch (error) {
-      throw toBackendError(error)
+      throw failure(error, MESSAGE_FAILED_TEXT)
     }
-    yield* this.stream(() => this.api.streamRun(threadId, assistantId))
+    if (session.threadCreated) yield { type: 'connected' }
+    const { assistantId, threadId } = session
+    try {
+      await this.api.createMessage(threadId, { role: 'user', content: text, ...userAttachments(this.file) })
+    } catch (error) {
+      throw failure(error, MESSAGE_FAILED_TEXT)
+    }
+    // Upstream's `runs.stream` reports a failed request while the stream is read.
+    yield* this.stream(
+      () => this.api.streamRun(threadId, assistantId),
+      (error) => failure(error, streamFailedText(upstreamMessage(error)))
+    )
   }
 
   /**
@@ -280,47 +399,62 @@ export class OpenAiAssistantBackend implements AssistantBackend {
    * the file attached to a fixed user message. A `crash` result stops here, as upstream's throw did.
    */
   async *submitToolOutputs(runId: string, outputs: readonly ToolOutput[]): AsyncGenerator<BackendEvent> {
-    const { assistantId, threadId } = await this.session()
+    const { assistantId, threadId } = this.current()
     const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = []
     let failed = false
     try {
       for (const { callId, result } of outputs) {
         switch (result.status) {
           case 'data':
-            this.fileId = await this.uploadOutput(result.json)
+            this.file = { state: 'uploaded', id: await this.uploadOutput(result.json) }
             toolOutputs.push({ tool_call_id: callId })
             break
           case 'failure':
             failed = true
-            if (result.reason === 'no-data') this.fileId = null
+            if (result.reason === 'no-data') this.file = { state: 'cleared' }
             toolOutputs.push({ tool_call_id: callId, output: result.message })
             break
           case 'crash':
             throw new BackendError('unknown', `The assistant's function call could not be handled: ${result.message}`)
         }
       }
-      if (failed) {
-        yield* this.stream(() => this.api.submitToolOutputs(threadId, runId, toolOutputs))
-        return
-      }
-      // Upstream does not wait for the cancellation to finish before posting (see the audit file).
+    } catch (error) {
+      throw error instanceof BackendError ? error : toolFlowFailure(error)
+    }
+    if (failed) {
+      yield* this.stream(() => this.api.submitToolOutputs(threadId, runId, toolOutputs), toolFlowFailure)
+      return
+    }
+    const file = this.file
+    try {
+      // Upstream waits for the cancel request, not for the run to finish cancelling (see the audit file).
       await this.api.cancelRun(threadId, runId)
-      const fileId = this.fileId
       await this.api.createMessage(threadId, {
         role: 'user',
-        content: `The data for the requested message has been extracted. Continue processing using the ${OUTPUT_FILE_NAME} file with id: ${String(fileId)}`,
-        ...(fileId !== null && { attachments: [attachment(fileId)] })
+        content: `The data for the requested message has been extracted. Continue processing using the ${OUTPUT_FILE_NAME} file with id: ${fileIdText(file)}`,
+        // Upstream sends `file_id: null` when nothing was ever uploaded; the SDK type cannot carry
+        // null, so the key is left out (only reachable with an empty tool_calls list).
+        attachments: [file.state === 'uploaded' ? attachment(file.id) : { tools: [{ type: 'code_interpreter' }] }]
       })
     } catch (error) {
-      throw toBackendError(error)
+      throw toolFlowFailure(error)
     }
-    yield* this.stream(() => this.api.streamRun(threadId, assistantId))
+    yield* this.stream(() => this.api.streamRun(threadId, assistantId), toolFlowFailure)
   }
 
+  /**
+   * Upstream `window.get`'s upload. The deletions are started in order and not awaited, as
+   * upstream's `forEach(... && openai.files.del(id))` did; a failed deletion is only logged.
+   */
   private async uploadOutput(json: string): Promise<string> {
-    const previous = (await this.api.listFiles()).filter((f) => f.filename === OUTPUT_FILE_NAME)
-    // Upstream fired the deletions without waiting; a failed deletion does not stop the upload.
-    await Promise.allSettled(previous.map((f) => this.api.deleteFile(f.id)))
+    const files = await this.api.listFiles()
+    for (const f of files) {
+      if (f.filename === OUTPUT_FILE_NAME) {
+        this.api.deleteFile(f.id).catch((error: unknown) => {
+          console.error(error)
+        })
+      }
+    }
     const file = new File([json], OUTPUT_FILE_NAME, { type: 'application/json' })
     return (await this.api.uploadFile(file)).id
   }
@@ -331,15 +465,21 @@ export class OpenAiAssistantBackend implements AssistantBackend {
   }
 
   /** Upstream `updateAssistant`: delete the named assistant and create it again. */
-  async recreateAssistant(): Promise<void> {
-    const { assistantId } = await this.session()
+  async recreateAssistant(): Promise<boolean> {
+    const assistantId = this.assistantId
+    if (assistantId === null) return false
     try {
       await this.api.deleteAssistant(assistantId)
     } catch (error) {
-      throw toBackendError(error)
+      throw failure(error, updateFailedText(upstreamMessage(error)))
     }
     this.assistantId = null
     this.threadId = null
-    await this.session()
+    try {
+      await this.session()
+    } catch (error) {
+      throw failure(error, updateFailedText(upstreamMessage(error)))
+    }
+    return true
   }
 }
