@@ -25,16 +25,17 @@ See `docs/architecture.md`, `docs/typescript-standard.md` and `docs/design.md`.
 
 ## Porting status
 
-The port keeps the original maths and changes the code: see [`docs/porting-policy.md`](docs/porting-policy.md).
-Each ported tool is checked against the original JavaScript in oracle tests that run the upstream
-code side by side, and has an audit record in [`docs/audit/`](docs/audit). Bugs found in the
-original are reproduced and listed in [`docs/upstream-bugs.md`](docs/upstream-bugs.md).
+All twenty tools are ported. The port keeps the original maths and improves the code: see
+[`docs/porting-policy.md`](docs/porting-policy.md).
 
-| Tool                                                                                                                                                                                                  | Status                    |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| PID Review, MAGFit, Hardware Report, Log Finder, Filter Tool, Filter Review, Stream Stats, Rotation Check, Thrust Expo, Airspeed Fit, Kinematic Tool, S-Curve Tool, Geofence Generator, Analytic Tune | Ported and audited        |
-| DFU Loader, AI Log Analyzer, Simple GCS, Telemetry Dashboard, Video Overlay                                                                                                                           | Ported, audit in progress |
-| SysID                                                                                                                                                                                                 | In progress               |
+- **Logic audit:** every tool and shared package is checked against the original JavaScript by
+  oracle tests that run the upstream code side by side. Audit records are in [`docs/audit/`](docs/audit).
+- **UI audit:** every tool is captured at desktop, tablet and phone widths in both themes with
+  `node scripts/ui-audit.mjs` and reviewed.
+- **Upstream bugs:** every bug found in the original is listed in
+  [`docs/upstream-bugs.md`](docs/upstream-bugs.md). A bug is fixed only when proven, with a
+  reproduction that runs the original code (in `proofs/`) and a hard reference; verdicts are in
+  [`docs/bug-proofs/`](docs/bug-proofs). Bugs that are not proven are reproduced exactly.
 
 ## Development
 
