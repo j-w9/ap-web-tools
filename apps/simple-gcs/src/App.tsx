@@ -1,5 +1,5 @@
 import { useCallback, useState, useSyncExternalStore } from 'react'
-import { Crosshair, MessageSquare, MonitorPlay, PictureInPicture2 } from 'lucide-react'
+import { Crosshair, MonitorPlay, PictureInPicture2 } from 'lucide-react'
 import { ControlGroup, RailCard, Section, ToolPage } from '@apwt/tool-shell'
 import type { AppSettingsStore } from './app-settings.js'
 import { armCommand, CONFIRMATIONS, disarmCommand, guardedCommand, type GuardedCommand } from './commands/commands.js'
@@ -8,6 +8,7 @@ import type { GcsSession } from './session.js'
 import { formatStatus } from './vehicle/status-log.js'
 import { openVideoWindow } from './video/popup.js'
 import { applyVideoSettings, loadVideoConfig, webRtcOptions, type VideoConfig } from './video/video-config.js'
+import { ConfirmDialog } from './ui/ConfirmDialog.js'
 import { ConnectionPanel } from './ui/ConnectionPanel.js'
 import { GcsMap } from './ui/GcsMap.js'
 import { MessagesLog } from './ui/MessagesLog.js'
@@ -60,7 +61,7 @@ export function App({ session, settings, local }: AppProps) {
       <ControlGroup label="Vehicle">
         <div className="gcs-commands">
           <button type="button" id="armBtn" className="gcs-cmd gcs-cmd--arm" onClick={() => session.sendCommand(armCommand())}>
-            ARM
+            Arm
           </button>
           <button
             type="button"
@@ -68,7 +69,7 @@ export function App({ session, settings, local }: AppProps) {
             className="gcs-cmd gcs-cmd--disarm"
             onClick={() => session.sendCommand(disarmCommand())}
           >
-            DISARM
+            Disarm
           </button>
           <button type="button" id="rtlBtn" className="gcs-cmd gcs-cmd--mode" onClick={() => session.sendSetMode('RTL')}>
             RTL
@@ -79,23 +80,27 @@ export function App({ session, settings, local }: AppProps) {
         </div>
         <div className="gcs-menu">
           <button type="button" className="apwt-btn" onClick={() => session.fenceEnable(false)}>
-            Fence Disable
+            Disable fence
           </button>
           <button type="button" className="apwt-btn" onClick={() => session.fenceEnable(true)}>
-            Fence Enable
+            Enable fence
           </button>
           <button type="button" className="apwt-btn" onClick={() => setConfirm('reboot')}>
             Reboot
           </button>
           <button type="button" className="apwt-btn" onClick={() => setConfirm('forceDisarm')}>
-            ForceDisarm
+            Force disarm
           </button>
           <button type="button" className="apwt-btn" onClick={() => setConfirm('forceArm')}>
-            ForceArm
+            Force arm
           </button>
         </div>
       </ControlGroup>
-      <SettingsPanel store={settings} settings={app} onParameters={() => setParamsOpen(true)} toast={toast} />
+      <ControlGroup label="Parameters">
+        <button type="button" className="apwt-btn apwt-btn--block" onClick={() => setParamsOpen(true)}>
+          Edit parameters
+        </button>
+      </ControlGroup>
     </RailCard>
   )
 
@@ -115,16 +120,16 @@ export function App({ session, settings, local }: AppProps) {
               <Crosshair /> Recenter
             </button>
             <button type="button" className="apwt-btn" onClick={() => session.fetchFence()}>
-              Fetch Fence
+              Fetch fence
             </button>
             <button type="button" className="apwt-btn" onClick={() => session.fetchMission()}>
-              Fetch Mission
+              Fetch mission
             </button>
             <button type="button" className="apwt-btn" onClick={toggleVideo}>
-              <PictureInPicture2 /> Video (Inset)
+              <PictureInPicture2 /> Video inset
             </button>
             <button type="button" className="apwt-btn" onClick={newWindow}>
-              <MonitorPlay /> Video (New Window)
+              <MonitorPlay /> Video in new window
             </button>
           </>
         }
@@ -163,10 +168,15 @@ export function App({ session, settings, local }: AppProps) {
       </Section>
       <Section
         title="Messages"
-        help="STATUSTEXT from the vehicle and command errors. Newest at the bottom. Keeps last 500 messages."
-        tools={<MessageSquare className="gcs-section-icon" />}
+        help="Status text from the vehicle and command errors, newest at the bottom. The last 500 messages are kept."
       >
         <MessagesLog lines={snap.statusLog.map(formatStatus)} />
+      </Section>
+      <Section
+        title="Settings"
+        help="Map tiles, display options and what to fetch when a vehicle connects. Saved in this browser."
+      >
+        <SettingsPanel store={settings} settings={app} toast={toast} />
       </Section>
 
       <ParameterEditor
@@ -178,26 +188,14 @@ export function App({ session, settings, local }: AppProps) {
       />
 
       {confirm !== null && (
-        <div className="gcs-confirm" role="alertdialog" aria-modal="true" aria-label="Confirm command">
-          <div className="apwt-card gcs-confirm__box">
-            <p>{CONFIRMATIONS[confirm]}</p>
-            <div className="gcs-row">
-              <button
-                type="button"
-                className="apwt-btn apwt-btn--primary"
-                onClick={() => {
-                  setConfirm(null)
-                  session.sendCommand(guardedCommand(confirm))
-                }}
-              >
-                OK
-              </button>
-              <button type="button" className="apwt-btn" autoFocus onClick={() => setConfirm(null)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          text={CONFIRMATIONS[confirm]}
+          onOk={() => {
+            setConfirm(null)
+            session.sendCommand(guardedCommand(confirm))
+          }}
+          onCancel={() => setConfirm(null)}
+        />
       )}
 
       <div className="gcs-toasts" aria-live="polite">

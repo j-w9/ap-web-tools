@@ -104,3 +104,30 @@ two connections feeding one parser; `[object File]` message; palette never initi
 example fails; stuck sandbox after a primitive script result; sandbox script throwing null keeps
 running; settings popup updated only while shown; text frames fed as zeros; won't-fit reported
 before the type check; failed layouts leave earlier widgets created and the grid in batch mode.
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in both themes, in seven states: empty,
+the default layout live, the connection and settings popups, a widget's options popup (Formio), the
+widget editor (Monaco and the form builder) and the palette. The live states use a scripted copter
+(`src/test-support/ui-peer.ts`) behind a stubbed `WebSocket`, sending the messages the default
+layout reads (attitude, VFR_HUD, SYS_STATUS, GLOBAL_POSITION_INT, HOME_POSITION,
+NAV_CONTROLLER_OUTPUT, STATUSTEXT). Every capture was read. Widget contents keep the layout's own
+colours and the widget name stays HTML (decided above).
+
+Changed (presentation only):
+
+- Narrow screens: the grid keeps at least 960 px and scrolls sideways inside its card, with a note
+  saying so, instead of squeezing a 12-column layout into 320 px (every widget was a sliver).
+- The code editor follows the page theme (`vs` in light, `vs-dark` in dark; upstream always
+  `vs-dark`) and switches with the theme toggle.
+- Sentence case: "Widget editor", "Connection settings".
+
+Remaining known issues:
+
+- Every capture logs a failed connection to `ws://127.0.0.1:56781`: upstream's automatic attempt on
+  start, made before the harness can install its stub (the stub needs a reload).
+- At phone width popups (settings, options, palette) open where tippy places them and can cover the
+  header; they stay within the viewport.
+- Formio's `sr-only` spans are reported as clipped text by the harness (they are meant to be
+  invisible).

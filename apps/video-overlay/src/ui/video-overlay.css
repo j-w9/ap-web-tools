@@ -71,6 +71,8 @@
 .vo-seek {
   flex: 1 1 200px;
   appearance: none;
+  /* Until a video gives the trim range (the inline gradient), a plain track. */
+  background: rgb(var(--s4));
   height: 8px;
   border-radius: 4px;
   outline: none;
@@ -101,8 +103,26 @@
   flex: 1;
 }
 
+@media (max-width: 560px) {
+  /* Phones: the seek bar gets its own row under the transport buttons. */
+  .vo-seek {
+    flex-basis: 100%;
+    order: 1;
+  }
+
+  .vo-controls > :nth-child(n + 8) {
+    order: 2;
+  }
+}
+
 /* ---------- Palette ---------- */
+/* The palette is a fixed grid of example widgets; on narrow screens it scrolls sideways. */
+.vo-palette-scroll {
+  overflow-x: auto;
+}
+
 .vo-palette {
+  min-width: 720px;
   min-height: 100px;
 }
 
@@ -228,6 +248,13 @@
   position: absolute !important;
 }
 
+/* Narrow screens: the preview above the script and form editors, as in Telemetry Dashboard. */
+@media (max-width: 1000px) {
+  .vo-editor__body {
+    flex-direction: column;
+  }
+}
+
 /* ---------- Dialogs and export progress ---------- */
 .vo-modal {
   position: fixed;
@@ -235,12 +262,14 @@
   z-index: 1000;
   display: grid;
   place-items: center;
+  padding: 16px;
+  color: rgb(var(--g100));
   background: rgb(var(--s) / 0.6);
   backdrop-filter: blur(2px);
 }
 
 .vo-modal__panel {
-  min-width: 300px;
+  width: min(420px, 100%);
   max-width: 520px;
   padding: 18px 22px;
 }

@@ -11,11 +11,14 @@ import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import HtmlWorker from 'monaco-editor/language/html/html.worker?worker'
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker'
 import { GridStack } from 'gridstack'
+import { currentTheme, onThemeChange, type Theme } from '@apwt/tool-shell'
 import { BUILDER_OPTIONS, Formio, type FormioStatic } from './formio-setup.js'
 import type { OverlayController } from './overlay-controller.js'
 import { newWidget } from './overlay-controller.js'
 import { widgetClass } from './loader.js'
 import { savedWidget, type OverlayWidget } from './widget.js'
+
+const monacoTheme = (theme: Theme): string => (theme === 'light' ? 'vs' : 'vs-dark')
 
 type FormioBuilder = Awaited<ReturnType<FormioStatic['builder']>>
 
@@ -49,6 +52,7 @@ export class WidgetEditor {
   private builder: FormioBuilder | undefined
   /** The test copy currently shown, updated live by the code editor and form builder. */
   private testWidget: OverlayWidget | undefined
+  private readonly stopThemeSync: () => void
 
   constructor(
     private readonly elements: WidgetEditorElements,
@@ -59,9 +63,11 @@ export class WidgetEditor {
     this.editor = monaco.editor.create(elements.textEditor, {
       model: this.model,
       language: 'javascript',
-      theme: 'vs-dark',
+      // Upstream used 'vs-dark'; the editor follows the page theme (presentation).
+      theme: monacoTheme(currentTheme()),
       automaticLayout: true
     })
+    this.stopThemeSync = onThemeChange((t) => monaco.editor.setTheme(monacoTheme(t)))
     // Update the test widget in real time.
     this.editor.onDidChangeModelContent(() => this.testWidget?.setEditedText(this.editor.getValue()))
 
@@ -158,6 +164,7 @@ export class WidgetEditor {
   }
 
   dispose(): void {
+    this.stopThemeSync()
     this.editor.dispose()
     this.model.dispose()
     this.testGrid.destroy(false)

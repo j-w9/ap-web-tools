@@ -38,15 +38,24 @@ export function useDialogs(): { dialogs: Dialogs; view: React.ReactNode } {
         </div>
       ))}
       {pending && (
-        <div className="vo-modal" role="alertdialog" aria-modal="true">
+        <div
+          className="vo-modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-label={pending.text}
+          onKeyDown={(e) => {
+            // Escape cancels, as the browser's confirm() did.
+            if (e.key === 'Escape') answer(false)
+          }}
+        >
           <div className="apwt-card vo-modal__panel">
             <p className="vo-modal__text">{pending.text}</p>
             <div className="vo-btn-row">
-              <button type="button" className="apwt-btn apwt-btn--primary" onClick={() => answer(true)}>
-                OK
-              </button>
               <button type="button" className="apwt-btn" onClick={() => answer(false)}>
                 Cancel
+              </button>
+              <button type="button" className="apwt-btn apwt-btn--primary" autoFocus onClick={() => answer(true)}>
+                OK
               </button>
             </div>
           </div>

@@ -5,14 +5,31 @@
   height: max(640px, calc(100vh - 96px));
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior-x: contain;
 }
 
-/* The dashboard keeps the user's colours: its background is part of the layout. */
+/* The dashboard keeps the user's colours: its background is part of the layout. Layouts are drawn
+   for a window, so on narrow screens the grid keeps a desktop width and scrolls sideways instead
+   of squeezing every widget into a sliver. */
 .td-dashboard {
   width: 100%;
+  min-width: 960px;
   height: 100%;
   color: #000;
+}
+
+.td-scroll-hint {
+  display: none;
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: rgb(var(--g500));
+}
+
+@media (max-width: 1000px) {
+  .td-scroll-hint {
+    display: block;
+  }
 }
 
 /* ---- Popups (tippy) ---- */

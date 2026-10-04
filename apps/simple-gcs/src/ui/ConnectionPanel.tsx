@@ -58,7 +58,7 @@ export function ConnectionPanel({ session, snap }: ConnectionPanelProps) {
           </label>
           <div className="gcs-row">
             <label className="apwt-field">
-              <span className="apwt-label">SysID</span>
+              <span className="apwt-label">System ID</span>
               <input
                 id="system_id"
                 type="number"
@@ -70,7 +70,7 @@ export function ConnectionPanel({ session, snap }: ConnectionPanelProps) {
               />
             </label>
             <label className="apwt-field">
-              <span className="apwt-label">CompID</span>
+              <span className="apwt-label">Component ID</span>
               <input
                 id="component_id"
                 type="number"
@@ -89,10 +89,12 @@ export function ConnectionPanel({ session, snap }: ConnectionPanelProps) {
               checked={draft.sendHeartbeat}
               onChange={(e) => session.editDraft({ sendHeartbeat: e.target.checked })}
             />
-            Send 1Hz Heartbeat
+            Send 1 Hz heartbeat
           </label>
-          <label className="apwt-field">
-            <span className="apwt-label">Signing passphrase</span>
+          <div className="apwt-field">
+            <label className="apwt-label" htmlFor="signing_passphrase">
+              Signing passphrase
+            </label>
             <span className="gcs-row gcs-row--tight">
               <input
                 id="signing_passphrase"
@@ -113,7 +115,7 @@ export function ConnectionPanel({ session, snap }: ConnectionPanelProps) {
                 {showPassphrase ? <Eye /> : <EyeOff />}
               </button>
             </span>
-          </label>
+          </div>
           <div className="gcs-row">
             <button type="submit" className="apwt-btn apwt-btn--primary" disabled={snap.submitting}>
               Connect

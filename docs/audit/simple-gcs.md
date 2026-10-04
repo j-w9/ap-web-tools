@@ -200,3 +200,42 @@ See [`upstream-bugs.md`](../upstream-bugs.md): result 6 reported as "RESULT 6" (
 missing from the dialect), video settings saved untrimmed after a trimmed blank check, a rejected
 Google Maps load cached for the page's lifetime (`GMapsLoader`), and the vendored MediaMTX reader's
 unobserved WHEP DELETE.
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in both themes, in six states: empty
+(disconnected), the connection form, connected, the video inset, the parameter editor and a
+confirmation. The connected states use a scripted rover (`src/test-utils/ui-peer.ts`) behind a
+stubbed `WebSocket`: heartbeat, position, attitude, battery, GPS, LTE and status text every 500 ms,
+command ACKs, and a fence, a mission and upstream's parameter fixture over MAVFTP. No real vehicle or
+relay is involved. Every capture was read; keyboard use of the connection form, commands, the
+confirmation and the parameter editor was checked in Chromium.
+
+Changed (presentation only; no command, message, text of a toast or confirmation, or setting
+changed):
+
+- Rail: Connection, Telemetry, Vehicle (commands) and Parameters. Map tiles, the Google key, display
+  options and auto-fetch moved to a Settings section below Messages, laid out as a grid, so on
+  desktop the rail fits beside the map and on phones the map comes before the settings.
+- Sentence-case labels: Arm, Disarm, Disable fence, Enable fence, Force arm, Force disarm, Fetch
+  fence, Fetch mission, Video inset, Video in new window, Edit parameters, Show grid, Show my
+  location, Show GPS satellite count, Send 1 Hz heartbeat, System ID, Component ID. The Messages help is plain English ("Status text from the
+  vehicle…").
+- The map-tile select and Google key input fill their group (were cut to 110 px: "OpenStree").
+- Connection form: label above each field; URL and passphrase inputs styled like the shell's
+  inputs (the shell styles only number and text inputs); the passphrase toggle sits outside the
+  label, so the field's accessible name is "Signing passphrase" (was "Signing passphrase Show…").
+- Parameter rows: the value label sits above its input; the input overlapped Apply at desktop width.
+- The confirmation is a modal `<dialog>`: focus is trapped, Cancel has focus first, Escape cancels
+  (upstream `confirm()`'s keyboard behaviour). Same text and OK/Cancel choices.
+- Phone: the video inset's title bar buttons and status badge are smaller so the bar does not wrap
+  over the video.
+- The decorative Messages icon was removed (it wrapped onto its own line on phones).
+
+Remaining known issues:
+
+- The video inset logs `ERR_CONNECTION_REFUSED` in the harness: there is no MediaMTX server, and the
+  inset shows its "Unable to play video" state as upstream does.
+- The vehicle marker is upstream's small icon; on the light map it is easy to lose among mission
+  labels.
+- Map long-press and inset drag are pointer only, as upstream.

@@ -417,7 +417,9 @@ export function App() {
       </Section>
 
       <Section title="Widgets" help="Drag a widget onto the video to add it. Hover for a description.">
-        <div ref={paletteRef} className="vo-palette grid-stack" />
+        <div className="vo-palette-scroll">
+          <div ref={paletteRef} className="vo-palette grid-stack" />
+        </div>
       </Section>
 
       <EditorOverlay {...editorRefs} />

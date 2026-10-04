@@ -6,12 +6,11 @@ import { availableProviders, isTileProvider } from '../map/tiles.js'
 export interface SettingsPanelProps {
   readonly store: AppSettingsStore
   readonly settings: AppSettings
-  readonly onParameters: () => void
   readonly toast: (message: string) => void
 }
 
-/** Settings (upstream `openSettingsTip`): parameters, map tiles, Google key, display and auto-fetch. */
-export function SettingsPanel({ store, settings, onParameters, toast }: SettingsPanelProps) {
+/** Settings (upstream `openSettingsTip`): map tiles, Google key, display and auto-fetch. Parameters open from the rail. */
+export function SettingsPanel({ store, settings, toast }: SettingsPanelProps) {
   const [key, setKey] = useState(settings.googleKey)
   // Upstream saves on the input's `change` event: on blur or Enter, only when the text differs
   // from what it was at focus (or at the last save).
@@ -30,15 +29,10 @@ export function SettingsPanel({ store, settings, onParameters, toast }: Settings
     </label>
   )
   return (
-    <>
-      <ControlGroup label="Parameters">
-        <button type="button" className="apwt-btn apwt-btn--block" onClick={onParameters}>
-          Parameters
-        </button>
-      </ControlGroup>
+    <div className="gcs-settings">
       <ControlGroup label="Map tiles">
         <select
-          className="apwt-input"
+          className="apwt-input gcs-wide"
           aria-label="Map tiles"
           value={settings.tiles}
           onChange={(e) => {
@@ -54,8 +48,9 @@ export function SettingsPanel({ store, settings, onParameters, toast }: Settings
       </ControlGroup>
       <ControlGroup label="Google Maps API key">
         <input
-          className="apwt-input"
+          className="apwt-input gcs-wide"
           type="text"
+          aria-label="Google Maps API key"
           placeholder="Enter API key (optional)"
           value={key}
           onChange={(e) => setKey(e.target.value)}
@@ -74,9 +69,9 @@ export function SettingsPanel({ store, settings, onParameters, toast }: Settings
       </ControlGroup>
       <ControlGroup label="Display options">
         <div className="apwt-chips">
-          {flag('showGrid', 'Show Grid')}
-          {flag('showLocation', 'Show My Location')}
-          {flag('showGPSNumSats', 'Show GPS NumSats')}
+          {flag('showGrid', 'Show grid')}
+          {flag('showLocation', 'Show my location')}
+          {flag('showGPSNumSats', 'Show GPS satellite count')}
         </div>
       </ControlGroup>
       <ControlGroup label="Auto-fetch on connect">
@@ -85,6 +80,6 @@ export function SettingsPanel({ store, settings, onParameters, toast }: Settings
           {flag('autoFetchMission', 'Fetch mission on first heartbeat')}
         </div>
       </ControlGroup>
-    </>
+    </div>
   )
 }

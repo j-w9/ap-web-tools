@@ -157,9 +157,9 @@ export function Rail(p: RailProps) {
         {p.support.status === 'unsupported' && <ErrorBanner message={p.support.message} />}
         {selection && format && (
           <>
-            <span className="apwt-label">Format</span>
             <RadioChips
               name="format"
+              label="Format"
               options={formats.map((f) => ({ value: f.name, label: f.name }))}
               value={selection.format}
               onChange={(name) => {
@@ -167,16 +167,16 @@ export function Rail(p: RailProps) {
                 if (option) p.onFormat(option)
               }}
             />
-            <span className="apwt-label">Video codec</span>
             <RadioChips
               name="video-codec"
+              label="Video codec"
               options={format.video.map((c) => ({ value: c, label: c, disabled: codecLocked(format.video) }))}
               value={selection.videoCodec}
               onChange={(videoCodec) => p.onSelection({ ...selection, videoCodec })}
             />
-            <span className="apwt-label">Audio codec</span>
             <RadioChips
               name="audio-codec"
+              label="Audio codec"
               options={format.audio.map((c) => ({ value: c, label: c, disabled: codecLocked(format.audio) }))}
               value={selection.audioCodec}
               onChange={(audioCodec) => p.onSelection({ ...selection, audioCodec })}

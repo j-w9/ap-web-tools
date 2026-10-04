@@ -24,6 +24,7 @@ export function App() {
         title="Dashboard"
         help="Connect and change settings from the menu widget. Enable widget edit in its settings to move, resize and add widgets: double click a widget for its options, click empty space for the palette."
       >
+        <p className="td-scroll-hint">The dashboard keeps its full width: scroll sideways to see all of it.</p>
         <div className="td-dashboard-frame">
           <div ref={gridRef} id="dashboard" className="grid-stack td-dashboard" />
         </div>

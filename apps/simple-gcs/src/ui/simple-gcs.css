@@ -54,7 +54,6 @@
   gap: 10px;
   margin-top: 12px;
   padding: 12px;
-  background: rgb(var(--s3));
   border: 1px solid rgb(var(--s4));
   border-radius: 8px;
 }
@@ -381,26 +380,23 @@ html:not(.light) .gcs-map--invert .leaflet-tile-pane {
   border-radius: 8px;
 }
 
-.gcs-section-icon {
-  width: 18px;
-  height: 18px;
-  color: rgb(var(--g500));
-}
-
 /* Confirmation and toasts */
 .gcs-confirm {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.55);
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+  color: rgb(var(--g100));
 }
 
-.gcs-confirm__box {
-  max-width: 420px;
-  padding: 18px;
+.gcs-confirm p {
+  margin: 0 0 16px;
+}
+
+.gcs-confirm::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.gcs-row--end {
+  justify-content: flex-end;
 }
 
 .gcs-toasts {
@@ -647,4 +643,75 @@ html:not(.light) .gcs-map--invert .leaflet-tile-pane {
   .gcs-param__help {
     grid-column: 1 / -1;
   }
+}
+
+/* Settings section: the groups side by side where there is room. */
+.gcs-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px 24px;
+}
+
+/* Grid cells, not a stacked list: no separator rules between the groups. */
+.gcs-settings > .apwt-group + .apwt-group {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.gcs-wide {
+  width: 100%;
+}
+
+/* Phones: keep the video inset's title bar on one line and the status badge compact. */
+@media (max-width: 560px) {
+  .gcs-video__btn {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+
+  .gcs-video__badge {
+    right: 8px;
+    font-size: 11px;
+  }
+}
+
+/* Fields in the connection form and parameter rows: label above a full-width input. */
+.gcs-connection .apwt-field,
+.gcs-param__value .apwt-field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin: 0;
+}
+
+.gcs-connection .apwt-field input,
+.gcs-param__value .apwt-field input {
+  width: 100%;
+  min-width: 0;
+}
+
+/* The shell styles number and text inputs only; URL and password fields match them. */
+.gcs-connection input[type='url'],
+.gcs-connection input[type='password'] {
+  min-height: 36px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: rgb(var(--g100));
+  background: rgb(var(--s3));
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+}
+
+.gcs-connection input[type='url']:focus,
+.gcs-connection input[type='password']:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.gcs-connection input::placeholder {
+  color: rgb(var(--g500));
+  opacity: 1;
 }

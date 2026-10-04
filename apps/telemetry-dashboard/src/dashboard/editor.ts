@@ -4,6 +4,7 @@
  * form builder for its options form. Closing copies the script and form back to the widget.
  */
 import { GridStack } from 'gridstack'
+import { currentTheme, onThemeChange } from '@apwt/tool-shell'
 import type { FormBuilder } from 'formiojs/dist/formio.full.min.js'
 import type * as Monaco from 'monaco-editor'
 import { BUILDER_OPTIONS, Formio } from '../forms/formio-setup.js'
@@ -75,7 +76,7 @@ export class WidgetEditor {
     head.className = 'td-editor__head'
     const title = document.createElement('span')
     title.className = 'td-tip__title'
-    title.textContent = 'Widget Editor'
+    title.textContent = 'Widget editor'
     this.closeButton = iconButton('fa-xmark', 'Close editor')
     head.append(title, this.closeButton)
 
@@ -147,7 +148,15 @@ export class WidgetEditor {
     const monaco = await loadMonaco()
     this.monaco = monaco
     const model = monaco.editor.createModel('', 'javascript')
-    this.editor = monaco.editor.create(this.scriptTab, { model, language: 'javascript', theme: 'vs-dark', automaticLayout: true })
+    // Upstream used 'vs-dark'; the editor follows the page theme (presentation).
+    const theme = (t: string): string => (t === 'light' ? 'vs' : 'vs-dark')
+    this.editor = monaco.editor.create(this.scriptTab, {
+      model,
+      language: 'javascript',
+      theme: theme(currentTheme()),
+      automaticLayout: true
+    })
+    onThemeChange((t) => monaco.editor.setTheme(theme(t)))
     this.editor.onDidChangeModelContent(() => {
       if (this.editor !== null) this.testWidget?.setEditedText(this.editor.getValue())
     })

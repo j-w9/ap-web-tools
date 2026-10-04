@@ -221,7 +221,7 @@ const HEARTBEAT_HELP =
 
 /** Connection settings popup and its controller (upstream `setup_connect`). */
 export function createConnectionPanel(host: MenuHost, ui: ConnectionUi): HTMLDivElement {
-  const { element, body, close } = panel('Connection Settings')
+  const { element, body, close } = panel('Connection settings')
   close.onclick = () => ui.hide()
 
   const url = el('input')

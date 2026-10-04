@@ -99,3 +99,35 @@ throws; `Invalid DateTime` without GPS time; a video without audio stops the pan
 offset from records by file position; sandbox script run twice on load; a log that fails to parse
 is still sent later; won't-fit reported before the type check; failed layouts leave earlier widgets
 created and the grid in batch mode.
+
+## UI audit
+
+Checked with `scripts/ui-audit.mjs` at 1440, 1024 and 390 px in both themes, in five states: empty;
+a generated 4 s test video (`test-fixtures/ui-test.mp4`, 640x360 H.264 + AAC, 108 kB, made with
+ffmpeg's `testsrc2` and `sine`) with `copter-sitl.bin` and the default layout; a widget's options
+popup; the widget editor; and the export progress panel during an export. Every capture was read.
+
+Changed:
+
+- The seek bar showed only its thumb before a video was loaded (the trim gradient is invalid
+  without a duration); it now has a plain track.
+- Phones: the seek bar gets its own row under the transport buttons; the palette keeps a 720 px
+  grid and scrolls sideways instead of squeezing the example widgets.
+- The widget editor stacks the preview above the script and form editors below 1000 px, as in
+  Telemetry Dashboard; Monaco follows the page theme (upstream always `vs-dark`).
+- Format, video codec and audio codec chip groups carry their own labels (all three were named
+  "Export").
+- The export progress label is readable (it inherited a muted colour); the panel fits phones.
+- The confirmation dialog focuses OK, as `confirm()` did, puts Cancel first like the other tools,
+  and Escape cancels.
+- Export: html2canvas copies the page for every frame, and the sandbox widgets inside the copy
+  import `parser.js` with the copy as their parent, which has no parser, so each frame threw
+  `Cannot read properties of undefined (reading 'forRealm')`. The shim now hands such a copy the
+  page's parser, so the copy's widgets load as upstream's did. Only html2canvas's copy is affected;
+  the page's own widgets always found the parser.
+
+Remaining known issues:
+
+- Widget contents in the default layout keep upstream's white backgrounds and serif text.
+- At phone width the stage is small (it scales to the card), so widget text is hard to read; the
+  export uses the video's resolution regardless.
