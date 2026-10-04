@@ -9,73 +9,10 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { DataflashLog } from './log.js'
 import { LogWriter } from './test-support/synthetic-log.js'
-import { upstreamFiles, upstreamParse, type UpstreamParser } from './test-support/upstream-parser.js'
+import { expectSameFiles, expectSameStats, expectSameTypes } from './test-support/oracle-compare.js'
+import { quietly, upstreamParse } from './test-support/upstream-parser.js'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '..', 'test-fixtures')
-
-function expectSameStats(log: DataflashLog, up: UpstreamParser): void {
-  const theirs = Object.entries(up.stats()).map(([name, s]) => [name, s.count, s.msg_size, s.size])
-  const mine = [...log.stats()].map(([name, s]) => [name, s.count, s.recordSize, s.bytes])
-  expect(mine).toEqual(theirs)
-}
-
-/**
- * Embedded files. Where upstream's FILE records hold one copy per file and every chunk's `Data`
- * keeps all `Length` bytes, the port's files are upstream's bytes exactly. Otherwise (a file
- * written twice, or chunks ending in zero bytes) upstream's `processFiles()` is wrong (proven
- * upstream bug, docs/bug-proofs/js-dataflash-parser.md): the port's file is then upstream's own
- * decoded records placed at `Offset`, `Length` bytes each (the stripped bytes are the trailing
- * NULs), keeping the last copy.
- */
-function expectSameFiles(log: DataflashLog, up: UpstreamParser): void {
-  const theirs = upstreamFiles(up)
-  const mine = log.files()
-  expect([...mine.keys()]).toEqual(Object.keys(theirs))
-  const file = up.messages['FILE'] as Record<string, ArrayLike<unknown>> | undefined
-  for (const [name, data] of Object.entries(theirs)) {
-    const records: { at: number; length: number; data: string }[] = []
-    for (let i = 0; i < (file?.['FileName']?.length ?? 0); i++) {
-      if (file?.['FileName']?.[i] !== name) continue
-      records.push({ at: file['Offset']![i] as number, length: file['Length']![i] as number, data: file['Data']![i] as string })
-    }
-    const copies = records.filter((r) => r.at === 0).length
-    const intact = records.every((r) => r.data.length === r.length)
-    if (copies <= 1 && intact) {
-      expect(Array.from(mine.get(name) ?? []), name).toEqual(Array.from(data))
-      continue
-    }
-    const last = records.slice(records.map((r) => r.at).lastIndexOf(0))
-    const expected = new Uint8Array(Math.max(...last.map((r) => r.at + r.length)))
-    for (const r of last) {
-      for (let j = 0; j < r.length; j++) expected[r.at + j] = j < r.data.length ? r.data.charCodeAt(j) : 0
-    }
-    expect(Array.from(mine.get(name) ?? []), name).toEqual(Array.from(expected))
-    expect(Array.from(mine.get(name) ?? []), `${name} differs from upstream`).not.toEqual(Array.from(data))
-  }
-}
-
-function expectSameTypes(log: DataflashLog, up: UpstreamParser): void {
-  const names = Object.keys(up.messageTypes).filter((n) => !n.includes('['))
-  expect([...log.messageTypes().keys()].sort()).toEqual([...names].sort())
-  for (const name of names) {
-    const theirs = up.messageTypes[name]!
-    const info = log.messageType(name)!
-    expect(info.count, name).toBe(log.count(name))
-    const instances = theirs.instances === undefined ? [] : Object.keys(theirs.instances).map(Number)
-    expect([...log.instances(name)], `${name} instances`).toEqual(instances)
-    for (const field of info.fields) {
-      const complex = theirs.complexFields[field.name]!
-      // Upstream gives `undefined` for ids missing from its tables; the port gives '?' and 1.
-      if (complex.multiplier !== undefined && !complex.units.includes('undefined')) {
-        // Upstream labels 1e-6 with `n`; the port uses the SI prefix `µ` (proven upstream bug,
-        // docs/bug-proofs/js-dataflash-parser.md). Every other label is identical.
-        const units = complex.multiplier === 1e-6 && complex.units.startsWith('n') ? 'µ' + complex.units.slice(1) : complex.units
-        expect(field.unit, `${name}.${field.name} unit`).toBe(units)
-        expect(field.multiplier, `${name}.${field.name} multiplier`).toBe(complex.multiplier)
-      }
-    }
-  }
-}
 
 describe.each(['copter-sitl.bin', 'copter-files.bin'])('oracle edges: %s', (file) => {
   const bytes = new Uint8Array(readFileSync(join(fixtures, file)))
@@ -173,5 +110,33 @@ describe('oracle edges: synthetic logs', () => {
     const up = await upstreamParse(bytes)
     expect(log.count('IMU')).toBe(1)
     expect(up.stats()['IMU']?.count).toBe(1)
+  })
+
+  it.each([
+    [['ArduPlane V4.5.7 (2a3dc4b7)'], [0, 24, 25, 26]],
+    [['ArduCopter V4.7.0 (af47743e)'], [0, 26, 27, 28, 29]],
+    [
+      ['Frame: QUAD', 'Rover V4.5 (12345678)'],
+      [0, 8, 9, 16]
+    ],
+    [['AntennaTracker V4 (12345678)'], [0, 4, 10]],
+    [['ArduSub V4 (12345678)'], [20, 21]],
+    [['Blimp V4.6 (12345678)'], [0, 1, 5]],
+    [['no banner'], [0, 27]]
+  ])('names modes as getModeString does (MSG %j)', async (messages, modes) => {
+    const w = baseWriter()
+    w.defineFormat(32, 'MSG', 'QZ', 'TimeUS,Message')
+    w.defineFormat(33, 'MODE', 'QMBB', 'TimeUS,Mode,ModeNum,Rsn')
+    for (const m of messages) w.write('MSG', [1, m])
+    for (const m of modes) w.write('MODE', [2, m, m, 1])
+    const bytes = w.toBytes()
+    const up = await upstreamParse(bytes)
+    quietly(() => {
+      up.parseAtOffset('MSG')
+      up.parseAtOffset('MODE')
+    })
+    const log = DataflashLog.parse(bytes)
+    expect(log.modes().map((m) => m.name)).toEqual(up.messages['MODE']?.['asText'])
+    expect(modes.map((m) => log.modeName(m))).toEqual(up.messages['MODE']?.['asText'])
   })
 })

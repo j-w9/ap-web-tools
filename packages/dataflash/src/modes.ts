@@ -56,6 +56,9 @@ export type MavType = (typeof MavType)[keyof typeof MavType]
 /** ArduPilot vehicle firmware families. */
 export type VehicleType = 'copter' | 'plane' | 'rover' | 'sub' | 'tracker' | 'blimp'
 
+// Mode tables exactly as upstream `parser.js` (`modeMappingApm`, `modeMappingAcm`,
+// `modeMappingRover`, `modeMappingTracker`, `modeMappingSub`). Upstream has no Blimp table.
+
 const planeModes: ReadonlyMap<number, string> = new Map([
   [0, 'MANUAL'],
   [1, 'CIRCLE'],
@@ -80,9 +83,7 @@ const planeModes: ReadonlyMap<number, string> = new Map([
   [21, 'QRTL'],
   [22, 'QAUTOTUNE'],
   [23, 'QACRO'],
-  [24, 'THERMAL'],
-  [25, 'LOITER_ALT_QLAND'],
-  [26, 'AUTOLAND']
+  [24, 'THERMAL']
 ])
 
 const copterModes: ReadonlyMap<number, string> = new Map([
@@ -109,10 +110,7 @@ const copterModes: ReadonlyMap<number, string> = new Map([
   [23, 'FOLLOW'],
   [24, 'ZIGZAG'],
   [25, 'SYSTEMID'],
-  [26, 'AUTOROTATE'],
-  [27, 'AUTO_RTL'],
-  [28, 'TURTLE'],
-  [29, 'VALT']
+  [26, 'AUTOROTATE']
 ])
 
 const roverModes: ReadonlyMap<number, string> = new Map([
@@ -123,8 +121,6 @@ const roverModes: ReadonlyMap<number, string> = new Map([
   [5, 'LOITER'],
   [6, 'FOLLOW'],
   [7, 'SIMPLE'],
-  [8, 'DOCK'],
-  [9, 'CIRCLE'],
   [10, 'AUTO'],
   [11, 'RTL'],
   [12, 'SMART_RTL'],
@@ -137,7 +133,6 @@ const trackerModes: ReadonlyMap<number, string> = new Map([
   [1, 'STOP'],
   [2, 'SCAN'],
   [3, 'SERVO_TEST'],
-  [4, 'GUIDED'],
   [10, 'AUTO'],
   [16, 'INITIALISING']
 ])
@@ -152,30 +147,37 @@ const subModes: ReadonlyMap<number, string> = new Map([
   [9, 'SURFACE'],
   [16, 'POSHOLD'],
   [19, 'MANUAL'],
-  [20, 'MOTOR_DETECT'],
-  [21, 'SURFTRAK']
+  [20, 'MOTOR_DETECT']
 ])
 
-const blimpModes: ReadonlyMap<number, string> = new Map([
-  [0, 'LAND'],
-  [1, 'MANUAL'],
-  [2, 'VELOCITY'],
-  [3, 'LOITER'],
-  [4, 'RTL']
-])
-
-const MODE_TABLES: Readonly<Record<VehicleType, ReadonlyMap<number, string>>> = {
+const MODE_TABLES: Readonly<Partial<Record<VehicleType, ReadonlyMap<number, string>>>> = {
   copter: copterModes,
   plane: planeModes,
   rover: roverModes,
   sub: subModes,
-  tracker: trackerModes,
-  blimp: blimpModes
+  tracker: trackerModes
 }
 
-/** Mode-number to mode-name table for a vehicle family. */
-export function modeTable(vehicle: VehicleType): ReadonlyMap<number, string> {
+/** Mode-number to mode-name table for a vehicle family (upstream `getModeMap`); `undefined` for Blimp. */
+export function modeTable(vehicle: VehicleType): ReadonlyMap<number, string> | undefined {
   return MODE_TABLES[vehicle]
+}
+
+/**
+ * Vehicle family whose table names the modes, as upstream `getModeString` picks it: the first MSG
+ * text containing (case-insensitively) `arduplane`, `arducopter`, `ardusub`, `rover` or `tracker`,
+ * checked in that order per message; copter when none does.
+ */
+export function modeTableVehicle(messages: Iterable<string>): VehicleType {
+  for (const text of messages) {
+    const lower = text.toLowerCase()
+    if (lower.includes('arduplane')) return 'plane'
+    if (lower.includes('arducopter')) return 'copter'
+    if (lower.includes('ardusub')) return 'sub'
+    if (lower.includes('rover')) return 'rover'
+    if (lower.includes('tracker')) return 'tracker'
+  }
+  return 'copter'
 }
 
 /** Vehicle family for a MAV_TYPE, or `undefined` if it is not a vehicle ArduPilot flies. */
@@ -291,9 +293,9 @@ export function detectVehicleType(messages: Iterable<string>): VehicleType | und
   return undefined
 }
 
-/** Name of a mode number for a vehicle family; `undefined` for unknown modes. */
+/** Name of a mode number for a vehicle family; `undefined` for modes upstream's table lacks. */
 export function modeName(vehicle: VehicleType, mode: number): string | undefined {
-  return MODE_TABLES[vehicle].get(mode)
+  return MODE_TABLES[vehicle]?.get(mode)
 }
 
 /** One MODE record. */
@@ -304,6 +306,6 @@ export interface ModeChange {
   readonly mode: number
   /** Mode-change reason code (`Rsn`), or `undefined` for very old logs. */
   readonly reason: number | undefined
-  /** Mode name per the vehicle's table, or `"UNKNOWN(<n>)"` when not in the table. */
-  readonly name: string
+  /** Mode name from upstream's table, or `undefined` when the number is not in it (as upstream's `asText`). */
+  readonly name: string | undefined
 }

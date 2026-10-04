@@ -22,6 +22,7 @@ export {
   mavTypeForVehicle,
   modeName,
   modeTable,
+  modeTableVehicle,
   vehicleTypeForMavType,
   vehicleTypeForBuildType,
   BuildType

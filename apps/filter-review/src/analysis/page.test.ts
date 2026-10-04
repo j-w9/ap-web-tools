@@ -2,25 +2,14 @@
 // open_in_filter_tool() run in a vm page stub, compared with the port's page model.
 import { describe, expect, it } from 'vitest'
 import { DataflashLog } from '@apwt/dataflash'
-import { instanceTransfer } from './analyse.js'
-import { GYRO_AXES } from './fft/batch-fft.js'
 import { buildFilters } from './filters/filter-set.js'
 import { filterToolUrl, filterToolValues } from './filter-tool-link.js'
-import {
-  FILTER_PARAM_NAMES,
-  defaultPageValues,
-  filterParamsFromPage,
-  withPageValue,
-  type FilterParamName,
-  type PageValues
-} from './page-values.js'
+import { defaultPageValues, filterParamsFromPage, withPageValue } from './page-values.js'
 import { applyParamFile, filterParamFileText } from './param-file.js'
-import { SPECTRUM_KINDS, spectrumTraceKey } from './selections.js'
 import { loadIntoPage, type LoadedPage, type PageInputs } from './session.js'
-import { expectComplexClose } from './test-utils/compare.js'
 import { LogAppender, appendBatchGyro, appendRawGyro, appendTrackingMessages, fixture, patchParam } from './test-utils/logs.js'
+import { expectSamePage, expectSameTransfer, upstreamValues } from './test-utils/page-compare.js'
 import { loadFilterReviewPage, type UpstreamPage } from './test-utils/upstream-page.js'
-import type { Pair } from './test-utils/upstream.js'
 
 const INITIAL: PageInputs = { values: defaultPageValues(), windowSize: '1024', windowsPerBatch: '1' }
 
@@ -48,10 +37,6 @@ function batchLog(params: Record<string, number> = {}, alsoRaw = false): Uint8Ar
   return log.toBytes()
 }
 
-function upstreamValues(page: UpstreamPage): PageValues {
-  return Object.fromEntries(FILTER_PARAM_NAMES.map((n) => [n, page.element(n).value])) as Record<FilterParamName, string>
-}
-
 /** Port state after a sequence of loads, threading the page inputs like the App does. */
 function portLoads(logs: readonly Uint8Array[], start: PageInputs = INITIAL, preferBatch = false): LoadedPage {
   let inputs = start
@@ -61,64 +46,6 @@ function portLoads(logs: readonly Uint8Array[], start: PageInputs = INITIAL, pre
     inputs = page.inputs
   }
   return page!
-}
-
-function expectSamePage(page: UpstreamPage, mine: LoadedPage): void {
-  expect(mine.inputs.values).toEqual(upstreamValues(page))
-  expect(mine.log.gyro.type).toBe(page.run('Gyro_batch.type'))
-  expect(page.element('log_type_batch').checked).toBe(mine.log.gyro.type === 'batch')
-  expect(String(mine.timeRange[0])).toBe(page.element('TimeStart').value)
-  expect(String(mine.timeRange[1])).toBe(page.element('TimeEnd').value)
-  expect(mine.inputs.windowSize).toBe(page.element('FFTWindow_size').value)
-  expect(page.element(`filter_version_${mine.log.filterVersion}`).checked).toBe(true)
-  expect(mine.log.loggedNotches.map((l) => l.harmonics)).toEqual(page.run('logged_tracking.map((l) => l.harmonics)'))
-
-  // Default selections
-  const shown = mine.selections.shown
-  for (let sensor = 0; sensor < 3; sensor++) {
-    for (const kind of SPECTRUM_KINDS) {
-      const id = { pre: 'Pre', post: 'Post', est: 'PostEst' }[kind]
-      GYRO_AXES.forEach((axis) => {
-        expect(shown.has(spectrumTraceKey(sensor, kind, axis)), `Gyro${sensor}${id}${axis}`).toBe(
-          page.element(`Gyro${sensor}${id}${axis.toUpperCase()}`).checked
-        )
-      })
-    }
-  }
-  expect(page.element(`BodeGyroInst${mine.selections.bodeGyro}`).checked).toBe(true)
-  expect(page.element(`SpecGyroInst${mine.selections.specGyro}`).checked).toBe(true)
-  expect(page.element(mine.selections.specKind === 'pre' ? 'SpecGyroPre' : 'SpecGyroPost').checked).toBe(true)
-  // "Primary" label, added whenever EKF3 names a primary
-  for (let i = 0; i < 3; i++) {
-    expect(page.element(`Gyro${i}`).firstElementChild.innerHTML.includes('Primary')).toBe(mine.log.ekfPrimary === i)
-  }
-
-  // Alerts: log problems, analysis, then the notch set-up
-  const filters = buildFilters(
-    filterParamsFromPage(mine.inputs.values, mine.log.sixteenHarmonics),
-    mine.log.targets.all,
-    mine.log.filterVersion
-  )
-  const mineAlerts = [...mine.log.warnings, ...(mine.result.error !== null ? [mine.result.error] : [])]
-  if (mine.result.analysis?.warning !== undefined) mineAlerts.push(mine.result.analysis.warning)
-  mineAlerts.push(...filters.notches.flatMap((n) => n.warnings))
-  expect(new Set(page.alerts)).toEqual(new Set(mineAlerts))
-}
-
-/** Compare upstream FFT.H with the port's transfer functions for the current page values. */
-function expectSameTransfer(page: UpstreamPage, mine: LoadedPage, values: PageValues): void {
-  const filters = buildFilters(
-    filterParamsFromPage(values, mine.log.sixteenHarmonics),
-    mine.log.targets.all,
-    mine.log.filterVersion
-  )
-  mine.result.analysis!.instances.forEach((a, i) => {
-    if (a === null) return
-    const theirs = page.run(`Gyro_batch[${i}].FFT.H`) as Pair[] | undefined
-    const t = instanceTransfer(a, filters)
-    expect(t.fft === undefined).toBe(theirs == null)
-    t.fft?.forEach((h, j) => expectComplexClose(h, theirs![j]!, `H ${i}/${j}`))
-  })
 }
 
 describe('upstream load() page state', () => {

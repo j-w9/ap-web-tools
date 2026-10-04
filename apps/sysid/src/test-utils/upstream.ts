@@ -151,8 +151,49 @@ function toRealm(value: unknown): unknown {
   return value
 }
 
+const COMPENSATION_READ = 'ang_data_arr[att_ind1 + j]'
+
+/**
+ * Upstream gravity compensation with the proven indexing bug fixed (docs/bug-proofs/sysid.md,
+ * row 3): each output sample within ATT's logged span reads the ATT sample nearest to it in time;
+ * other samples keep upstream's `att_ind1 + j`. The patched page differs from the original only in
+ * compensated outputs logged at another rate than ATT.
+ */
+function patchCompensation(source: string): string {
+  if (source.split(COMPENSATION_READ).length !== 5) throw new Error('patchCompensation: upstream compensation no longer matches')
+  return (
+    source.replaceAll(COMPENSATION_READ, 'ang_data_arr[__att_index(ATT_t_data, t_data[ind1_d + j], att_ind1 + j)]') +
+    `
+// upstream nearestIndex, with Math.abs looked up once (a vm global lookup per sample is very slow)
+function __att_index(att_time, t, fallback) {
+  if (!(t >= att_time[0] && t <= att_time[att_time.length - 1])) return fallback
+  const abs = Math.abs
+  let min_dist = null
+  let min_index = null
+  for (let i = 0; i < att_time.length; i++) {
+    const dist = abs(att_time[i] - t)
+    if (min_dist == null || dist < min_dist) {
+      min_dist = dist
+      min_index = i
+    }
+  }
+  return min_index
+}`
+  )
+}
+
+export interface RunOptions {
+  /** Run the page with `patchCompensation` applied (the reference for the port's fixed behaviour). */
+  readonly fixCompensation?: boolean
+}
+
 /** Run upstream's `run_transfer_function_ID` or `run_SS_ID` on `setup`. Rejects where upstream throws. */
-export async function runUpstream(kind: 'tf' | 'ss', parser: UpstreamParser, setup: Setup): Promise<UpstreamRun> {
+export async function runUpstream(
+  kind: 'tf' | 'ss',
+  parser: UpstreamParser,
+  setup: Setup,
+  options: RunOptions = {}
+): Promise<UpstreamRun> {
   const page = pageFromSetup(setup)
   const run: UpstreamRun = { globals: {}, alerts: [], output: [] }
   const document = {
@@ -171,10 +212,11 @@ export async function runUpstream(kind: 'tf' | 'ss', parser: UpstreamParser, set
     },
     runPython: () => undefined
   }
-  const source = readFileSync(resolve(upstreamDir, 'SysID/SysID.js'), 'utf8').replace(
+  const original = readFileSync(resolve(upstreamDir, 'SysID/SysID.js'), 'utf8').replace(
     /^import\(.*$/m,
     '// dynamic parser import removed for the test'
   )
+  const source = options.fixCompensation === true ? patchCompensation(original) : original
   const context = createContext({
     document,
     console: { log: () => undefined },
@@ -188,4 +230,69 @@ export async function runUpstream(kind: 'tf' | 'ss', parser: UpstreamParser, set
   const fn = ctx[kind === 'tf' ? 'run_transfer_function_ID' : 'run_SS_ID'] as (p: UpstreamParser) => Promise<void>
   await fn(parser)
   return run
+}
+
+/** What upstream's `load` leaves on the page. */
+export interface UpstreamLoad {
+  /** `flight_data.data`: Roll, Pitch, Throttle, Altitude traces (x and y unset without the message). */
+  readonly flight: readonly { readonly x?: ArrayLike<number>; readonly y?: ArrayLike<number> }[]
+  /** The start and end time inputs. */
+  readonly startTime: string
+  readonly endTime: string
+}
+
+/** Run upstream SysID.js `setup_flight_data_plot` and `load` on a log, with the upstream parser. */
+export async function upstreamLoad(bytes: Uint8Array): Promise<UpstreamLoad> {
+  const g = globalThis as Record<string, unknown>
+  g['self'] ??= { addEventListener: () => undefined, postMessage: () => undefined }
+  const mod = (await import(/* @vite-ignore */ resolve(upstreamDir, 'modules/JsDataflashParser/parser.js'))) as {
+    default: UpstreamCtor
+  }
+  const elements = new Map<string, Record<string, unknown>>()
+  const element = (id: string) => {
+    let e = elements.get(id)
+    if (e === undefined) {
+      let text = ''
+      e = {
+        get value() {
+          return text
+        },
+        set value(v: unknown) {
+          text = String(v)
+        },
+        disabled: true,
+        on: () => undefined,
+        querySelectorAll: () => []
+      }
+      elements.set(id, e)
+    }
+    return e
+  }
+  const context = createContext({
+    document: { getElementById: element },
+    console: { log: () => undefined },
+    Plotly: { newPlot: () => undefined, purge: () => undefined, redraw: () => undefined },
+    DataflashParser: mod.default,
+    __buffer: bytes.slice().buffer
+  })
+  const source =
+    readFileSync(resolve(upstreamDir, 'Libraries/Array_Math.js'), 'utf8') +
+    '\n;\n' +
+    readFileSync(resolve(upstreamDir, 'SysID/SysID.js'), 'utf8').replace(/^import\(.*$/m, '') +
+    `
+;setup_flight_data_plot()
+load(__buffer)
+;({ flight: flight_data.data })`
+  const log = console.log
+  console.log = () => undefined
+  try {
+    const result = runInContext(source, context, { filename: 'SysID.js' }) as { flight: UpstreamLoad['flight'] }
+    return {
+      flight: result.flight,
+      startTime: String(element('starttime')['value']),
+      endTime: String(element('endtime')['value'])
+    }
+  } finally {
+    console.log = log
+  }
 }

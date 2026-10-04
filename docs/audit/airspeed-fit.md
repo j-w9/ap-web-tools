@@ -10,6 +10,13 @@ by function (`src/analysis/core.test.ts`); the whole tool (`airspeedfit.js` with
 parser and a stubbed `fetch`) is compared end to end (`src/analysis/oracle.test.ts`). No shared package
 was changed in this audit.
 
+Real-log test: `src/analysis/airspeed-fit.real-logs.test.ts` (gated: runs only when `APWT_REAL_LOGS`
+names a directory of `.bin` logs) loads each log into upstream and the port and compares, with the
+oracle's comparisons (`src/test-utils/oracle-compare.ts`), what was loaded (every ARSP instance,
+sources, log facts, auto window), the fit with each EKF velocity source and the parameter file. Logs
+upstream rejects (no ARSP, EKF velocity, BARO or POS) must be rejected with the same text. No
+differences found.
+
 Status values: **identical**, **presentation**, **convenience** (changes no computed result),
 **browser-forced**, **reverted-in-this-audit**.
 

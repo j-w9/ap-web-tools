@@ -24,6 +24,14 @@ Oracles (all `node:vm`, the upstream files run unmodified apart from the dynamic
   write-back, filter version, default trace and plot selections, the "Primary" label, every alert,
   the transfer functions from the resulting inputs, the parameter file reader, the saved file text
   and the Filter Tool link.
+- `src/analysis/filter-review.real-logs.test.ts` runs only when `APWT_REAL_LOGS` names a directory of
+  real flight logs (never committed): for every log, each data source it has is loaded in the page
+  and the port, and the page state and alerts, every instance's FFT and filter responses, and every
+  plot under the default view and each IMU, spectrogram source and axis, scale, aliasing mode and a
+  narrower range are compared, then notch 1 on each tracking mode (`re_calc()`), two FFT window
+  settings and the Filter Tool link. A log without gyro data must give upstream's alert. It also
+  checks that the original page differs only as row 4 of the bug proofs says (FFT rate).
+  `test-utils/page-compare.ts` holds the comparisons shared with `page.test.ts`.
 
 Statuses: **identical** (same result, possibly restructured code), **code-improved**,
 **presentation**, **convenience** (changes no computed result), **browser-forced**,
@@ -174,6 +182,9 @@ result where an input reaches a fixed bug.
   (`plots/bode.ts`).
 - **Empty, zero or negative loop rate crashes the redraw with aliasing on**: a proven failure with no defined result;
   the port already shows the error, no change.
+- **Open in Filter Tool sends the gyro rate as `GYRO_SAMPLE_RATE`**, which the Filter Tool never reads (its input is
+  `GyroSampleRate`). The link stays identical to upstream's; the port's Filter Tool reads that key
+  (`apps/filter-tool/src/analysis/settings.ts`), so it opens at the log's IMU rate instead of 2000 Hz.
 
 ## UI audit
 

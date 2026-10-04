@@ -16,6 +16,14 @@ Status values: **identical** (same result, possibly restructured code), **presen
 **convenience** (added or changed UX that changes no computed result), **browser-forced**,
 **reverted-in-this-audit** (port changed to match upstream).
 
+Real-log test: `src/analysis/magfit.real-logs.test.ts` (gated: runs only when `APWT_REAL_LOGS`
+names a directory of `.bin` logs) loads each log into upstream and the port and compares, with the
+oracle's comparisons (`src/test-utils/oracle-compare.ts`): the default calculation, every attitude
+source, Fix 90 and Fix 45 orientations, a reduced window, and the parameter file for every
+calibration upstream offers per compass (and none) and each "Use sensor" choice. Logs upstream
+rejects ("No compass data in log", missing location) must be rejected with the same text. No
+differences found.
+
 ## Inventory
 
 ### Loading (`load`, `extractLatLon`, `wmm.js`)

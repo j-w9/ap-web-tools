@@ -313,7 +313,7 @@ export async function createUpstreamHardwareReport(): Promise<UpstreamHardwareRe
   }
 
   // Drop the module-level side effects that need a browser: dynamic imports, the page load
-  // hook and the canvas patch. Everything else is evaluated verbatim.
+  // hook (its `initial_load()` is run below) and the canvas patch. Everything else is evaluated verbatim.
   const page = read('upstream/HardwareReport/HardwareReport.js')
     .replace(/^import_done\[0\] = import\(.*$/m, '')
     .replace(/^import_done\[1\] = import\([\s\S]*?\.catch\(error => console\.log\(error\)\)$/m, '')
@@ -340,12 +340,19 @@ export async function createUpstreamHardwareReport(): Promise<UpstreamHardwareRe
     alert: (msg: unknown) => alerts.push(String(msg)),
     performance: { now: () => 0 },
     open_in_update: () => undefined,
+    // Only the page's own board_types.txt is fetched (upstream `initial_load`); served from disk.
+    fetch: (url: string) =>
+      url === 'board_types.txt'
+        ? Promise.resolve({ text: () => Promise.resolve(read('upstream/HardwareReport/board_types.txt')) })
+        : Promise.reject(new Error(`no network in tests: ${url}`)),
     console: { log: () => undefined, error: () => undefined, warn: () => undefined }
   })
   runInContext(source, context, { filename: 'upstream-hardware-report.js' })
   // The GitHub release check needs the network: keep the original reachable for tests that stub
   // `octokitRequest`, and make the one `load_log` calls a no-op.
   runInContext('var check_release_original = check_release; check_release = async function () {}', context)
+  // The page runs `initial_load()` (the board names) on window load, before any file is opened.
+  await (runInContext('initial_load()', context) as Promise<void>)
 
   const get = (expression: string): unknown => runInContext(`(${expression})`, context)
   const call = (name: string, ...args: unknown[]): unknown => {

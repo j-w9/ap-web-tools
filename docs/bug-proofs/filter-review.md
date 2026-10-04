@@ -24,8 +24,9 @@ unless stated otherwise.
 | 11  | Batch window size written into the raw window-size input            | NOT PROVEN                   | The write is deliberate and visible; nothing says a later log must start from the user's earlier window size                  |
 | 12  | Single-window range shifts the wrapped phase band twice             | PROVEN                       | "Wrap all arrays based on first" is applied twice to one array; with one window max = min = mean, yet the band is 360 deg off |
 | 13  | Empty, zero or negative loop rate crashes the redraw with aliasing  | PROVEN (crash; no new maths) | It fails: `new Array(NaN)` / negative length throws `RangeError`                                                              |
+| 14  | Open in Filter Tool sends the gyro rate as `GYRO_SAMPLE_RATE`       | PROVEN                       | It fails: the rate the link carries ("Add sample rate ...") is read by no input; the Filter Tool stays at 2000 Hz             |
 
-PROVEN 11 (two of them partial or crash-only, see 10 and 13), NOT PROVEN 2.
+PROVEN 12 (two of them partial or crash-only, see 10 and 13), NOT PROVEN 2.
 
 ## 1. Batch data can never be used when the log also has raw data
 
@@ -410,3 +411,44 @@ array once); nothing else.
 aliasing result for a loop rate that is empty, zero or negative, so a fix must not invent one: the
 port's error message instead of the crash (crash clause of `docs/porting-policy.md`) is the whole
 fix, and no computed value changes.
+
+## 14. Open in Filter Tool sends the gyro rate as `GYRO_SAMPLE_RATE`, which the Filter Tool never reads
+
+**Row:** `open_in_filter_tool` / `FilterTool/filters.js` `load()`. The Filter Tool opens at its
+2000 Hz default whatever the log's IMU rate. Found by the real-log oracle
+(`apps/filter-tool/src/analysis/filter-tool.real-logs.test.ts`).
+
+**Verdict:** PROVEN
+
+**Status: FIXED.** Port: `apps/filter-tool/src/analysis/settings.ts` `stateFromQuery` (a link's
+`GYRO_SAMPLE_RATE` sets `GyroSampleRate` when the link has no `GyroSampleRate`, read with the same
+rules as every other link value). Filter Review's link is unchanged (`filter-tool-link.ts`, still
+identical to upstream's). Tests: `apps/filter-tool/src/analysis/page.test.ts` "proven upstream bug
+fixed: a Filter Review link sets the gyro rate it carries as GYRO_SAMPLE_RATE" (upstream 2000 Hz,
+port 3200 Hz, every other input upstream's); `apps/filter-tool/src/analysis/filter-tool.real-logs.test.ts`.
+
+**Reproduction:** `proofs/filter-review/filter-tool-gyro-rate.test.ts`. The original FilterReview
+loads 10 s of raw gyro data sampled every 1000 us; `open_in_filter_tool()` opens
+`.../FilterTool/?GYRO_SAMPLE_RATE=1000` (every 250 us: `4000`). The original Filter Tool page opened
+at that link reads `GyroSampleRate` 2000 and its gyro Bode plot runs to about 1000 Hz. The same page
+opened at `?GyroSampleRate=1000` reads 1000 and plots to about 500 Hz.
+
+**Evidence (it fails):** `FilterReview.js:1917-1935`:
+
+```js
+// Add sample rate for sensor show in bode plot
+...
+url.searchParams.append("GYRO_SAMPLE_RATE", Math.round(Gyro_batch[i].gyro_rate))
+```
+
+`FilterTool/filters.js:792-820` (`load()`, "populate from query's") sets an input only when the
+lowercased link has a key equal to that input's lowercased `name`; the gyro rate input is
+`<input id="GyroSampleRate" name="GyroSampleRate">` (`FilterTool/index.html:100`) and is read as
+`get_form("GyroSampleRate")` (`filters.js:447`, `:582`). No file in upstream reads `GYRO_SAMPLE_RATE`.
+The value Filter Review adds for the Filter Tool's Bode plot therefore never reaches it: the
+output the "Open in filter tool" button offers is never produced.
+
+**Minimal correct behaviour:** for the reproduction the Filter Tool reads `GyroSampleRate` 1000
+from the link. Smallest port change: the Filter Tool's link reader takes `GYRO_SAMPLE_RATE` as the
+gyro sample rate when the link has no `GyroSampleRate` (Filter Review's links never do), applying
+the same `parseFloat`/skip-`NaN` rule as for every other value.

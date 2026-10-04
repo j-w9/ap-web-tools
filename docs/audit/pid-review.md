@@ -18,7 +18,14 @@ fixtures, copter with and without D FF, RATE controllers, plane (incl. quadplane
 amplitude/frequency scales, window sizes 64 to 1024, edited, empty, reversed and fractional time
 inputs, the stale step mean, the low-rate noise estimate, vehicle detection, the window size alert and
 the controller-switch selection rules. Mutating any of the reverted behaviours below makes the oracle
-fail.
+fail. The comparisons live in `src/test-utils/oracle.ts`.
+
+`src/analysis/pid-review.real-logs.test.ts` runs the same comparisons only when `APWT_REAL_LOGS` names
+a directory of real flight logs (never committed): for every log, every controller it has, three
+amplitude/frequency scales, every spectrogram signal, windows 1024, 256 and 512, a narrower time range
+and a rejected window size (300). A log the tool cannot use must give upstream's alert. It also checks
+that the original page differs only as rows 1 and 2 of the bug proofs say (last sample before each
+split dropped, rate divided by a sample count).
 
 Statuses: **identical** (same result, possibly restructured code), **code-improved**,
 **presentation**, **convenience** (changes no computed result), **browser-forced**,

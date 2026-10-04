@@ -333,6 +333,13 @@ export class UpstreamAnalyzer {
     await (loadLog as (b: ArrayBuffer) => Promise<void>)(buffer)
   }
 
+  /** Call upstream's `get` tool (`window.get`) directly: the uploaded file id, or its falsy output. */
+  async callGet(message: unknown): Promise<unknown> {
+    const get: unknown = vm.runInContext('window.get', this.context)
+    if (typeof get !== 'function') throw new Error('window.get')
+    return (get as (m: unknown) => Promise<unknown>)(message)
+  }
+
   /** Type a message and press Send. */
   async send(text: string): Promise<void> {
     this.el('messageInput').value = text

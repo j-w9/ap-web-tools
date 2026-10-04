@@ -136,7 +136,7 @@ describe('DataflashLog (synthetic log)', () => {
     expect(log.textMessages()[0]).toBe('ArduCopter V4.5.1 (deadbeef)')
     expect(log.vehicleType()).toBe('copter')
     expect(log.mavType()).toBe(2)
-    expect(log.modes().map((m) => m.name)).toEqual(['STABILIZE', 'LOITER', 'UNKNOWN(99)'])
+    expect(log.modes().map((m) => m.name)).toEqual(['STABILIZE', 'LOITER', undefined])
     expect(log.modes()[1]).toEqual({ timeUs: 1_000_020, mode: 5, reason: 2, name: 'LOITER' })
   })
 

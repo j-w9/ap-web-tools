@@ -48,6 +48,13 @@ npm test
 npm run build
 ```
 
+To compare every log-reading tool with upstream on your own logs, point `APWT_REAL_LOGS` at a folder
+of DataFlash `.bin` files. Nothing from the logs is stored; without the variable these tests skip.
+
+```bash
+APWT_REAL_LOGS=~/logs npm run test:real-logs
+```
+
 ## License
 
 GPL-3.0-only, the same as upstream WebTools from which this work derives.

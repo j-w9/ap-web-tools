@@ -16,6 +16,11 @@ with the upstream parser; `src/analysis/test-utils/tabulator.ts` drives upstream
   `total_param_diff_calc`, the diffs after an ignore option changes, and the `size_format`,
   `flight_time_format`, `get_dist_string` and `get_common_path` functions lifted verbatim from
   `setup_table`.
+- `summary.real-logs.test.ts` (gated: runs only when `APWT_REAL_LOGS` names a directory of logs):
+  every `load_log` field and the map tooltip's points on each log, `get_param_diff` between
+  neighbouring logs, and every board's table after header-click sequences (row order, per-row and
+  total diffs; `src/analysis/test-utils/table-compare.ts`, shared with `table-oracle.test.ts`). No
+  differences found.
 
 ## Inventory
 

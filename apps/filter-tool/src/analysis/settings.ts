@@ -159,15 +159,27 @@ function readBode(query: ReadonlyMap<string, string>, prefix: '' | 'PID_', base:
 export type QuerySource = 'link' | 'stored'
 
 /**
+ * Query key Filter Review's "Open in Filter Tool" link uses for the gyro sample rate (upstream
+ * `open_in_filter_tool` appends `GYRO_SAMPLE_RATE`, lowercased by `load()`).
+ */
+const REVIEW_GYRO_RATE_KEY = 'gyro_sample_rate'
+
+/**
  * State from a query string, starting from `base`. Unknown keys are ignored, so partial or
  * upstream links work. Each number is assigned to its form control as upstream does
  * ({@link assignFieldValue}), so e.g. `INS_HNTCH_MODE=1.5` or `Throttle=Infinity` reads as `NaN`.
+ *
+ * Proven upstream bug fixed (docs/bug-proofs/filter-review.md, row 14): Filter Review sends the
+ * gyro rate as `GYRO_SAMPLE_RATE`, which upstream's `load()` never reads (its input is named
+ * `GyroSampleRate`), so the tool stayed at 2000 Hz. A link's `GYRO_SAMPLE_RATE` sets the gyro
+ * sample rate when the link has no `GyroSampleRate`.
  */
 export function stateFromQuery(search: string, base: ToolState = DEFAULT_STATE, source: QuerySource = 'link'): ToolState {
   const query = lowerCaseQuery(search, source === 'link')
   const inputs: Record<InputName, number> = { ...base.inputs }
   for (const name of INPUT_NAMES) {
-    const text = query.get(name.toLowerCase())
+    let text = query.get(name.toLowerCase())
+    if (text === undefined && name === 'GyroSampleRate' && source === 'link') text = query.get(REVIEW_GYRO_RATE_KEY)
     if (text === undefined) continue
     const value = parseFloat(text)
     if (source === 'link' && Number.isNaN(value)) continue

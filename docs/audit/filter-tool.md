@@ -150,6 +150,14 @@ the verdicts are in [`../bug-proofs/filter-tool.md`](../bug-proofs/filter-tool.m
   Tests: `param-file.test.ts` "proven upstream bug fixed: a number equal to an option selects it
   (upstream reads NaN)"; `page.test.ts` "loaded file matches upstream load_parameters"
   (`withProvenSelectFix`); proof `proofs/filter-tool/select-non-option.test.ts`.
+- **Filter Review's gyro rate never read** (`filters.js` `load()`; proven in
+  [`../bug-proofs/filter-review.md`](../bug-proofs/filter-review.md), row 14). Filter Review's "Open in
+  Filter Tool" link carries the rate as `GYRO_SAMPLE_RATE`, which matches no input name, so upstream
+  stays at 2000 Hz. `stateFromQuery` reads it as `GyroSampleRate` when a link has no `GyroSampleRate`.
+  Tests: `page.test.ts` "proven upstream bug fixed: a Filter Review link sets the gyro rate it carries
+  as GYRO_SAMPLE_RATE"; `filter-tool.real-logs.test.ts` (opt-in, `APWT_REAL_LOGS`: links built by the
+  upstream Filter Review from real logs, opened in the upstream page and the port, inputs and every
+  Bode plot compared); proof `proofs/filter-review/filter-tool-gyro-rate.test.ts`.
 - **Harmonic-notch chained copies** (shared model): fixed in `@apwt/filters`, see
   [`filters.md`](filters.md). FilterTool's oracle tests (`bode.test.ts`, `page.test.ts`) load upstream
   with `patchChainedSpread` and check the original differs only in that case.

@@ -4,62 +4,19 @@
  * formatters lifted verbatim from upstream `setup_table`.
  */
 import { beforeAll, describe, expect, it } from 'vitest'
-import * as luxon from 'luxon'
-import { ALL_PARAM_IGNORE_KEYS, type ParamDiff } from './param-diff.js'
+import { ALL_PARAM_IGNORE_KEYS } from './param-diff.js'
 import { formatDistance, formatFlightTime, formatSize } from './format.js'
-import {
-  INITIAL_SORT,
-  buildTables,
-  commonPath,
-  nextSort,
-  NO_FILTER,
-  type BoardSort,
-  type ScannedLog,
-  type SortKey
-} from './table.js'
+import { INITIAL_SORT, buildTables, commonPath, nextSort, NO_FILTER, type ScannedLog, type SortKey } from './table.js'
 import { makeLog } from './test-utils/summary.js'
+import { FIELDS, compareClicks as compareClicksOn, diffRecord as asRecord, toUpstream } from './test-utils/table-compare.js'
 import { UpstreamTable } from './test-utils/tabulator.js'
-import { loadUpstreamLogFinder, type UpstreamDiff, type UpstreamLogFinder, type UpstreamRowData } from './test-utils/upstream.js'
+import { loadUpstreamLogFinder, type UpstreamLogFinder } from './test-utils/upstream.js'
 
 let up: UpstreamLogFinder
 beforeAll(async () => {
   up = await loadUpstreamLogFinder()
   up.param_diff_ignore.forEach((r) => (r.check.checked = true))
 })
-
-const FIELDS: Readonly<Record<SortKey, string>> = {
-  date: 'info.time_stamp',
-  name: 'info.name',
-  size: 'info.size',
-  firmware: 'info.fw_string',
-  flightTime: 'info.flight_time',
-  distance: 'info.distance_traveled'
-}
-
-function toUpstream(log: ScannedLog<string>): UpstreamRowData {
-  const s = log.summary
-  return {
-    info: {
-      time_stamp: luxon.DateTime.fromJSDate(s.startTime as Date),
-      name: log.name,
-      size: s.sizeBytes,
-      fw_string: s.version.fwString,
-      flight_time: s.flightTimeS,
-      distance_traveled: s.distanceM ?? null,
-      params: Object.fromEntries(s.params)
-    },
-    fileHandle: { relativePath: log.relativePath, name: log.name }
-  }
-}
-
-const asRecord = (d: ParamDiff | null): UpstreamDiff | null =>
-  d === null
-    ? null
-    : {
-        added: Object.fromEntries(d.added),
-        missing: Object.fromEntries(d.missing),
-        changed: Object.fromEntries([...d.changed].map(([k, v]) => [k, { ...v }]))
-      }
 
 const day = (n: number) => new Date(Date.UTC(2024, 0, 1 + n))
 /** One board's logs in scan order, with awkward values: missing times, ties, unknown flight time. */
@@ -98,45 +55,8 @@ const LOGS: ScannedLog<string>[] = [
 const ignored = new Set(ALL_PARAM_IGNORE_KEYS)
 const BOARD = 'CubeOrange 0033003A'
 
-/** Run a sequence of header clicks on both, comparing order, per-row diffs and totals after each. */
 async function compareClicks(clicks: readonly SortKey[], logs: readonly ScannedLog<string>[] = LOGS): Promise<void> {
-  const data = logs.map(toUpstream)
-  const table = await UpstreamTable.create(data)
-  const redraw = { redraw: () => undefined }
-  let sort: BoardSort = INITIAL_SORT
-  let upDir: 'asc' | 'desc' = 'asc'
-  let upField = FIELDS.date
-  const check = (label: string) => {
-    const rows = table.sort(upField, upDir)
-    up.update_param_diff(redraw, rows)
-    const [mine] = buildTables(logs, { filter: NO_FILTER, sorts: new Map([[BOARD, sort]]), ignored })
-    expect(
-      mine?.rows.map((r) => r.log.relativePath),
-      label
-    ).toEqual(rows.map((r) => r.getData().fileHandle.relativePath))
-    expect(
-      mine?.rows.map((r) => asRecord(r.paramDiff)),
-      label
-    ).toEqual(rows.map((r) => r.getData().param_diff))
-    expect(asRecord(mine?.totals?.paramDiff ?? null), label).toEqual(
-      up.formatters.total_param_diff_calc(
-        [],
-        rows.map((r) => r.getData())
-      )
-    )
-  }
-  check('initial sort')
-  for (const key of clicks) {
-    const field = FIELDS[key]
-    upDir = upField === field && upDir === 'asc' ? 'desc' : 'asc'
-    upField = field
-    sort = nextSort(
-      sort,
-      key,
-      buildTables(logs, { filter: NO_FILTER, sorts: new Map([[BOARD, sort]]), ignored })[0]?.sorted ?? []
-    )
-    check(`${key} ${upDir}`)
-  }
+  await compareClicksOn(up, logs, BOARD, clicks, ignored)
 }
 
 describe('table sort and diffs oracle (Tabulator 6.2.1 + update_param_diff)', () => {

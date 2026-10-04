@@ -8,6 +8,7 @@
     { "path": "../../packages/dataflash" },
     { "path": "../../packages/ardupilot" },
     { "path": "../../packages/plot" },
-    { "path": "../../packages/tool-shell" }
+    { "path": "../../packages/tool-shell" },
+    { "path": "../filter-review" }
   ]
 }

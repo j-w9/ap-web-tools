@@ -11,6 +11,17 @@ in `node:vm` against a small recording DOM: upstream's `reset()` + `load_log()` 
 downloads and `alert` texts with the port's results. Status `convenience` marks a UI addition that
 changes no computed result.
 
+Real-log test: `src/analysis/report.real-logs.test.ts` (gated: runs only when `APWT_REAL_LOGS`
+names a directory of `.bin` logs) loads each log into upstream and the port and runs every oracle
+comparison above (parameters, changes and downloads; sensor sections and position plot; watchdog and
+internal errors; the hash passed to `check_release`; all log sections of part B, with the FILES
+downloads affected by the proven parser bug compared the documented way). The comparisons are
+shared with the oracle tests through `src/test-utils/compare-*.ts`. On 17 real logs it found one
+difference, in the harness rather than the port: the harness skipped upstream's window-load
+`initial_load()`, so upstream never had board names and a log with a known board id showed none.
+The harness now runs `initial_load()` with `board_types.txt` served from `upstream/`; with it, every
+log matches.
+
 ## Part A: release check, faults, sensors and parameters
 
 Oracle tests added in this audit (all run upstream `HardwareReport.js` in a vm through

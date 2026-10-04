@@ -13,6 +13,7 @@ import {
   detectVehicleType,
   mavTypeForVehicle,
   modeName,
+  modeTableVehicle,
   vehicleTypeForBuildType,
   type MavType,
   type ModeChange,
@@ -340,12 +341,12 @@ export class DataflashLog {
   }
 
   /**
-   * Name of a mode number for this log's vehicle. Falls back to the copter
-   * table when the vehicle is unknown (as upstream does), and to
-   * `"UNKNOWN(<n>)"` when the number is not in the table.
+   * Name of a mode number, as upstream `getModeString` gives it: the table is chosen from the MSG
+   * text ({@link modeTableVehicle}, copter when no message names a vehicle), and a number missing
+   * from upstream's table has no name (`undefined`).
    */
-  modeName(mode: number): string {
-    return modeName(this.vehicleType() ?? 'copter', mode) ?? `UNKNOWN(${mode})`
+  modeName(mode: number): string | undefined {
+    return modeName(modeTableVehicle(this.textMessages()), mode)
   }
 
   /** Every MODE record with its resolved mode name, in log order. */
@@ -357,13 +358,14 @@ export class DataflashLog {
     const reason = numeric(msg.columns['Rsn'])
     if (time === undefined || mode === undefined) return []
     const out: ModeChange[] = []
+    const vehicle = modeTableVehicle(this.textMessages())
     for (let i = 0; i < msg.length; i++) {
       const m = mode[i] as number
       out.push({
         timeUs: time[i] as number,
         mode: m,
         reason: reason === undefined ? undefined : reason[i],
-        name: this.modeName(m)
+        name: modeName(vehicle, m)
       })
     }
     return out

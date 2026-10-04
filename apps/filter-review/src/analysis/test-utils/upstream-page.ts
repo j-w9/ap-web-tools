@@ -109,6 +109,8 @@ export interface UpstreamPage {
   set(name: string, value: unknown): void
   element(id: string): PageElement
   readonly alerts: string[]
+  /** Messages upstream only writes to the console (the port shows some of them as warnings). */
+  readonly consoleMessages: string[]
   /** Run upstream `load()` on log bytes (parsed by the upstream JsDataflashParser). */
   load(bytes: Uint8Array): Promise<void>
   /** Run upstream `load_parameters()` with a file holding `text`. */
@@ -191,6 +193,7 @@ export async function loadFilterReviewPage(options: { readonly fixed?: boolean }
   const element = (id: string): PageElement => elements.get(id) ?? make(id, 'div', 'DIV', '', '', false)
 
   const alerts: string[] = []
+  const consoleMessages: string[] = []
   let saved = ''
   let opened = ''
   let href = ''
@@ -218,7 +221,7 @@ export async function loadFilterReviewPage(options: { readonly fixed?: boolean }
     saveAs: (blob: { parts: string[] }) => (saved = blob.parts.join('')),
     alert: (msg: string) => alerts.push(msg),
     error: (msg: string) => alerts.push(msg),
-    console: { log: noop, error: noop, warn: noop },
+    console: { log: (...parts: unknown[]) => consoleMessages.push(parts.map(String).join(' ')), error: noop, warn: noop },
     performance: { now: () => 0 },
     Plotly: { newPlot: noop, purge: noop, redraw: noop },
     link_plot_axis_range: noop,
@@ -242,6 +245,7 @@ export async function loadFilterReviewPage(options: { readonly fixed?: boolean }
     set,
     element,
     alerts,
+    consoleMessages,
     load: async (bytes) => {
       set('__buffer', bytes.slice().buffer)
       const original = console.log

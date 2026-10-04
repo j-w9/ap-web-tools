@@ -6,7 +6,10 @@ Port: `apps/stream-stats/`.
 
 Oracle tests run the upstream JavaScript in `node:vm` (`src/analysis/test-support/upstream.ts`) and,
 for `.bin` logs, the real upstream `JsDataflashParser` on the fixture logs
-(`src/analysis/stats.test.ts`).
+(`src/analysis/stats.test.ts`). `src/analysis/bin.real-logs.test.ts` (gated: runs only when
+`APWT_REAL_LOGS` names a directory of logs) compares `plot_log` on each real `.bin` (every rate trace,
+the total and the composition, both units, 2 s and 10 s windows); no differences beyond the proven
+bits-pie fix.
 
 ## Inventory
 
