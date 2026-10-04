@@ -217,6 +217,26 @@ const videoOverlayLoaded = async (page) => {
   await toTop(page)
 }
 
+/**
+ * Console errors a state produces by design, by tool and state ('*' for every state), with why.
+ * They are kept in report.json as `expectedErrors` but are not findings.
+ */
+export const EXPECTED_ERRORS = {
+  'telemetry-dashboard': {
+    // Like upstream, the page connects to Mission Planner's default address on start; nothing listens
+    // there during the audit, and the stub WebSocket is installed afterwards.
+    '*': [/^console: WebSocket connection to 'ws:\/\/127\.0\.0\.1:56781\/' failed/]
+  },
+  'simple-gcs': {
+    // The inset loads from the default local MediaMTX ports (8888/8889); no media server runs here.
+    'video-inset': [/^console: Failed to load resource: net::ERR_CONNECTION_REFUSED$/]
+  },
+  'ai-log-analyzer': {
+    // The mocked OpenAI route answers 401 to show the rejected-key state.
+    'bad-key': [/^console: Failed to load resource: the server responded with a status of 401/]
+  }
+}
+
 export const STATES = {
   'pid-review': [
     { name: 'log', files: [sitl] },

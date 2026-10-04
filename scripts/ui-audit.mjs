@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createServer } from 'vite'
 import { chromium } from 'playwright'
-import { STATES } from './ui-audit.config.mjs'
+import { EXPECTED_ERRORS, STATES } from './ui-audit.config.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const args = process.argv.slice(2)
@@ -43,6 +43,8 @@ function inspect() {
     if (style.display === 'none' || style.visibility === 'hidden') continue
     const r = el.getBoundingClientRect()
     if (r.width === 0 || r.height === 0) continue
+    // Visually hidden text for screen readers (1 px, clipped on purpose).
+    if (el.closest('.sr-only')) continue
     // Elements extending past the right edge, unless inside a horizontally scrollable container.
     if (r.right > vw + 1) {
       let scroller = el.parentElement
@@ -125,11 +127,17 @@ try {
               viewport: vp.name,
               theme,
               screenshot: `${tool}/${file}`,
-              errors,
+              ...splitErrors(tool, state.name, errors),
               ...checks
             })
           } catch (e) {
-            ;(report[tool] ??= []).push({ state: state.name, viewport: vp.name, theme, failed: String(e).slice(0, 300), errors })
+            ;(report[tool] ??= []).push({
+              state: state.name,
+              viewport: vp.name,
+              theme,
+              failed: String(e).slice(0, 300),
+              ...splitErrors(tool, state.name, errors)
+            })
           }
           await context.close()
         }
@@ -139,6 +147,11 @@ try {
 } finally {
   await browser.close()
   await server.close()
+}
+function splitErrors(tool, stateName, all) {
+  const patterns = [...(EXPECTED_ERRORS[tool]?.['*'] ?? []), ...(EXPECTED_ERRORS[tool]?.[stateName] ?? [])]
+  const isExpected = (e) => patterns.some((p) => p.test(e))
+  return { errors: all.filter((e) => !isExpected(e)), expectedErrors: all.filter(isExpected) }
 }
 writeFileSync(resolve(out, 'report.json'), JSON.stringify(report, null, 2))
 for (const [tool, rows] of Object.entries(report)) {
