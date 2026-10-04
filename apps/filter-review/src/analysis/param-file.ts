@@ -60,10 +60,11 @@ export interface ParamFileResult {
   /** Input values written, in file order. */
   readonly assignments: readonly ParamFileAssignment[]
   /**
-   * Set when upstream would have thrown part way through (a line naming one of the page's
-   * file inputs). Lines before it were applied; upstream then skips the recalculation.
+   * Lines naming one of the page's file inputs, which cannot be set. Proven upstream bug fixed
+   * (docs/bug-proofs/filter-review.md, row 10): upstream threw there, leaving the rest of the file
+   * unapplied and skipping the recalculation; here such a line is skipped and the rest applied.
    */
-  readonly error?: string
+  readonly skipped: readonly string[]
 }
 
 /**
@@ -71,7 +72,8 @@ export interface ParamFileResult {
  * trimmed) is split on runs of whitespace, `,` and `=`; a line with at least two parts sets the
  * page element whose id is the first part to the second part. An indented line therefore has
  * an empty name and is ignored. Values go through the input's own rules: a number input keeps
- * only a valid number string (else empty, read as NaN), a drop-down only one of its options.
+ * only a valid number string (else empty, read as NaN), a drop-down its option or the number
+ * (see `assignedValue`). A line naming a file input is skipped (see `skipped`).
  *
  * Names are page element ids, not only parameters: `TimeStart`, `TimeEnd`, `FFTWindow_size`
  * and `FFTWindow_per_batch` are written too. Other ids (checkboxes, buttons, plots) take the
@@ -79,6 +81,7 @@ export interface ParamFileResult {
  */
 export function applyParamFile(text: string): ParamFileResult {
   const assignments: ParamFileAssignment[] = []
+  const skipped: string[] = []
   const lines = text.split('\n')
   for (const line of lines) {
     const v = line.split(/[\s,=\t]+/)
@@ -90,11 +93,8 @@ export function applyParamFile(text: string): ParamFileResult {
     } else if (OTHER_INPUTS.has(name)) {
       assignments.push({ kind: 'other', name: name as OtherPageInput, value: sanitizeNumberInput(value) })
     } else if (FILE_INPUTS.has(name) && value !== '') {
-      return {
-        assignments,
-        error: `Parameter file loading stopped at "${line}": ${name} is a file input and cannot be set (InvalidStateError)`
-      }
+      skipped.push(line)
     }
   }
-  return { assignments }
+  return { assignments, skipped }
 }

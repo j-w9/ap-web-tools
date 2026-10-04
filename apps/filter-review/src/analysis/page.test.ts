@@ -24,6 +24,13 @@ import type { Pair } from './test-utils/upstream.js'
 
 const INITIAL: PageInputs = { values: defaultPageValues(), windowSize: '1024', windowsPerBatch: '1' }
 
+/**
+ * Upstream page with the proven fixes the port makes (docs/bug-proofs/filter-review.md; edits in
+ * test-utils/proven-fixes.ts). Everything those edits do not touch is the original page; the tests
+ * below that reach a fixed bug also check the original's result.
+ */
+const fixedPage = (): Promise<UpstreamPage> => loadFilterReviewPage({ fixed: true })
+
 function rawLog(params: Record<string, number> = {}, bytes = fixture('copter-sitl.bin')): Uint8Array {
   const log = new LogAppender(bytes)
   for (const [name, value] of Object.entries(params)) log.param(name, value)
@@ -46,11 +53,11 @@ function upstreamValues(page: UpstreamPage): PageValues {
 }
 
 /** Port state after a sequence of loads, threading the page inputs like the App does. */
-function portLoads(logs: readonly Uint8Array[], start: PageInputs = INITIAL): LoadedPage {
+function portLoads(logs: readonly Uint8Array[], start: PageInputs = INITIAL, preferBatch = false): LoadedPage {
   let inputs = start
   let page: LoadedPage | undefined
   for (const bytes of logs) {
-    page = loadIntoPage(inputs, DataflashLog.parse(bytes))
+    page = loadIntoPage(inputs, DataflashLog.parse(bytes), preferBatch)
     inputs = page.inputs
   }
   return page!
@@ -124,28 +131,40 @@ describe('upstream load() page state', () => {
       INS_HNTCH_OPTS: 3,
       INS_HNTCH_HMNCS: 11
     })
-    const page = await loadFilterReviewPage()
+    const page = await fixedPage()
     await page.load(bytes)
     const mine = portLoads([bytes])
     expectSamePage(page, mine)
     expectSameTransfer(page, mine, mine.inputs.values)
   })
 
-  it('uses raw data when a log has both raw and batch data, even with "Batch" ticked', async () => {
+  it('proven upstream bug fixed: a log with both raw and batch data uses batch when "Batch" is ticked', async () => {
+    // docs/bug-proofs/filter-review.md, row 1: the original ticks "Raw sensor" before reading the choice.
     const bytes = batchLog({}, true)
-    const page = await loadFilterReviewPage()
+    const original = await loadFilterReviewPage()
+    original.element('log_type_batch').checked = true
+    await original.load(bytes)
+    expect(original.run('Gyro_batch.type')).toBe('raw')
+
+    const page = await fixedPage()
     page.element('log_type_batch').checked = true
     await page.load(bytes)
-    const mine = portLoads([bytes])
+    const mine = portLoads([bytes], INITIAL, true)
     expect(mine.log.available).toEqual({ batch: true, raw: true })
-    expect(mine.log.gyro.type).toBe('raw')
+    expect(mine.log.gyro.type).toBe('batch')
     expectSamePage(page, mine)
+    // With "Raw sensor" ticked both use raw data, as the original always did.
+    const raw = await fixedPage()
+    await raw.load(bytes)
+    const mineRaw = portLoads([bytes])
+    expect(mineRaw.log.gyro.type).toBe('raw')
+    expectSamePage(raw, mineRaw)
   })
 
   it('writes the batch window size back and a later raw log uses it', async () => {
     const batch = batchLog()
     const raw = rawLog()
-    const page = await loadFilterReviewPage()
+    const page = await fixedPage()
     page.element('FFTWindow_per_batch').value = '3'
     await page.load(batch)
     const start: PageInputs = { ...INITIAL, windowsPerBatch: '3' }
@@ -168,7 +187,7 @@ describe('upstream load() page state', () => {
       INS_HNTCH_FREQ: 120
     })
     const second = batchLog()
-    const page = await loadFilterReviewPage()
+    const page = await fixedPage()
     await page.load(first)
     await page.load(second)
     const mine = portLoads([first, second])
@@ -179,7 +198,8 @@ describe('upstream load() page state', () => {
     expect(mine.inputs.values.INS_HNTCH_FREQ).toBe('80')
   })
 
-  it('leaves a drop-down empty for a value it does not offer', async () => {
+  it('proven upstream bug fixed: keeps a drop-down value it does not offer as its number', async () => {
+    // docs/bug-proofs/filter-review.md, row 9: the original leaves the drop-down empty (NaN).
     const bytes = rawLog({
       INS_HNTC2_ENABLE: 2,
       INS_HNTC2_MODE: 7,
@@ -187,13 +207,19 @@ describe('upstream load() page state', () => {
       INS_HNTCH_MODE: 2,
       INS_HNTCH_HMNCS: -125
     })
-    const page = await loadFilterReviewPage()
+    const original = await loadFilterReviewPage()
+    await original.load(bytes)
+    expect(original.element('INS_HNTC2_ENABLE').value).toBe('')
+    expect(original.element('INS_HNTC2_MODE').value).toBe('')
+    expect(original.alerts).toContain('Unsupported notch mode NaN')
+
+    const page = await fixedPage()
     await page.load(bytes)
     const mine = portLoads([bytes])
-    expect(mine.inputs.values.INS_HNTC2_ENABLE).toBe('')
-    expect(mine.inputs.values.INS_HNTC2_MODE).toBe('')
+    expect(mine.inputs.values.INS_HNTC2_ENABLE).toBe('2')
+    expect(mine.inputs.values.INS_HNTC2_MODE).toBe('7')
     expectSamePage(page, mine)
-    expect(page.alerts).toContain('Unsupported notch mode NaN')
+    expect(page.alerts).toContain('Unsupported notch mode 7')
     expectSameTransfer(page, mine, mine.inputs.values)
   })
 })
@@ -222,14 +248,14 @@ describe('upstream load_parameters()', () => {
 
   it('sets the same inputs and filters as upstream', async () => {
     const bytes = rawLog({ INS_HNTCH_ENABLE: 1 })
-    const page = await loadFilterReviewPage()
+    const page = await fixedPage()
     await page.load(bytes)
     page.alerts.length = 0
     await page.loadParameters(text)
 
     const mine = portLoads([bytes])
     const result = applyParamFile(text)
-    expect(result.error).toBeUndefined()
+    expect(result.skipped).toEqual([])
     let values = mine.inputs.values
     const other = new Map<string, string>()
     for (const a of result.assignments) {
@@ -239,11 +265,13 @@ describe('upstream load_parameters()', () => {
     expect(values).toEqual(upstreamValues(page))
     for (const id of ['TimeStart', 'TimeEnd', 'FFTWindow_per_batch']) expect(other.get(id)).toBe(page.element(id).value)
     expect(other.has('FFTWindow_size')).toBe(false)
-    // Indented line ignored; invalid number and option text leave the input empty
+    // Indented line ignored; invalid number text leaves the input empty; a drop-down keeps a
+    // number it does not offer (proven bug fixed, row 9; the original leaves it empty)
     expect(values.INS_HNTCH_FREQ).toBe(mine.inputs.values.INS_HNTCH_FREQ)
     expect(values.INS_HNTCH_ATT).toBe('')
     expect(values.INS_HNTCH_FM_RAT).toBe('')
-    expect(values.INS_HNTC2_ENABLE).toBe('')
+    expect(values.INS_HNTC2_ENABLE).toBe('1')
+    expect(values.INS_HNTC2_MODE).toBe('7')
 
     const filters = buildFilters(
       filterParamsFromPage(values, mine.log.sixteenHarmonics),
@@ -265,24 +293,34 @@ describe('upstream load_parameters()', () => {
     expect([...ours.searchParams]).toEqual([...theirs.searchParams])
   })
 
-  it('stops at a line naming a file input, as upstream throws there', async () => {
+  it('proven upstream bug fixed: skips a line naming a file input, where upstream throws and stops', async () => {
+    // docs/bug-proofs/filter-review.md, row 10 (the abort part).
     const bytes = rawLog()
-    const page = await loadFilterReviewPage()
-    await page.load(bytes)
     const stop = 'INS_HNTCH_BW,10\nfileItem,x\nINS_HNTCH_ATT,20\n'
-    await expect(page.loadParameters(stop)).rejects.toThrow('InvalidStateError')
+    const original = await loadFilterReviewPage()
+    await original.load(bytes)
+    await expect(original.loadParameters(stop)).rejects.toThrow('InvalidStateError')
+    expect(original.element('INS_HNTCH_BW').value).toBe('10')
+    expect(original.element('INS_HNTCH_ATT').value).toBe('40')
+
+    const page = await fixedPage()
+    await page.load(bytes)
+    await page.loadParameters(stop)
     const result = applyParamFile(stop)
-    expect(result.error).toContain('fileItem')
-    expect(result.assignments).toEqual([{ kind: 'param', name: 'INS_HNTCH_BW', value: '10' }])
+    expect(result.skipped).toEqual(['fileItem,x'])
+    expect(result.assignments).toEqual([
+      { kind: 'param', name: 'INS_HNTCH_BW', value: '10' },
+      { kind: 'param', name: 'INS_HNTCH_ATT', value: '20' }
+    ])
     expect(page.element('INS_HNTCH_BW').value).toBe('10')
-    expect(page.element('INS_HNTCH_ATT').value).toBe('40')
+    expect(page.element('INS_HNTCH_ATT').value).toBe('20')
   })
 })
 
 describe('upstream save_parameters()', () => {
   it('writes inputs in page order with empty inputs as 0', async () => {
     const bytes = rawLog({ INS_HNTCH_HMNCS: -125, INS_GYRO_FILTER: 0.65 })
-    const page = await loadFilterReviewPage()
+    const page = await fixedPage()
     await page.load(bytes)
     page.element('INS_HNTCH_BW').value = ''
     page.element('INS_HNTC2_MODE').value = '9'

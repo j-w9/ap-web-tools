@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createContext, runInContext } from 'node:vm'
+import { patchChainedSpread } from './chained-spread.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const upstreamDir = resolve(here, '../../../../../upstream')
@@ -125,7 +126,12 @@ export interface UpstreamPage {
 
 let sources: string | undefined
 
-export function loadUpstreamPage(): UpstreamPage {
+export interface PageOptions {
+  /** Apply `patchChainedSpread` (the reference for the port's fix of the proven chained-spread bug). */
+  fixChainedSpread?: boolean
+}
+
+export function loadUpstreamPage(options: PageOptions = {}): UpstreamPage {
   const html = readFileSync(resolve(upstreamDir, 'FilterTool/index.html'), 'utf8')
   const metadata = JSON.parse(readFileSync(resolve(upstreamDir, 'FilterTool/params.json'), 'utf8')) as Record<string, unknown>
   sources ??= ['Libraries/Array_Math.js', 'Libraries/ParameterMetadata.js', 'Libraries/Param_Helpers.js', 'FilterTool/filters.js']
@@ -177,7 +183,9 @@ export function loadUpstreamPage(): UpstreamPage {
     },
     saveAs: (blob: { parts: string[] }, name: string) => saved.push({ name, text: blob.parts.join('') })
   }) as Record<string, unknown>
-  runInContext(sources, context, { filename: 'upstream-filter-tool-page.js' })
+  runInContext(options.fixChainedSpread === true ? patchChainedSpread(sources) : sources, context, {
+    filename: 'upstream-filter-tool-page.js'
+  })
 
   return {
     context,

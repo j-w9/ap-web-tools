@@ -58,9 +58,16 @@ describe('default time range', () => {
     expect(defaultTimeRange(0.2, 14.7, throttle)).toEqual({ dataStart: 0, dataEnd: 15, start: 4, end: 11 })
   })
 
-  it('ignores a throttle that is positive from the first sample, as upstream', () => {
+  it('crops to a throttle that is positive from the first sample (proven upstream bug fixed, row 5)', () => {
+    // Upstream ignores a match at index 0 and keeps 0 to 15 (proofs/filter-review/throttle-index-zero.test.ts)
     const throttle = series([0.2, 0.3, 0.4])
-    expect(throttleActiveRange(throttle).first).toBeUndefined()
+    expect(throttleActiveRange(throttle)).toEqual({ first: 0, last: 3 })
+    expect(defaultTimeRange(0.2, 14.7, throttle)).toEqual({ dataStart: 0, dataEnd: 15, start: 1, end: 2 })
+  })
+
+  it('keeps the data span without positive throttle', () => {
+    const throttle = series([0, 0, 0])
+    expect(throttleActiveRange(throttle)).toEqual({ first: undefined, last: undefined })
     expect(defaultTimeRange(0.2, 14.7, throttle)).toEqual({ dataStart: 0, dataEnd: 15, start: 0, end: 15 })
   })
 })

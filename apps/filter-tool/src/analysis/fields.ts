@@ -9,8 +9,11 @@
  *   `Infinity`, an empty string) becomes `""`, which reads back as `NaN`.
  * - Parameters whose metadata lists `Values` are replaced by a `<select>` (`load_param_inputs`),
  *   except `SCHED_LOOP_RATE` (`data-paramValues="false"`). Setting a select to text that is not
- *   exactly one of its option values selects nothing, which also reads back as `NaN`. So
- *   `INS_HNTCH_MODE,1.000000` (MAVProxy's format) reads as `NaN`, i.e. a fixed notch.
+ *   exactly one of its option values selects nothing, which also reads back as `NaN`. So upstream
+ *   reads `INS_HNTCH_MODE,1.000000` (MAVProxy's format) as `NaN`, i.e. a fixed notch, and
+ *   `INS_HNTCH_ENABLE,0.000000` as an enabled notch. That is a proven upstream bug
+ *   (docs/bug-proofs/filter-tool.md, row 2), fixed here: a number whose value is an option (`1.000000`,
+ *   `1e0`) selects that option. Any other text that is not an option still reads as `NaN`.
  */
 import { PARAM_METADATA } from './metadata.js'
 import { isParamName, type InputName, type ParamName } from './params.js'
@@ -31,7 +34,13 @@ const VALID_FLOAT = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?$/
 
 /** The number upstream reads back after `element.value = text` (`parameter_set_value` then `get_form`). */
 export function assignFieldText(name: InputName, text: string): number {
-  if (isSelectField(name)) return optionValues(name).includes(text) ? parseFloat(text) : NaN
+  if (isSelectField(name)) {
+    const options = optionValues(name)
+    if (options.includes(text)) return parseFloat(text)
+    // Proven upstream bug fixed (see above): numeric text equal to an option's value selects it.
+    const option = VALID_FLOAT.test(text) ? String(parseFloat(text)) : ''
+    return options.includes(option) ? parseFloat(option) : NaN
+  }
   return VALID_FLOAT.test(text) ? parseFloat(text) : NaN
 }
 

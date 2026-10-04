@@ -19,15 +19,20 @@ import {
 } from './params.js'
 import { DEFAULT_STATE, stateFromQuery, stateToQuery, type BodeSettings, type PidSettings, type ToolState } from './settings.js'
 import { attempt } from './validate.js'
+import { isSelectField } from './fields.js'
+import { PARAM_METADATA } from './metadata.js'
 import { randomInputs } from './test-utils/inputs.js'
+import { provenChainedSpreadCase } from './test-utils/chained-spread.js'
 import { loadUpstreamPage, type UpstreamPage } from './test-utils/page.js'
 import { rng } from './test-utils/random.js'
 
 const AXIS_BUTTONS: Readonly<Record<PidAxis, string>> = { RLL: 'CalculateRoll', PIT: 'CalculatePitch', YAW: 'CalculateYaw' }
 const AXIS_TITLES: Readonly<Record<PidAxis, string>> = { RLL: 'Roll axis', PIT: 'Pitch axis', YAW: 'Yaw axis' }
 
+// The page is loaded with the proven chained harmonic-notch spread bug fixed
+// (docs/bug-proofs/filters.md, row 2); outside that case it is the original page (see bode.test.ts).
 function freshPage(href?: string): UpstreamPage {
-  const page = loadUpstreamPage()
+  const page = loadUpstreamPage({ fixChainedSpread: true })
   if (href !== undefined) page.setHref(href)
   page.call('load')
   return page
@@ -126,6 +131,16 @@ describe('plots match upstream calculate_filter and calculate_pid', () => {
     it(`case ${n}`, () => {
       const page = freshPage()
       setInputs(page, inputs)
+      // The original page differs from the patched one only in the proven chained-spread case.
+      const original = loadUpstreamPage()
+      setInputs(original, inputs)
+      const centres = (p: UpstreamPage) =>
+        JSON.stringify(
+          (p.call('get_filters', inputs.GyroSampleRate) as { notches?: { center_freq_hz: number }[] }[]).map((f) =>
+            (f.notches ?? []).map((x) => x.center_freq_hz)
+          )
+        )
+      if (centres(original) !== centres(page)) expect(provenChainedSpreadCase(inputs, inputs.GyroSampleRate)).toBe(true)
       const gyroSettings = randomSettings(next)
       setBodeRadios(page, '', gyroSettings)
       page.call('calculate_filter')
@@ -212,7 +227,7 @@ describe('saved file matches upstream save_parameters', () => {
 describe('loaded file matches upstream load_parameters', () => {
   const files = [
     ['INS_HNTCH_ENABLE,1', 'INS_HNTCH_MODE,1', 'INS_HNTCH_FREQ,82.5', 'INS_GYRO_FILTER=40', 'ATC_RAT_RLL_P\t0.2'].join('\n'),
-    // MAVProxy's format: the selects get no matching option and read as NaN.
+    // MAVProxy's format: upstream's selects get no matching option and read as NaN (proven bug, fixed).
     ['INS_HNTCH_ENABLE       1.000000', 'INS_HNTCH_MODE         3.000000', 'INS_HNTCH_FREQ         80.000000'].join('\n'),
     // CRLF, indentation, empty values, invalid number text, comments, Q_A_RAT_, operating-point inputs.
     [
@@ -245,10 +260,43 @@ describe('loaded file matches upstream load_parameters', () => {
       page.context.update_all_hidden = () => undefined
       page.context.calculate_filter = () => undefined
       await (page.call('load_parameters', { text: () => Promise.resolve(text) }) as Promise<void>)
-      expect({ ...DEFAULT_INPUTS, ...parseParamFile(text) }).toEqual(readInputs(page))
+      const { expected, fixed } = withProvenSelectFix(text, readInputs(page))
+      expect({ ...DEFAULT_INPUTS, ...parseParamFile(text) }).toEqual(expected)
+      // Files 1 and 3 hold drop-down values written as numbers (`1.000000`, `-0`).
+      expect(fixed.length > 0).toBe(n === 1 || n === 3)
     })
   })
 })
+
+/**
+ * Upstream's inputs after a file load, with the proven drop-down bug fixed
+ * (docs/bug-proofs/filter-tool.md, row 2): where upstream's drop-down read NaN because the file's
+ * value is a number equal to an option but written differently (`1.000000`), the fixed value is that
+ * option. Every other input is upstream's value unchanged.
+ */
+function withProvenSelectFix(
+  text: string,
+  upstream: Record<InputName, number>
+): { expected: Record<InputName, number>; fixed: string[] } {
+  const expected = { ...upstream }
+  const fixed: string[] = []
+  const last = new Map<string, string>()
+  for (const line of text.split('\n')) {
+    const v = line.split(/[\s,=\t]+/)
+    if (v.length >= 2) last.set(v[0]!, v[1]!)
+  }
+  for (const name of INPUT_NAMES) {
+    const value = last.get(name)
+    if (!isSelectField(name) || value === undefined || !Number.isNaN(upstream[name])) continue
+    const meta = PARAM_METADATA[name]
+    const option = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?$/.test(value) ? String(parseFloat(value)) : ''
+    if (meta.kind === 'values' && meta.values.some((o) => String(o.value) === option)) {
+      expected[name] = parseFloat(option)
+      fixed.push(name)
+    }
+  }
+  return { expected, fixed }
+}
 
 describe('share links match upstream load and get_link', () => {
   function pageState(page: UpstreamPage, axis: PidAxis): ToolState {

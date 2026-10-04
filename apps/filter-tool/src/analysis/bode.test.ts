@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { gyroBode, pidBode, type BodeScale, type PidFiltering } from './bode.js'
 import { DEFAULT_INPUTS, PID_AXES, pidParam, type Inputs } from './params.js'
 import { randomInputs } from './test-utils/inputs.js'
+import { provenChainedSpreadCase } from './test-utils/chained-spread.js'
 import { loadFilterToolUpstream, type UpstreamFilterTool } from './test-utils/upstream.js'
 import { rng } from './test-utils/random.js'
 
@@ -14,13 +15,23 @@ function setAll(up: UpstreamFilterTool, inputs: Inputs): void {
   for (const [name, value] of Object.entries(inputs)) up.setForm(name, value)
 }
 
+const centres = (up: UpstreamFilterTool, rate: number) =>
+  JSON.stringify(up.get_filters(rate).map((f) => (f.notches ?? []).map((x) => x.center_freq_hz)))
+
+// Upstream is loaded with the proven chained harmonic-notch spread bug fixed (docs/bug-proofs/filters.md,
+// row 2); the gyro cases also check that the original differs only in that proven case.
 describe('gyroBode matches upstream calculate_filter', () => {
   const next = rng(42)
   const cases = [DEFAULT_INPUTS, ...Array.from({ length: 24 }, () => randomInputs(next))]
   cases.forEach((inputs, n) => {
     it(`case ${n}`, () => {
-      const up = loadFilterToolUpstream()
+      const up = loadFilterToolUpstream({ fixChainedSpread: true })
       setAll(up, inputs)
+      const original = loadFilterToolUpstream()
+      setAll(original, inputs)
+      if (centres(original, inputs.GyroSampleRate) !== centres(up, inputs.GyroSampleRate)) {
+        expect(provenChainedSpreadCase(inputs, inputs.GyroSampleRate)).toBe(true)
+      }
       for (const scale of SCALES) {
         const dB = scale.magnitude === 'dB'
         const unwrap = scale.phase === 'unwrapped'
@@ -55,7 +66,7 @@ describe('pidBode matches upstream calculate_pid', () => {
   const filterings: readonly PidFiltering[] = ['pre', 'post']
   cases.forEach((inputs, n) => {
     it(`case ${n}`, () => {
-      const up = loadFilterToolUpstream()
+      const up = loadFilterToolUpstream({ fixChainedSpread: true })
       setAll(up, inputs)
       const rate = inputs.SCHED_LOOP_RATE
       for (const axis of PID_AXES) {

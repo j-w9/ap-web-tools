@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createContext, runInContext } from 'node:vm'
 import { RealFft } from '@apwt/signal'
+import { applyProvenFixes } from './proven-fixes.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const upstreamDir = resolve(here, '../../../../../upstream')
@@ -49,17 +50,20 @@ const tool = [
   'FilterReview/tracking/Logged.js'
 ]
 
-let source: string | undefined
+const sources = new Map<boolean, string>()
 
-function upstreamSource(): string {
-  if (source !== undefined) return source
+function upstreamSource(fixed: boolean): string {
+  const cached = sources.get(fixed)
+  if (cached !== undefined) return cached
   const parts = [...libraries, ...tool].map((file) => {
     let text = readFileSync(resolve(upstreamDir, file), 'utf8')
+    if (fixed) text = applyProvenFixes(file, text)
     // The parser is imported dynamically by the page; tests pass parsed logs in directly.
     if (file.endsWith('FilterReview.js')) text = text.replace(/^const import_done = import\(.*$/m, '')
     return text
   })
-  source = parts.join('\n;\n') + '\n;({ run: (code) => eval(code) })'
+  const source = parts.join('\n;\n') + '\n;({ run: (code) => eval(code) })'
+  sources.set(fixed, source)
   return source
 }
 
@@ -76,8 +80,14 @@ function makeElement(): StubElement {
   }
 }
 
+/** Options for loading upstream. */
+export interface UpstreamOptions {
+  /** Apply the proven fixes the port makes (`proven-fixes.ts`); default false, the original. */
+  readonly fixed?: boolean
+}
+
 /** Load a fresh upstream FilterReview into its own vm context. */
-export function loadFilterReviewUpstream(): UpstreamFilterReview {
+export function loadFilterReviewUpstream(options: UpstreamOptions = {}): UpstreamFilterReview {
   const elements = new Map<string, StubElement>()
   const element = (id: string): StubElement => {
     let e = elements.get(id)
@@ -101,7 +111,7 @@ export function loadFilterReviewUpstream(): UpstreamFilterReview {
     link_plot_reset: noop,
     plot_default_color: () => '#000'
   })
-  const api = runInContext(upstreamSource(), context, { filename: 'upstream-filter-review.js' }) as {
+  const api = runInContext(upstreamSource(options.fixed ?? false), context, { filename: 'upstream-filter-review.js' }) as {
     run: (code: string) => unknown
   }
   return {

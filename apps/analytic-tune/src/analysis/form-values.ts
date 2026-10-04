@@ -24,9 +24,23 @@ export function isValidFloatText(text: string): boolean {
   return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?$/.test(text)
 }
 
-/** Value read back after setting the input's value to `text` (`parameter_set_value(name, text)`). */
+/**
+ * Value read back after setting the input's value to `text` (`parameter_set_value(name, text)`).
+ *
+ * Proven upstream bug, fixed (docs/bug-proofs/analytic-tune.md, row 107): upstream's drop-down
+ * keeps only text equal to an option, so `INS_HNTCH_ENABLE 0.000000` (MAVProxy format, the value 0,
+ * Disabled) reads NaN and enables the notch. The port selects the option whose number the text
+ * is, when the text is a number the page's number input would accept. Text equal to no option's
+ * number still reads NaN, as upstream.
+ */
 export function inputValueFromText(name: InputName, text: string): number {
-  if (isDropDown(name)) return optionTexts(name).includes(text) ? Number(text) : NaN
+  if (isDropDown(name)) {
+    const options = optionTexts(name)
+    if (options.includes(text)) return Number(text)
+    if (!isValidFloatText(text)) return NaN
+    const value = parseFloat(text)
+    return options.some((o) => Number(o) === value) ? value : NaN
+  }
   return isValidFloatText(text) ? parseFloat(text) : NaN
 }
 

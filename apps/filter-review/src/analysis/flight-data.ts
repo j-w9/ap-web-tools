@@ -25,8 +25,9 @@ export function readFlightData(log: DataflashLog): FlightData {
 }
 
 /**
- * Times of the first and last positive throttle. Upstream tests the found index for
- * truthiness, so a match at index 0 is ignored and a missing match yields `undefined`.
+ * Times of the first and last positive throttle, `undefined` when there is none. Proven upstream
+ * bug fixed (docs/bug-proofs/filter-review.md, row 5): upstream tests the found index for
+ * truthiness, so a match at index 0 was treated as not found.
  */
 export function throttleActiveRange(throttle: LoggedSeries | undefined): { first: number | undefined; last: number | undefined } {
   if (throttle === undefined) return { first: undefined, last: undefined }
@@ -40,8 +41,8 @@ export function throttleActiveRange(throttle: LoggedSeries | undefined): { first
     }
   }
   return {
-    first: firstIndex > 0 ? throttle.time[firstIndex] : undefined,
-    last: lastIndex > 0 ? throttle.time[lastIndex] : undefined
+    first: firstIndex >= 0 ? throttle.time[firstIndex] : undefined,
+    last: lastIndex >= 0 ? throttle.time[lastIndex] : undefined
   }
 }
 

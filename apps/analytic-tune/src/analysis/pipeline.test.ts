@@ -7,7 +7,7 @@ import { loadTuneLog, type LoadedTuneLog } from './load.js'
 import { DEFAULT_INPUTS, INPUT_NAMES, tuneTarget, withInputs, type Inputs, type TuneVehicle } from './params.js'
 import { predictResponses } from './predict.js'
 import { tuneAxisForSid } from './sid.js'
-import { INITIAL_AIRSPEED_SCALING, airspeedScalingFor, loadTimeHistory } from './time-history.js'
+import { airspeedScalingFor, loadTimeHistory } from './time-history.js'
 import { expectBitEqual, expectComplexBitEqual } from './test-utils/compare.js'
 import { buildSidLog, toArrayBuffer, type SyntheticLogOptions } from './test-utils/synthetic.js'
 import { loadAnalyticTuneUpstream, loadUpstreamParser, type Pair, type UpstreamAnalyticTune } from './test-utils/upstream.js'
@@ -209,8 +209,10 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
     inputs = withInputs(DEFAULT_INPUTS, loaded.inputs)
   })
 
-  function freshUpstream(): UpstreamAnalyticTune {
-    const up = loadAnalyticTuneUpstream(Parser)
+  // Proven upstream bug, fixed (bug-proofs/analytic-tune.md row 108): the calculations are compared
+  // with the page whose sample rate is (n - 1) / span; `fixSampleRate: false` is the original.
+  function freshUpstream(fixSampleRate = true): UpstreamAnalyticTune {
+    const up = loadAnalyticTuneUpstream(Parser, { fixSampleRate })
     up.setupPlots()
     up.loadLog(toArrayBuffer(bytes))
     return up
@@ -255,8 +257,16 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
     const history = loadTimeHistory(loaded.log, loaded.attitudeMessage, target, sidRun.startTime, sidRun.endTime)
     const identified = identifyResponses(history, target.axis, windowSize)
     expect(identified.sampleRate).toBe(s.dataSet.FFT.average_sample_rate)
+    // The original page's rate is n / span: high by n / (n - 1).
+    const original = freshUpstream(false)
+    if (run > 0) selectUpstreamRun(original, run)
+    original.setForm('FFTWindow_size', windowSize)
+    original.setChecked('UseAttitude', useAttitude)
+    original.calculate()
+    const n = history.signals.Rate.length
+    expect(original.state().dataSet.FFT.average_sample_rate / identified.sampleRate).toBeCloseTo(n / (n - 1), 12)
     expect(identified.windowCount).toBe(s.dataSet.FFT.center.length)
-    const airspeed = airspeedScalingFor(history, INITIAL_AIRSPEED_SCALING)
+    const airspeed = airspeedScalingFor(history)
     expect(airspeed).toEqual({ aspeed: s.aspeed, eas2tas: s.eas2tas })
 
     const measured = measuredResponses(identified, useAttitude, inputs.SCHED_LOOP_RATE)
@@ -283,9 +293,17 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
     expectComplexBitEqual(predicted.attitudeBrokenLoop, p.attbl_H!, 'pred att bl', true)
     expectComplexBitEqual(predicted.rateBrokenLoop, p.ratebl_H!, 'pred rate bl', true)
     expectComplexBitEqual(predicted.systemBrokenLoop, p.sysbl_H!, 'pred sys bl', true)
+    // Proven upstream bug (bug-proofs/analytic-tune.md row 110): upstream's loops write one element
+    // past the end of two results (the trailing NaN allowed above); every port result has the
+    // aircraft response's length.
+    expect(p.attctrl_ff_H![0].length).toBe(measured.bareAircraft.H.re.length + 1)
+    expect(p.sysbl_H![0].length).toBe(measured.bareAircraft.H.re.length + 1)
+    for (const h of Object.values(predicted)) expect(h.re.length).toBe(measured.bareAircraft.H.re.length)
 
     // Every plotted trace, for each loop and scale.
-    // Upstream forces the un-wrapped phase option off when drawing, so it changes nothing.
+    // Proven upstream bug, fixed (bug-proofs/analytic-tune.md row 104): upstream forces the
+    // un-wrapped phase option off when drawing, so it always plots the wrapped phase. The port's
+    // wrapped phase is upstream's; with "un-wrapped" selected it is upstream's own `unwrap` of it.
     const scales = [
       { gain: 'dB', unit: 'Hz', unwrap: false },
       { gain: 'linear', unit: 'rad/s', unwrap: true }
@@ -302,6 +320,7 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
         up.redraw()
         const after = up.state()
         const cmp = loopComparison(loop, sidRun.axis, measured, predicted)
+        const upPhase = (wrapped: number[]) => (scale.unwrap ? up.unwrap(wrapped) : wrapped)
         const x = frequencyIn(measured.freq, scale.unit)
         const label = `${loop} ${scale.gain}`
         const [magCalc, magPred] = after.fftPlot.data
@@ -309,11 +328,13 @@ describe.each(SCENARIOS)('$name log matches upstream', ({ log: options }) => {
         const [cohCalc, cohPred] = after.fftPlotCoh.data
         compareTrace(x, magCalc!.x, `${label} x`)
         compareTrace(gainOf(cmp.calculated.H, scale.gain), magCalc!.y, `${label} calc gain`)
-        compareTrace(phaseOf(cmp.calculated.H), phCalc!.y, `${label} calc phase`)
+        compareTrace(phaseOf(cmp.calculated.H, 'wrapped'), phCalc!.y, `${label} calc phase`)
+        compareTrace(phaseOf(cmp.calculated.H, scale.unwrap ? 'unwrapped' : 'wrapped'), upPhase(phCalc!.y), `${label} calc phase`)
         compareTrace(cmp.calculated.coherence, cohCalc!.y, `${label} calc coh`)
         expect(cmp.calculated.visible, `${label} calc visible`).toBe(magCalc!.visible)
         compareTrace(gainOf(cmp.predicted.H, scale.gain), magPred!.y, `${label} pred gain`)
-        compareTrace(phaseOf(cmp.predicted.H), phPred!.y, `${label} pred phase`)
+        compareTrace(phaseOf(cmp.predicted.H, 'wrapped'), phPred!.y, `${label} pred phase`)
+        compareTrace(phaseOf(cmp.predicted.H, scale.unwrap ? 'unwrapped' : 'wrapped'), upPhase(phPred!.y), `${label} pred phase`)
         if (cmp.predicted.visible) compareTrace(cmp.predicted.coherence, cohPred!.y, `${label} pred coh`)
         expect(cmp.predicted.visible, `${label} pred visible`).toBe(magPred!.visible)
       }

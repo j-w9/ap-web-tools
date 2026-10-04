@@ -29,11 +29,34 @@ export interface UpstreamScript {
   set(name: string, value: unknown): void
 }
 
+const SPREAD_LINE = 'var notch_spread = bandwidth_hz / (32.0 * notch_center);'
+const COPY_LOOP = 'for (var c=0; c<chained; c++) {'
+
+/**
+ * Upstream `HarmonicNotchFilter` (FilterTool, AnalyticTune) with the proven chained-spread bug fixed
+ * (docs/bug-proofs/filters.md, row 2): the spread line is moved from inside the per-motor copy loop to
+ * just before it, so every copy uses the first copy's (unclamped) spread. Nothing else changes, so the
+ * patched script differs from the original only for chained copies of a clamped harmonic.
+ */
+export function patchChainedSpread(source: string): string {
+  if (source.split(SPREAD_LINE).length !== 2 || source.split(COPY_LOOP).length !== 2) {
+    throw new Error('patchChainedSpread: upstream HarmonicNotchFilter no longer matches')
+  }
+  const lines = source.split('\n').filter((line) => line.trim() !== SPREAD_LINE)
+  return lines.join('\n').replace(COPY_LOOP, `${SPREAD_LINE}\n${COPY_LOOP}`)
+}
+
+export interface LoadOptions {
+  /** Apply `patchChainedSpread` (the corrected reference for the port's fixed behaviour). */
+  fixChainedSpread?: boolean
+}
+
 /** Load a fresh, isolated copy of a tool's upstream script. */
-export function loadUpstream(tool: UpstreamTool): UpstreamScript {
-  const source = ['Libraries/Array_Math.js', SCRIPTS[tool]]
+export function loadUpstream(tool: UpstreamTool, options: LoadOptions = {}): UpstreamScript {
+  let source = ['Libraries/Array_Math.js', SCRIPTS[tool]]
     .map((f) => readFileSync(resolve(upstreamDir, f), 'utf8').replace(/^.*\bimport\(.*$/gm, ''))
     .join('\n;\n')
+  if (options.fixChainedSpread === true) source = patchChainedSpread(source)
   const context = createContext({ console: { log: () => undefined } })
   runInContext(source, context, { filename: `upstream-${tool}.js` })
   return {

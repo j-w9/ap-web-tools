@@ -30,9 +30,27 @@ describe('parseParamFile', () => {
     })
   })
 
-  it('sets NaN for select values that are not exactly an option', () => {
-    expect(parseParamFile('INS_HNTCH_MODE 1.000000\nINS_HNTC2_MODE,3\n')).toEqual({ INS_HNTCH_MODE: NaN, INS_HNTC2_MODE: 3 })
+  it('sets NaN for select values that are not an option', () => {
+    expect(parseParamFile('INS_HNTCH_MODE 1.5\nINS_HNTC2_MODE,3\nINS_HNTCH_ENABLE,2\n')).toEqual({
+      INS_HNTCH_MODE: NaN,
+      INS_HNTC2_MODE: 3,
+      INS_HNTCH_ENABLE: NaN
+    })
     expect(assignFieldText('SCHED_LOOP_RATE', '333')).toBe(333)
+  })
+
+  it('proven upstream bug fixed: a number equal to an option selects it (upstream reads NaN)', () => {
+    // docs/bug-proofs/filter-tool.md, row 2; upstream's NaN is pinned in proofs/filter-tool and in
+    // page.test.ts "loaded file matches upstream load_parameters".
+    expect(
+      parseParamFile('INS_HNTCH_ENABLE 0.000000\nINS_HNTCH_MODE 1.000000\nINS_HNTC2_MODE,1e0\nINS_HNTC2_ENABLE,-0\n')
+    ).toEqual({
+      INS_HNTCH_ENABLE: 0,
+      INS_HNTCH_MODE: 1,
+      INS_HNTC2_MODE: 1,
+      INS_HNTC2_ENABLE: 0
+    })
+    expect(assignFieldText('INS_HNTCH_MODE', '1abc')).toBeNaN()
   })
 })
 

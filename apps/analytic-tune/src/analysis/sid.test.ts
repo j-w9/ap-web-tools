@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SidRunError, detectTuneVehicle, findSidRuns, sidAxisLabel, tuneAxisForSid } from './sid.js'
+import { detectTuneVehicle, findSidRuns, sidAxisLabel, tuneAxisForSid } from './sid.js'
 
 describe('findSidRuns', () => {
   const time = [10, 10.1, 10.2, 10.3, 20, 20.1, 20.2, 50, 50.5, 51]
@@ -22,19 +22,27 @@ describe('findSidRuns', () => {
     expect(findSidRuns(t, [1], [0.5])).toEqual([{ axis: 1, startTime: 10, endTime: 11.5 }])
   })
 
-  it('lists only as many runs as SIDS records, and fails like upstream for records without data', () => {
+  it('lists only as many runs as SIDS records, and only records with data (proven upstream bug fixed)', () => {
     expect(findSidRuns(time, [4], [5])).toHaveLength(1)
-    expect(() => findSidRuns([1, 1.1], [4, 5], [5, 5])).toThrow(SidRunError)
+    // Upstream throws here (docs/bug-proofs/analytic-tune.md, row 114; see load-upstream.test.ts).
+    expect(findSidRuns([1, 1.1], [4, 5], [5, 5])).toEqual([{ axis: 4, startTime: 1, endTime: 1.1 }])
     expect(findSidRuns([], [4], [5])).toEqual([])
   })
 })
 
 describe('SID axes', () => {
   it('maps runs to rate controller axes', () => {
-    expect([1, 4, 7, 10, 20, 23].map(tuneAxisForSid)).toEqual(Array(6).fill('Roll'))
+    expect([1, 4, 7, 10, 20].map(tuneAxisForSid)).toEqual(Array(5).fill('Roll'))
     expect([2, 5, 8, 11, 21, 24].map(tuneAxisForSid)).toEqual(Array(6).fill('Pitch'))
-    expect([3, 6, 9, 12, 22, 25].map(tuneAxisForSid)).toEqual(Array(6).fill('Yaw'))
+    expect([3, 6, 9, 12, 25].map(tuneAxisForSid)).toEqual(Array(5).fill('Yaw'))
     expect([13, 14, 19, 26, 0].map(tuneAxisForSid)).toEqual(Array(5).fill(null))
+  })
+
+  it('proven upstream bug fixed: 22 is FW mixer roll and 23 FW mixer pitch, as the firmware defines them', () => {
+    // Upstream maps 22 to Yaw and 23 to Roll ("FW Input Yaw Angle", "FW Mixer Roll"); see
+    // load-upstream.test.ts and proofs/analytic-tune/sid-axes.test.ts.
+    expect([22, 23].map(tuneAxisForSid)).toEqual(['Roll', 'Pitch'])
+    expect([22, 23].map(sidAxisLabel)).toEqual(['22: FW Mixer Roll', '23: FW Mixer Pitch'])
   })
 
   it('labels axes', () => {

@@ -93,7 +93,7 @@ export function NotchEditor({ index, values, onChange, sixteenHarmonics, availab
       <div className="apwt-chips">
         <Chip
           type="checkbox"
-          checked={values[enable] === '1'}
+          checked={parseFloat(values[enable]) > 0}
           disabled={disabled}
           onChange={(on) => onChange(enable, on ? 1 : 0)}
           title={enable}
@@ -104,7 +104,7 @@ export function NotchEditor({ index, values, onChange, sixteenHarmonics, availab
       <label className="apwt-field" title={mode}>
         <span>Tracking</span>
         <select value={values[mode]} disabled={off} onChange={(e) => onChange(mode, e.target.value)}>
-          {values[mode] === '' && <option value="" />}
+          {!MODES.some((m) => m.value === values[mode]) && <option value={values[mode]}>{values[mode]}</option>}
           {MODES.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}

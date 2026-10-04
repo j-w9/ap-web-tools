@@ -17,12 +17,11 @@ function slice(column: NumericColumn, start: number, end: number): Float64Array 
  * exceeds five times the running mean gap, which should start a new batch after two missed
  * messages. Returns the batches and the mean of their sample rates.
  *
- * Upstream slices the samples to `j - i`, where `i` is the gyro instance number (almost
- * certainly meant to be `j`), so higher instances drop their last `i` samples of every
- * batch. Preserved for parity.
+ * Proven upstream bug fixed (docs/bug-proofs/filter-review.md, row 2): upstream slices the samples
+ * to `j - i`, `i` being the gyro instance number, so higher instances dropped their last `i`
+ * samples of every batch. Every instance now keeps the batch's samples up to `j`.
  */
 function splitRawBatches(
-  instance: number,
   time: NumericColumn,
   gyrX: NumericColumn,
   gyrY: NumericColumn,
@@ -42,7 +41,7 @@ function splitRawBatches(
         const sampleRate = 1000000 / ((time[j - 1]! - time[batchStart]!) / count)
         sampleRateSum += sampleRate
         sampleRateCount++
-        const end = j - instance
+        const end = j
         batches.push({
           sampleTime: time[batchStart]! * US_TO_S,
           sampleRate,
@@ -85,14 +84,15 @@ export function loadFromRaw(log: DataflashLog, ctx: GyroLoadContext): GyroData {
     const gyrZ = log.getNumbers('GYR', 'GyrZ', i)
     if (!time || !gyrX || !gyrY || !gyrZ) continue
 
-    const { batches, meanRate } = splitRawBatches(i, time, gyrX, gyrY, gyrZ)
+    const { batches, meanRate } = splitRawBatches(time, gyrX, gyrY, gyrZ)
     // No valid batches, remove
     if (batches.length === 0) continue
 
-    // Assume a constant sample rate for the FFT. Upstream indexes the reported rate by the
-    // logged instance rather than the sensor number; preserved.
+    // Assume a constant sample rate for the FFT, at least the sensor's reported rate. Proven
+    // upstream bug fixed (docs/bug-proofs/filter-review.md, row 3): upstream looked the reported
+    // rate up by logged instance; it is indexed by sensor, as in the batch loader.
     let gyroRate = meanRate
-    const reported = ctx.gyroRate[i]
+    const reported = ctx.gyroRate[sensorNum]
     if (reported !== undefined) gyroRate = Math.max(reported, gyroRate)
 
     instances[i] = { index: i, batches, sensorNum, postFilter: post ? true : postFilter, gyroRate }

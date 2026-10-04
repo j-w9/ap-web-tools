@@ -84,28 +84,25 @@ export class FftTarget extends NotchTarget {
       // Tracking multiple peaks
       return { multi: true, series: this.peaks.map((p) => ({ time: p.time, freq: mapValues(p.freq, map) })) }
     }
-    // Just center peak (upstream would throw when only FTN2 is logged)
+    // Just center peak
     if (this.center === undefined) return undefined
     return single(this.center.time, mapValues(this.center.value, map))
   }
 
   /**
-   * Upstream returns no frequencies at all when `FTN2` is absent, even for the averaged
-   * `FTN1` peak, because it tests the length of the per-peak array; preserved here.
+   * Proven upstream bugs fixed (docs/bug-proofs/filter-review.md, rows 6 and 7): upstream returned
+   * no frequencies when `FTN2` is absent, even for the `FTN1` centre peak, and threw when only
+   * `FTN2` is logged. Here the centre peak needs only `FTN1` and the peaks only `FTN2`; a centre
+   * peak without `FTN1` gives no frequency, as a missing source does.
    */
   override interpolate(time: ArrayLike<number>): InterpolatedTarget | undefined {
     if (!this.haveData()) return undefined
-    // Upstream interpolates the FTN1 peak unconditionally and throws (TypeError on undefined
-    // data) when only FTN2 is logged, which stops the calculation; reported the same way here.
-    if (this.center === undefined) {
-      throw new TypeError('FFT tracking: FTN2 is logged without FTN1; the original tool stops with an error here')
-    }
     const perPeak = this.peaks.map((p) => linearInterp(p.freq, p.time, time))
-    const center = linearInterp(this.center.value, this.center.time, time)
+    const center = this.center === undefined ? undefined : linearInterp(this.center.value, this.center.time, time)
     return {
       frequencies: (index, config, version) => {
-        if (perPeak.length === 0) return null
         if (isMultiSource(config)) return perPeak.map((p) => this.target(config, p[index]!, version))
+        if (center === undefined) return null
         return [this.target(config, center[index]!, version)]
       }
     }

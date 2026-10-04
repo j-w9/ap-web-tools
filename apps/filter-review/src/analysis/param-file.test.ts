@@ -44,8 +44,9 @@ describe('parameter file', () => {
     expect(lines[0]).toBe('INS_GYRO_FILTER,0.65')
     expect(lines).toContain('INS_HNTCH_HMNCS,-125')
     expect(lines).toContain('INS_HNTCH_BW,40.1')
-    // An unknown mode cannot be shown in the drop-down, which then reads as empty, written as 0
-    expect(lines.at(-2)).toBe('INS_HNTC2_MODE,0')
+    // A mode the drop-down does not offer is kept as its number (proven upstream bug fixed, row 9;
+    // upstream's drop-down reads empty and writes 0, proofs/filter-review/select-nan.test.ts)
+    expect(lines.at(-2)).toBe('INS_HNTC2_MODE,7')
   })
 
   it('reads lines as upstream splits them', () => {

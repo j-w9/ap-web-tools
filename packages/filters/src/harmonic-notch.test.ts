@@ -162,8 +162,8 @@ describe('designHarmonicNotch matches upstream HarmonicNotchFilter', () => {
     })
   }
 
-  function construct(tool: UpstreamTool, c: (typeof cases)[number]): UpstreamScript {
-    const up = loadUpstream(tool)
+  function construct(tool: UpstreamTool, c: (typeof cases)[number], fixChainedSpread = true): UpstreamScript {
+    const up = loadUpstream(tool, { fixChainedSpread })
     const form: Record<string, number> = {
       Throttle: c.op.throttle,
       RPM1: c.op.rpm1,
@@ -179,6 +179,55 @@ describe('designHarmonicNotch matches upstream HarmonicNotchFilter', () => {
     )
     return up
   }
+
+  /**
+   * The proven chained-spread case (docs/bug-proofs/filters.md, row 2): ESC tracking with multi-source
+   * chaining, a double or triple notch, more than one copy, and an enabled harmonic whose centre is
+   * clamped to [0.52 bw, 0.48 fs]. Only there may the original differ from the port.
+   */
+  function chainedSpreadCase(c: (typeof cases)[number]): boolean {
+    const { p, op, rate } = c
+    if (p.enable <= 0 || p.mode !== 3 || (p.opts & 2) === 0 || (p.opts & 17) === 0 || !(op.numMotors > 1)) return false
+    const freq = Math.max(op.escRpm / 60, p.freq) * p.ref
+    return HARMONICS.some(
+      (h) => (p.hmncs & (1 << (h - 1))) !== 0 && Math.min(Math.max(freq * h, p.bw * h * 0.52), rate * 0.48) !== freq * h
+    )
+  }
+
+  const centres = (up: UpstreamScript) => up.run('__f.notches.map((n) => n.center_freq_hz)') as number[]
+
+  // Every case is compared with upstream with the proven bug fixed (`fixChainedSpread`); this checks
+  // that the fix changes nothing outside the proven case, and that the original's result is kept
+  // there as evidence.
+  it('differs from the original only in the proven chained-spread case', () => {
+    let affected = 0
+    for (const c of cases) {
+      for (const tool of ['AnalyticTune', 'FilterTool'] as const) {
+        const original = centres(construct(tool, c, false))
+        const fixed = centres(construct(tool, c))
+        const mine = designHarmonicNotch(c.rate, decode(c.p), c.op).notches.map((n) => n.centerHz)
+        if (JSON.stringify(original) === JSON.stringify(fixed)) continue
+        affected++
+        expect(chainedSpreadCase(c)).toBe(true)
+        expect(mine).not.toEqual(original)
+      }
+    }
+    expect(affected).toBeGreaterThan(0)
+  })
+
+  it('proven upstream bug fixed: chained copies of a clamped harmonic equal the first copy', () => {
+    // The reproduction of proofs/filters/filters.test.ts: ESC mode, double notch + multi-source, two
+    // motors at ESC_RPM 0, FREQ 10, BW 40 at 2 kHz. The original gives [18.2, 23.4, 19.55, 22.05].
+    const c = {
+      rate: 2000,
+      op: { throttle: 0, rpm1: 0, rpm2: 0, escRpm: 0, numMotors: 2 },
+      p: { enable: 1, mode: 3, freq: 10, bw: 40, att: 40, ref: 1, fmRat: 1, hmncs: 1, opts: 3 }
+    }
+    expect(centres(construct('FilterTool', c, false))).toEqual([18.2, 23.400000000000002, 19.55, 22.049999999999997])
+    const mine = designHarmonicNotch(c.rate, decode(c.p), c.op).notches.map((n) => n.centerHz)
+    expect(mine).toEqual([18.2, 23.400000000000002, 18.2, 23.400000000000002])
+    expect(centres(construct('FilterTool', c))).toEqual(mine)
+  })
 
   it.each(cases.map((c, i) => [i, c] as const))('case %i (AnalyticTune H, FilterTool magnitude and phase)', (_, c) => {
     const mine = designHarmonicNotch(c.rate, decode(c.p), c.op)

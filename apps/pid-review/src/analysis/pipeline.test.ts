@@ -10,7 +10,7 @@ import type { LoadedLog, PidAxisData, PidAxisFft } from './data.js'
 import { FFT_KEYS, type FftKey } from './keys.js'
 import { LoadError, NO_PID_DATA, UNSUPPORTED_VEHICLE, loadLog } from './load.js'
 import { DEFAULT_SHOWN_KEYS, selectionsForAxis, validSets } from './selection.js'
-import { carryOverStaleMeans, stepResponses, type SetStepResponse } from './step-response.js'
+import { stepResponses, type SetStepResponse } from './step-response.js'
 import { PID_PARAM_KEYS } from './vehicle.js'
 
 type Range = [number, number]
@@ -229,7 +229,7 @@ async function runScenario(
     action: 're_calc' | 'redraw' | 'setup_axis' | 'none'
   }[] = []
 ) {
-  const up = await createUpstreamPidReview()
+  const up = await createUpstreamPidReview({ fixed: true })
   const err = await up.load(buffer)
   expect(err).toBeUndefined()
   const log = loadLog(buffer)
@@ -244,7 +244,7 @@ async function runScenario(
   const portStep = (prev: (SetStepResponse | null)[] | null, range: Range) => {
     const axis = log.axes.find((a) => a.spec.key === key)!
     const f = fft.get(key) ?? null
-    return f ? carryOverStaleMeans(prev, stepResponses(axis.sets, f.axis, range), axis.sets) : prev
+    return f ? stepResponses(axis.sets, f.axis, range) : prev
   }
   let range = upRange(up)
   expect(range).toEqual([Math.floor(log.startTime), Math.ceil(log.endTime)])
@@ -294,7 +294,7 @@ describe('PID Review against upstream PIDReview.js', () => {
   it('loads the SITL fixtures identically', async () => {
     for (const name of ['copter-sitl.bin', 'copter-files.bin']) {
       const buffer = readFixture(name)
-      const up = await createUpstreamPidReview()
+      const up = await createUpstreamPidReview({ fixed: true })
       expect(await up.load(buffer)).toBeUndefined()
       compareLoad(up, loadLog(buffer))
     }
@@ -354,26 +354,39 @@ describe('PID Review against upstream PIDReview.js', () => {
     ])
   })
 
-  it('keeps a stale step mean when a set has no well-excited window (upstream redraw_step)', async () => {
-    // Set 2 starts at 15 s; its targets are tiny until 22 s, so a 15-19 s range has no window
-    // above 20 deg/s there while the full range does.
+  it('proven upstream bug fixed: no step mean for a set with no well-excited window, where upstream keeps a stale one', async () => {
+    // docs/bug-proofs/pid-review.md, row 4. Set 2 starts at 15 s; its targets are tiny until 22 s,
+    // so a 15-19 s range has no window above 20 deg/s there while the full range does.
     const buffer = buildPidLog({
       duration: 30,
       quietSpans: [[15, 22]],
       changes: [{ time: 15, name: 'ATC_RAT_RLL_P', value: 0.2 }]
     })
-    const { log, steps } = await runScenario(buffer, [
+    const script: { range: [string, string]; action: 're_calc' | 'redraw'; scale?: ['linear', false, false] }[] = [
       { range: ['0', '30'], action: 're_calc' },
       { range: ['15', '19'], action: 're_calc' },
       { range: ['15', '19'], action: 'redraw', scale: ['linear', false, false] }
-    ])
+    ]
+    const { log, steps } = await runScenario(buffer, script)
     expect(log.axes[0]!.paramSets.sets.length).toBe(2)
-    // The last redraw shows set 2's mean from the full-range redraw, with no individual estimates.
-    expect(steps?.[1]?.all).toEqual([])
-    expect(steps?.[1]?.mean.length).toBeGreaterThan(0)
+    expect(steps?.[1]).toBeNull()
+
+    // The original page still shows set 2's mean from the full-range redraw, with no individual estimates.
+    const original = await createUpstreamPidReview()
+    await original.load(buffer)
+    for (const step of script) {
+      original.element('TimeStart').value = step.range[0]
+      original.element('TimeEnd').value = step.range[1]
+      original.call(step.action)
+    }
+    const traces = original.evaluate('step_plot.data') as UpTrace[]
+    expect(arr(traces[2]!.y)).toEqual([])
+    expect(arr(traces[3]!.y).length).toBeGreaterThan(0)
   })
 
-  it('reproduces the noise-estimate growth at low logging rates', async () => {
+  // Proven upstream bug fixed (docs/bug-proofs/pid-review.md, row 3): compared with the page that
+  // reflects the first real_len entries; the original's asymmetric array is pinned in proofs/pid-review.
+  it('matches the fixed noise estimate at low logging rates', async () => {
     for (const rateHz of [40, 60, 90]) {
       const buffer = buildPidLog({ rateHz, duration: 60 })
       await runScenario(buffer, [
@@ -428,7 +441,7 @@ describe('PID Review against upstream PIDReview.js', () => {
     ]
     for (const [options, alert] of cases) {
       const buffer = buildPidLog({ duration: 5, ...options })
-      const up = await createUpstreamPidReview()
+      const up = await createUpstreamPidReview({ fixed: true })
       expect(await up.load(buffer)).toBeUndefined()
       expect(up.alerts).toEqual(alert === null ? [] : [alert])
       if (alert === null) {
@@ -449,7 +462,7 @@ describe('PID Review against upstream PIDReview.js', () => {
       spans: { PIDR: [5, 15] },
       decimate: { PIDY: 400 }
     })
-    const up = await createUpstreamPidReview()
+    const up = await createUpstreamPidReview({ fixed: true })
     await up.load(buffer)
     const log = loadLog(buffer)
     compareLoad(up, log)
@@ -460,7 +473,7 @@ describe('PID Review against upstream PIDReview.js', () => {
   it('rejects window sizes as upstream does', async () => {
     const buffer = buildPidLog({ duration: 10 })
     for (const window of ['300', '', '0', '-4', '0.5', '512.9', '1']) {
-      const up = await createUpstreamPidReview()
+      const up = await createUpstreamPidReview({ fixed: true })
       up.element('FFTWindow_size').value = window
       const err = await up.load(buffer)
       const size = parseWindowSize(window)
@@ -476,7 +489,7 @@ describe('PID Review against upstream PIDReview.js', () => {
 
   it('sets up selections and the Tests table as add_param_sets does', async () => {
     const buffer = buildPidLog({ dff: false, duration: 20, changes: [{ time: 10, name: 'ATC_RAT_RLL_P', value: 0.2 }] })
-    const up = await createUpstreamPidReview()
+    const up = await createUpstreamPidReview({ fixed: true })
     await up.load(buffer)
     const log = loadLog(buffer)
     const fft = portFft(log, 512)
@@ -505,5 +518,25 @@ describe('PID Review against upstream PIDReview.js', () => {
       const valid = validSets(axis, fft.get(key) ?? null)
       expect(valid).toEqual(axis.sets.map((_, i) => up.element(`set_selection_${i}`).checked))
     }
+  })
+
+  it('proven upstream bug fixed: keeps an enabled spectrogram signal on a log without D FF', async () => {
+    // docs/bug-proofs/pid-review.md, row 5: the original moves a P selection to Output whenever any
+    // optional signal is missing ("Change to Out on spectrogram if disabled option is set").
+    const buffer = buildPidLog({ dff: false, duration: 20 })
+    const log = loadLog(buffer)
+    const axis = log.axes.find((a) => a.spec.key === 'PIDR')!
+    for (const fixed of [false, true]) {
+      const up = await createUpstreamPidReview({ fixed })
+      await up.load(buffer)
+      for (const k of FFT_KEYS) up.element(`Spec_${k}`).checked = k === 'P'
+      for (const pid of upPids(up)) up.element(`type_${pid.id.join('_')}`).checked = pid.id.join('_') === 'PIDR'
+      up.call('setup_axis')
+      expect(up.element('Spec_P').disabled).toBe(false)
+      expect(spectrogramSelection(up)).toBe(fixed ? 'P' : 'Out')
+    }
+    expect(selectionsForAxis(axis, new Set(DEFAULT_SHOWN_KEYS), 'P').spectrogram).toBe('P')
+    // A selection the controller does not offer still moves to Output.
+    expect(selectionsForAxis(axis, new Set(DEFAULT_SHOWN_KEYS), 'DFF').spectrogram).toBe('Out')
   })
 })

@@ -160,19 +160,68 @@ describe('atmosphere model', () => {
   })
 })
 
-describe('FFT target with FTN2 but no FTN1', () => {
-  it('stops the calculation like upstream', async () => {
+/** Port and upstream frequencies of an FFT target for one log, at window times `time`. */
+async function fftFrequencies(bytes: Uint8Array, fixed: boolean, partial: Partial<NotchParams>) {
+  const time = [10.5, 11, 11.5]
+  const config: NotchParams = { ...defaultNotchParams(), enable: 1, ...partial }
+  const fft = createTrackingTargets(DataflashLog.parse(bytes)).fft
+  const interp = fft.interpolate(time)
+  const mine = time.map((_, j) => interp?.frequencies(j, config, 1) ?? null)
+  const u = loadFilterReviewUpstream({ fixed })
+  u.set('__log', await parseWithUpstream(bytes))
+  u.set('__config', upstreamParams(config))
+  u.set('__time', time)
+  u.run('filter_version = 1; __fft = new FFTTarget(__log); __fft.interpolate(0, __time)')
+  const theirs = time.map((_, j) => u.run(`__fft.get_interpolated_target_freq(0, ${j}, __config)`) as number[] | null)
+  return { haveData: fft.haveData(), mine: plain(mine), theirs: plain(theirs) }
+}
+
+describe('FFT target with FTN2 but no FTN1 (proven upstream bug fixed, row 7)', () => {
+  const build = (): Uint8Array => {
     const log = new LogAppender(fixture('copter-sitl.bin'))
     log.define(221, 'FTN2', 'QBffffffff', 'TimeUS,Id,PkX,PkY,PkZ,BwX,BwY,EnX,EnY,EnZ', 's#zzzzz---', 'F---------')
     for (let t = 10; t < 12; t += 0.1) {
       for (let p = 0; p < 3; p++) log.write('FTN2', [Math.round(t * 1e6) + p, p, 90 * (p + 1), 91 * (p + 1), 90, 5, 5, 1, 1, 1])
     }
-    const bytes = log.toBytes()
-    const fft = createTrackingTargets(DataflashLog.parse(bytes)).fft
-    expect(fft.haveData()).toBe(true)
-    expect(() => fft.interpolate([10.5, 11])).toThrow(TypeError)
+    return log.toBytes()
+  }
+
+  it('upstream stops the calculation', async () => {
     const u = loadFilterReviewUpstream()
-    u.set('__log', await parseWithUpstream(bytes))
+    u.set('__log', await parseWithUpstream(build()))
     expect(() => u.run('new FFTTarget(__log).interpolate(0, [10.5, 11])')).toThrow()
+  })
+
+  it('tracks the FTN2 peaks and gives no centre peak, as the fixed upstream', async () => {
+    const multi = await fftFrequencies(build(), true, { ref: 1, options: 2 })
+    expect(multi.haveData).toBe(true)
+    expect(multi.mine).toEqual(multi.theirs)
+    expect((multi.mine as number[][])[0]).toHaveLength(3)
+    const center = await fftFrequencies(build(), true, { ref: 1 })
+    expect(center.mine).toEqual([null, null, null])
+    expect(center.mine).toEqual(center.theirs)
+  })
+})
+
+describe('FFT target with FTN1 but no FTN2 (proven upstream bug fixed, row 6)', () => {
+  const build = (): Uint8Array => {
+    const log = new LogAppender(fixture('copter-sitl.bin'))
+    log.define(220, 'FTN1', 'QBffff', 'TimeUS,I,PkAvg,BwAvg,SnX,SnY', 's-zz--', 'F-----')
+    for (let t = 10; t < 12; t += 0.1) log.write('FTN1', [Math.round(t * 1e6), 0, 100, 20, 1, 1])
+    return log.toBytes()
+  }
+
+  it('upstream gives no frequency for the centre peak', async () => {
+    const original = await fftFrequencies(build(), false, { ref: 1 })
+    expect(original.theirs).toEqual([null, null, null])
+  })
+
+  it('gives the FTN1 centre peak, and no peaks for multi-source, as the fixed upstream', async () => {
+    const center = await fftFrequencies(build(), true, { ref: 1 })
+    expect(center.mine).toEqual([[100], [100], [100]])
+    expect(center.mine).toEqual(center.theirs)
+    const multi = await fftFrequencies(build(), true, { ref: 1, options: 2 })
+    expect(multi.mine).toEqual([[], [], []])
+    expect(multi.mine).toEqual(multi.theirs)
   })
 })

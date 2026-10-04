@@ -64,22 +64,33 @@ export function fftWindowSize(batches: readonly GyroBatch[], type: GyroLogType, 
  * Run the windowed FFT over every batch of one gyro instance (upstream `run_batch_fft`).
  * Throws when the window size is not a power of two.
  *
- * The average sample period is computed exactly as upstream, which (because of a hoisted
- * `window_size` and a fixed `[0]` index) is the first batch's rate summed once per batch,
- * i.e. effectively the first batch's sample rate.
+ * Proven upstream bug fixed (docs/bug-proofs/filter-review.md, row 4): upstream's "average sample
+ * time" sums the first batch's rate once per batch (`data_set[0]`), and its too-short skip reads
+ * `window_size` before it is assigned. Here the rates of the batches the FFT uses are averaged.
+ * When no batch is long enough there is nothing to average and no window; upstream's value (the
+ * first batch's rate summed once per batch) is kept.
  */
 export function runGyroFft(batches: readonly GyroBatch[], type: GyroLogType, options: FftWindowOptions = {}): GyroFft {
+  const windowSize = fftWindowSize(batches, type, options)
+
   const numBatch = batches.length
   let sampleRateSum = 0
   let sampleRateCount = 0
   for (let i = 0; i < numBatch; i++) {
+    // Log section is too short, skip
+    if (batches[i]!.x.length < windowSize) continue
     sampleRateCount++
-    sampleRateSum += batches[0]!.sampleRate
+    sampleRateSum += batches[i]!.sampleRate
+  }
+  if (sampleRateCount === 0) {
+    for (let i = 0; i < numBatch; i++) {
+      sampleRateCount++
+      sampleRateSum += batches[0]!.sampleRate
+    }
   }
   // Average sample time
   const sampleTime = sampleRateCount / sampleRateSum
 
-  const windowSize = fftWindowSize(batches, type, options)
   if (!isPowerOfTwo(windowSize)) throw new Error('Window size must be a power of two')
 
   const windowSpacing = Math.round(windowSize * (1 - WINDOW_OVERLAP))

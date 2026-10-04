@@ -135,6 +135,45 @@ export function upstreamParamFile(): string {
   return readFileSync(resolve(upstreamDir, 'AnalyticTune/params.json'), 'utf8')
 }
 
+const SPREAD_LINE = 'var notch_spread = bandwidth_hz / (32.0 * notch_center);'
+const COPY_LOOP = 'for (var c=0; c<chained; c++) {'
+
+/**
+ * Upstream `HarmonicNotchFilter` with the proven chained-spread bug fixed (docs/bug-proofs/filters.md,
+ * row 2): the spread line moves from inside the per-motor copy loop to just before it. The patched
+ * page differs from the original only for chained copies of a clamped harmonic.
+ */
+function patchChainedSpread(source: string): string {
+  if (source.split(SPREAD_LINE).length !== 2 || source.split(COPY_LOOP).length !== 2) {
+    throw new Error('patchChainedSpread: upstream HarmonicNotchFilter no longer matches')
+  }
+  const lines = source.split('\n').filter((line) => line.trim() !== SPREAD_LINE)
+  return lines.join('\n').replace(COPY_LOOP, `${SPREAD_LINE}\n${COPY_LOOP}`)
+}
+
+const SAMPLE_RATE_LINES = ['const samplerate = (timeRATE.length)/ trecord', 'const samplerate = (timeSIDD.length)/ trecord']
+
+/**
+ * Upstream time-history loaders with the proven sample-rate bug fixed (docs/bug-proofs/analytic-tune.md,
+ * row 108): n samples span n - 1 intervals, so the rate is `(length - 1) / trecord`. The patched page
+ * differs from the original only in the sample rate and what follows from it.
+ */
+function patchSampleRate(source: string): string {
+  let out = source
+  for (const line of SAMPLE_RATE_LINES) {
+    if (out.split(line).length !== 2) throw new Error('patchSampleRate: upstream sample-rate line no longer matches')
+    out = out.replace(line, line.replace('.length)', '.length - 1)'))
+  }
+  return out
+}
+
+export interface LoadOptions {
+  /** Load the page with `patchChainedSpread` applied (the reference for the port's fixed behaviour). */
+  fixChainedSpread?: boolean
+  /** Load the page with `patchSampleRate` applied (the reference for the port's fixed behaviour). */
+  fixSampleRate?: boolean
+}
+
 let sourceCache: string | undefined
 function upstreamSource(): string {
   if (sourceCache !== undefined) return sourceCache
@@ -278,7 +317,7 @@ class StubElement {
 type UpstreamApi = Omit<UpstreamAnalyticTune, 'setForm' | 'getForm' | 'setChecked'>
 
 /** Load a fresh upstream AnalyticTune page into its own vm context. `parser` is the upstream DataflashParser class. */
-export function loadAnalyticTuneUpstream(parser?: unknown): UpstreamAnalyticTune {
+export function loadAnalyticTuneUpstream(parser?: unknown, options: LoadOptions = {}): UpstreamAnalyticTune {
   const defaults = upstreamFormDefaults()
   const html = upstreamHtml()
   const metadata = JSON.parse(upstreamParamFile()) as Record<string, unknown>
@@ -340,7 +379,9 @@ export function loadAnalyticTuneUpstream(parser?: unknown): UpstreamAnalyticTune
     __saved: () => saved,
     __controlLoopIds: controlLoopIds
   })
-  const api = runInContext(upstreamSource(), context, { filename: 'upstream-analytic-tune.js' }) as UpstreamApi
+  let source = options.fixChainedSpread === true ? patchChainedSpread(upstreamSource()) : upstreamSource()
+  if (options.fixSampleRate === true) source = patchSampleRate(source)
+  const api = runInContext(source, context, { filename: 'upstream-analytic-tune.js' }) as UpstreamApi
   return {
     ...api,
     setForm: (id, value) => {

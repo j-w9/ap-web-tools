@@ -39,6 +39,8 @@ harmonic use the clamped centre for their spread. Reproduced._
 
 **Verdict: PROVEN** (contradicts ArduPilot) that the chained copies differ from the first.
 
+**Status: FIXED.** Port: `packages/filters/src/harmonic-notch.ts` `designHarmonicNotch` (the spread is computed once per harmonic, before the copy loop). Tests: `packages/filters/src/harmonic-notch.test.ts` "proven upstream bug fixed: chained copies of a clamped harmonic equal the first copy" (original `[18.2, 23.4, 19.55, 22.05]`, port `[18.2, 23.4, 18.2, 23.4]`) and "differs from the original only in the proven chained-spread case". The oracle tests (`harmonic-notch.test.ts`, `apps/analytic-tune/src/analysis/filters.test.ts`, `apps/filter-tool/src/analysis/bode.test.ts`, `page.test.ts`) compare the port with upstream patched to compute the spread before the copy loop (`patchChainedSpread`), and check that the unpatched original differs only for chained copies of a clamped harmonic.
+
 **Reproduction:** `filters.test.ts`, "Harmonic notch spread computed before the centre is clamped",
 for both tools. Input: `new HarmonicNotchFilter(2000, 1, 3, 10, 40, 40, 1, 1, 1, 3)` (sample rate
 2000 Hz, enabled, ESC mode, FREQ 10, BW 40, ATT 40, REF 1, FM_RAT 1, first harmonic, OPTS 3 = double

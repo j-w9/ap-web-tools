@@ -43,10 +43,11 @@ export function trackingContext(log: FilterReviewLog, filterVersion: FilterVersi
 
 /**
  * Parse a log and extract gyro data, filter parameters and notch tracking sources (the
- * analysis part of upstream `load()`). Throws an `Error` with a user-facing message when the
- * log cannot be used.
+ * analysis part of upstream `load()`). `preferBatch` is the "Batch" log type choice, used when the
+ * log has both batch and raw data. Throws an `Error` with a user-facing message when the log
+ * cannot be used.
  */
-export function loadFilterReviewLog(input: ArrayBuffer | Uint8Array | DataflashLog): FilterReviewLog {
+export function loadFilterReviewLog(input: ArrayBuffer | Uint8Array | DataflashLog, preferBatch = false): FilterReviewLog {
   const log = input instanceof DataflashLog ? input : DataflashLog.parse(input)
   const warnings: string[] = []
   const warn = (message: string): void => {
@@ -62,9 +63,10 @@ export function loadFilterReviewLog(input: ArrayBuffer | Uint8Array | DataflashL
   const haveBatch = log.has('ISBH') && log.has('ISBD')
   const haveRaw = log.has('GYR')
   if (!haveBatch && !haveRaw) throw new Error('No batch data or raw IMU found in log')
-  // Upstream bug: `reset()` ticks the "Raw sensor" radio at the start of every load, before
-  // `load()` reads the "Batch" radio, so a log with both kinds of data always uses the raw data.
-  const useBatch = haveBatch && !haveRaw
+  // Have both, use selected. Proven upstream bug fixed (docs/bug-proofs/filter-review.md, row 1):
+  // upstream's `reset()` ticks "Raw sensor" before `load()` reads the "Batch" radio, so the choice
+  // was never used; here the choice made before loading is the one used.
+  const useBatch = haveBatch && (!haveRaw || preferBatch)
 
   const ctx: GyroLoadContext = { numGyro, gyroRate, warn }
   const gyro = useBatch ? loadFromBatch(log, ctx) : loadFromRaw(log, ctx)

@@ -34,6 +34,8 @@ type. The batch option is dead for such logs.
 
 **Verdict:** PROVEN
 
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/load.ts` `loadFilterReviewLog(..., preferBatch)` and `apps/filter-review/src/analysis/session.ts` `loadIntoPage`; `apps/filter-review/src/App.tsx` passes the log type chosen before loading (then shows the type used). Test: `apps/filter-review/src/analysis/page.test.ts` "proven upstream bug fixed: a log with both raw and batch data uses batch when \"Batch\" is ticked". The oracle tests compare the port with upstream patched as the port behaves (`apps/filter-review/src/analysis/test-utils/proven-fixes.ts`, loaded with `{ fixed: true }`), and check the original's result where the input reaches the bug.
+
 **Reproduction:** `proofs/filter-review/batch-option-dead.test.ts`. After start-up both radios are
 enabled; the user ticks Batch; `load()` on a log with ISBH, ISBD and GYR calls `load_from_raw_log`,
 never `load_from_batch`, and afterwards Raw is ticked.
@@ -62,6 +64,8 @@ batch/raw choice made before loading is the one used when a log has both), nothi
 
 **Verdict:** PROVEN
 
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/load-raw.ts` `splitRawBatches` (slices to `j`). Test: `apps/filter-review/src/analysis/load.test.ts` "splits pre/post instances with INS_RAW_LOG_OPT bit 3" (original: instance 3 three samples shorter; port: equal) and "matches upstream load_from_raw_log". The oracle tests compare the port with upstream patched as the port behaves (`apps/filter-review/src/analysis/test-utils/proven-fixes.ts`, loaded with `{ fixed: true }`), and check the original's result where the input reaches the bug.
+
 **Reproduction:** `proofs/filter-review/raw-batch-short.test.ts`. Two GYR instances with the same
 100 samples at 1 ms: both get sample rate `1e6 / (98000 / 99)`, but instance 0 keeps 99 samples
 per axis and instance 1 keeps 98.
@@ -87,6 +91,8 @@ nothing else.
 rate.
 
 **Verdict:** PROVEN
+
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/load-raw.ts` `loadFromRaw` (`ctx.gyroRate[sensorNum]`). Test: `apps/filter-review/src/analysis/load.test.ts` "splits pre/post instances with INS_RAW_LOG_OPT bit 3" (post-filter instance at its sensor's rate). The oracle tests compare the port with upstream patched as the port behaves (`apps/filter-review/src/analysis/test-utils/proven-fixes.ts`, loaded with `{ fixed: true }`), and check the original's result where the input reaches the bug.
 
 **Reproduction:** `proofs/filter-review/raw-rate-by-instance.test.ts`. One gyro, IMU rate 2000 Hz,
 `INS_RAW_LOG_OPT` 8 (pre and post): instance 0 (sensor 0, pre) gets `gyro_rate` 2000, instance 1
@@ -122,6 +128,8 @@ else.
 **Row:** `run_batch_fft` (`data_set[0].sample_rate`). Bins and times use the first batch's rate.
 
 **Verdict:** PROVEN
+
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/fft/batch-fft.ts` `runGyroFft` (averages the rates of the batches long enough for a window, after the window size is known; with no such batch, the original's value). Tests: `apps/filter-review/src/analysis/fft/batch-fft.test.ts` "averages the rates of the batches it uses, where upstream uses the first batch rate" (original 1000 Hz, port 1500 Hz) and "is unchanged when every batch has the same rate, or when no batch is long enough"; `apps/filter-review/src/analysis/pipeline.test.ts`.
 
 **Reproduction:** `proofs/filter-review/fft-rate-first-batch.test.ts`. Raw type, window 64, two
 64-sample batches at 1000 Hz and 2000 Hz: `average_sample_rate` 1000, top bin 500 Hz, window
@@ -162,6 +170,8 @@ depend on the rate), so it skips exactly the batches the FFT loop at `:334-338` 
 
 **Verdict:** PROVEN
 
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/flight-data.ts` `throttleActiveRange` (`>= 0`). Test: `apps/filter-review/src/analysis/misc.test.ts` "crops to a throttle that is positive from the first sample (proven upstream bug fixed, row 5)".
+
 **Reproduction:** `proofs/filter-review/throttle-index-zero.test.ts`. Gyro data 0 s to 10 s,
 `RATE.AOut` every 0.1 s. Throttle rising at the second sample, falling at the last: window 2 s to
 8 s. Throttle already positive at the first sample: window 0 s to 10 s (no crop).
@@ -195,6 +205,8 @@ the estimate.
 
 **Verdict:** PROVEN
 
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/tracking/fft.ts` `FftTarget.interpolate`. Tests: `apps/filter-review/src/analysis/tracking/tracking.test.ts` "FFT target with FTN1 but no FTN2 (proven upstream bug fixed, row 6)".
+
 **Reproduction:** `proofs/filter-review/fft-ftn1-only.test.ts`. Centre-peak tracking (options 0,
 REF 1, FREQ 80), `FTN1.PkAvg` 100 Hz. With FTN2 also logged the estimate target is `[100]`. With
 only FTN1, `have_data()` is true and the spectrogram target is `[100, 100]`, but the estimate
@@ -227,6 +239,8 @@ tracking then returns `[]` (no notch, as today) and centre-peak tracking uses FT
 analysed.
 
 **Verdict:** PROVEN
+
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/tracking/fft.ts` `FftTarget.interpolate` (no centre peak without FTN1; the FTN2 peaks still track). Tests: `apps/filter-review/src/analysis/tracking/tracking.test.ts` "FFT target with FTN2 but no FTN1 (proven upstream bug fixed, row 7)".
 
 **Reproduction:** `proofs/filter-review/fft-ftn2-only.test.ts`. `have_data()` is true and
 `interpolate(0, [0.5])` throws `Cannot read properties of undefined (reading 'length')`.
@@ -269,6 +283,8 @@ Reproduced.
 
 **Verdict:** PROVEN
 
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/page-values.ts` `assignedValue` (a value a drop-down does not offer is kept as its number); `apps/filter-review/src/ui/NotchEditor.tsx` shows such values. Tests: `apps/filter-review/src/analysis/page.test.ts` "proven upstream bug fixed: keeps a drop-down value it does not offer as its number" and "sets the same inputs and filters as upstream" (page stub with `fixed` applies the same rule); `apps/filter-review/src/analysis/param-file.test.ts`.
+
 **Reproduction:** `proofs/filter-review/select-nan.test.ts`. `INS_HNTCH_ENABLE` 2 from a log: the
 drop-down holds `""`, `parameter_get_value` gives NaN and `HarmonicNotchFilter.enabled()` is false.
 `INS_HNTCH_MODE,1.0` from a parameter file: NaN, alert `Unsupported notch mode NaN`.
@@ -304,6 +320,8 @@ firmware enum.
 partly applied file.
 
 **Verdict:** PROVEN for the abort; NOT PROVEN for setting non-parameter inputs.
+
+**Status: FIXED** for the abort only; setting non-parameter inputs stays reproduced. Port: `apps/filter-review/src/analysis/param-file.ts` `applyParamFile` (`skipped` lines); `App.tsx` reports them and applies the rest. Test: `apps/filter-review/src/analysis/page.test.ts` "proven upstream bug fixed: skips a line naming a file input, where upstream throws and stops".
 
 **Reproduction:** `proofs/filter-review/param-file-inputs.test.ts`. `TimeStart,12` sets the analysis
 start to 12. `INS_HNTCH_BW,30` / `fileItem,x` / `INS_HNTCH_FREQ,90`: the promise rejects at
@@ -346,6 +364,8 @@ states that a new log must start from the window size the user typed before a ba
 
 **Verdict:** PROVEN
 
+**Status: FIXED.** Port: `apps/filter-review/src/analysis/plots/bode.ts` `bodeResponse` (max and min of a single window are distinct arrays). Test: `apps/filter-review/src/analysis/pipeline.test.ts` "agrees on FFTs, transfer functions and every plot trace" (one-window range with wrap, against the page with min copied). `wrapPhase` (`@apwt/filters`) is unchanged.
+
 **Reproduction:** `proofs/filter-review/phase-band-double-shift.test.ts`. With ±180 wrapping, one
 window with phase `[0, 200]`: mean `[0, -160]`, max and min `[0, -520]`. With three different arrays
 the band moves with the mean (`[0, -150]`, `[0, -170]`).
@@ -375,6 +395,8 @@ array once); nothing else.
 **Row:** `get_alias_obj` (`new Array(NaN)`). Plots not redrawn.
 
 **Verdict:** PROVEN (crash); no change to any computed value is proven.
+
+**Status: no port change needed.** The port already reports the error instead of crashing: `apps/filter-review/src/analysis/plots/alias.ts` throws `RangeError('Invalid array length')` as upstream, shown as an error; test `apps/filter-review/src/analysis/misc.test.ts` "throws like upstream new Array() for an empty, zero or negative loop rate".
 
 **Reproduction:** `proofs/filter-review/alias-loop-rate.test.ts`. With "Show" aliasing,
 `SCHED_LOOP_RATE` `""`, `0` and `-400` each throw `Invalid array length`; 400 works.

@@ -99,35 +99,14 @@ export function stepResponses(
 }
 
 /**
- * Upstream `redraw_step` clears each set's individual-estimate trace on every redraw but only
- * overwrites the mean trace when the set has at least one well-excited window. A set that has
- * data but no such window in the current range therefore keeps the mean drawn by the previous
- * redraw of the same controller (the traces are rebuilt only when a log is loaded or the
- * controller changes). Reproduced: `previous` is what the last redraw showed, null after a
- * rebuild.
- */
-export function carryOverStaleMeans(
-  previous: readonly (SetStepResponse | null)[] | null,
-  next: readonly (SetStepResponse | null)[],
-  sets: readonly (readonly PidBatch[] | null)[]
-): (SetStepResponse | null)[] {
-  return next.map((step, i) => {
-    if (step) return step
-    const old = previous?.[i]
-    if (!old || !sets[i]) return null
-    return { time: old.time, all: [], mean: old.mean }
-  })
-}
-
-/**
  * Regularisation term added to the input power spectrum: the integral of a Gaussian sized
  * for a 25 Hz cutoff, reflected to a double-sided spectrum, inverted and scaled.
  *
- * Upstream quirk, reproduced: `sn` is a plain array of `realLen` ones that the Gaussian loop
- * writes `lenLpf` entries into. When the 25 Hz cutoff is above half of Nyquist (low logging
- * rates), `lenLpf > realLen` and the array grows, so the "reflected" half is appended after
- * the extra entries instead of starting at `realLen`. Only the first `windowSize` entries are
- * used (`array_add` iterates over the power spectrum's length).
+ * Proven upstream bug, fixed (docs/bug-proofs/pid-review.md, row 3): upstream's `sn` is a plain
+ * array of `realLen` ones that the Gaussian loop writes `lenLpf` entries into. When the 25 Hz
+ * cutoff is above half of Nyquist (low logging rates), `lenLpf > realLen` and the array grows, so
+ * its "reflection" is not symmetric. The first `realLen` entries are reflected here, which is the
+ * same array whenever `lenLpf <= realLen`.
  */
 export function noiseEstimate(bins: ArrayLike<number>, realLen: number): Float64Array {
   let lenLpf = Array.prototype.findIndex.call(bins, (x: number) => x > NOISE_CUTOFF_HZ)
@@ -143,6 +122,7 @@ export function noiseEstimate(bins: ArrayLike<number>, realLen: number): Float64
   }
   for (let j = 0; j < lenLpf; j++) sn[j] = sn[j]! / last
 
-  const full = [...sn, ...sn.slice(1, realLen - 1).reverse()]
+  const half = sn.slice(0, realLen)
+  const full = [...half, ...half.slice(1, realLen - 1).reverse()]
   return arrayInverse(arrayScale(arrayOffset(arrayScale(full, -1), 1 + 1e-9), 10))
 }

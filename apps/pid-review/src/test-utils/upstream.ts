@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createContext, runInContext, type Context } from 'node:vm'
 import FFT from 'fft.js'
+import { applyProvenFixes } from './proven-fixes.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const upstreamDir = resolve(here, '../../../../upstream')
@@ -112,8 +113,11 @@ export interface UpstreamPidReview {
   call(name: string): unknown
 }
 
-/** Create a fresh upstream PID Review page with its HTML defaults applied. */
-export async function createUpstreamPidReview(): Promise<UpstreamPidReview> {
+/**
+ * Create a fresh upstream PID Review page with its HTML defaults applied. `fixed` applies the proven
+ * fixes the port makes (`proven-fixes.ts`); the default is the original.
+ */
+export async function createUpstreamPidReview(options: { readonly fixed?: boolean } = {}): Promise<UpstreamPidReview> {
   const Parser = await loadUpstreamParser()
   const alerts: string[] = []
   const registry = new Map<string, FakeElement>()
@@ -156,7 +160,8 @@ export async function createUpstreamPidReview(): Promise<UpstreamPidReview> {
     open_in_update: noop
   })
 
-  const page = read('PIDReview/PIDReview.js').replace(
+  const original = read('PIDReview/PIDReview.js')
+  const page = (options.fixed === true ? applyProvenFixes(original) : original).replace(
     /^var DataflashParser\nconst import_done = import\(.*$/m,
     'var DataflashParser = __Parser\nconst import_done = Promise.resolve()'
   )

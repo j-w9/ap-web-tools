@@ -22,19 +22,22 @@ export function enabledKeys(axis: PidAxisData): { keys: ReadonlySet<FftKey>; hav
 /**
  * Selections after a controller is set up (load or controller change), as upstream
  * `add_param_sets` leaves its checkboxes: disabled spectrum signals are unticked (and stay
- * unticked on the next controller), and the spectrogram moves to Output when the controller
- * lacks any optional signal and one of Error, P, I, D, FF or D FF was selected — even one this
- * controller has (a PID log without D FF moves a P selection to Output).
+ * unticked on the next controller), and the spectrogram moves to Output when the selected
+ * signal is one this controller does not offer.
+ *
+ * Proven upstream bug, fixed (docs/bug-proofs/pid-review.md, row 5): upstream ("Change to Out on
+ * spectrogram if disabled option is set") moves to Output when the controller lacks any optional
+ * signal and any of Error, P, I, D, FF or D FF is selected, so a PID log without D FF moved an
+ * enabled P selection to Output.
  */
 export function selectionsForAxis(
   axis: PidAxisData,
   shown: ReadonlySet<FftKey>,
   spectrogram: FftKey
 ): { shown: ReadonlySet<FftKey>; spectrogram: FftKey } {
-  const { keys, haveAll, haveDff } = enabledKeys(axis)
+  const { keys } = enabledKeys(axis)
   const nextShown = new Set([...shown].filter((k) => keys.has(k)))
-  const optionalSelected = spectrogram !== 'Tar' && spectrogram !== 'Act' && spectrogram !== 'Out'
-  const nextSpectrogram = (!haveAll || !haveDff) && optionalSelected ? 'Out' : spectrogram
+  const nextSpectrogram = keys.has(spectrogram) ? spectrogram : 'Out'
   return { shown: nextShown, spectrogram: nextSpectrogram }
 }
 

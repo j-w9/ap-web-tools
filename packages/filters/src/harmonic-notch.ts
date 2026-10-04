@@ -97,13 +97,15 @@ export function designHarmonicNotch(sampleRate: number, config: HarmonicNotchCon
     let notchCenter = freq * fmul
     const bandwidthHz = config.bandwidthHz * fmul
     const notchBandwidth = bandwidthHz / compositeNotches
+    // Spread required to achieve an equivalent single notch using two notches with bandwidth/2, from
+    // the unclamped centre. Upstream computes it inside the copy loop, after the first copy has
+    // clamped the centre, so chained copies of a clamped harmonic differ from the first; that is a
+    // proven upstream bug, fixed here (docs/bug-proofs/filters.md, row 2): every copy uses the first
+    // copy's spread, as ArduPilot uses one spread for every centre.
+    const notchSpread = bandwidthHz / (32.0 * notchCenter)
     for (let c = 0; c < chained; c++) {
       const nyquistLimit = sampleRate * 0.48
       const bandwidthLimit = bandwidthHz * 0.52
-
-      // Spread required to achieve an equivalent single notch using two notches with bandwidth/2.
-      // Upstream computes this before clamping, so later chained copies see the clamped centre.
-      const notchSpread = bandwidthHz / (32.0 * notchCenter)
 
       // adjust the fundamental center frequency to be in the allowable range
       notchCenter = Math.min(Math.max(notchCenter, bandwidthLimit), nyquistLimit)

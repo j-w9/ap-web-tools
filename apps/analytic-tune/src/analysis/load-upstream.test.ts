@@ -6,8 +6,8 @@ import { identifyResponses, measuredResponses } from './freq-resp.js'
 import { PartialTuneLogError, TuneLogError, loadTuneLog } from './load.js'
 import { DEFAULT_INPUTS, INPUT_NAMES, tuneTarget, withInputs, type Inputs } from './params.js'
 import { NotchSelectionError, predictResponses } from './predict.js'
-import { SidRunError } from './sid.js'
-import { INITIAL_AIRSPEED_SCALING, airspeedScalingFor, loadTimeHistory, type AirspeedScaling } from './time-history.js'
+import { tuneAxisForSid } from './sid.js'
+import { INITIAL_AIRSPEED_SCALING, airspeedScalingFor, loadTimeHistory } from './time-history.js'
 import { expectComplexBitEqual } from './test-utils/compare.js'
 import { buildSidLog, toArrayBuffer, type SyntheticLogOptions } from './test-utils/synthetic.js'
 import { loadAnalyticTuneUpstream, loadUpstreamParser, type UpstreamAnalyticTune } from './test-utils/upstream.js'
@@ -18,8 +18,9 @@ beforeAll(async () => {
   Parser = await loadUpstreamParser()
 })
 
+// With the proven sample-rate bug fixed (bug-proofs/analytic-tune.md row 108; see pipeline.test.ts).
 function upstream(): UpstreamAnalyticTune {
-  const up = loadAnalyticTuneUpstream(Parser)
+  const up = loadAnalyticTuneUpstream(Parser, { fixSampleRate: true })
   up.setupPlots()
   return up
 }
@@ -65,7 +66,8 @@ describe('load_log edge cases', () => {
     expect(() => loadTuneLog(bytes)).toThrow(TuneLogError)
   })
 
-  it('more SIDS records than SIDD runs: upstream throws listing the runs, before copying parameters', () => {
+  it('proven upstream bug fixed: more SIDS records than SIDD runs loads, where upstream throws before copying parameters', () => {
+    // docs/bug-proofs/analytic-tune.md, row 114.
     const bytes = buildSidLog({ ...COPTER, runs: [{ axis: 7, start: 5, length: 3 }] })
     // Append a second SIDS record with no data after it by re-logging a SIDS-only run.
     const w = new LogWriter()
@@ -79,7 +81,15 @@ describe('load_log edge cases', () => {
     const up = upstream()
     expect(() => up.loadLog(toArrayBuffer(combined))).toThrow(/Cannot read properties of (null|undefined)/)
     expect(up.getForm('ATC_RAT_RLL_P')).toBe('0.288')
-    expect(() => loadTuneLog(combined)).toThrow(SidRunError)
+    // The port loads it as it loads the same log without the extra record, which upstream loads.
+    const port = loadTuneLog(combined)
+    const matching = loadTuneLog(bytes)
+    expect(port.runs).toEqual(matching.runs)
+    expect(port.vehicle).toBe(matching.vehicle)
+    expect([...port.inputs]).toEqual([...matching.inputs])
+    const ok = upstream()
+    ok.loadLog(toArrayBuffer(bytes))
+    expect(port.inputs.get('ATC_RAT_RLL_P')).toBe(Number(ok.getForm('ATC_RAT_RLL_P')))
   })
 
   it('no SID data: upstream still copies the parameters', () => {
@@ -130,17 +140,29 @@ describe('page state carried between logs', () => {
     expect(loadTuneLog(unnamed).vehicle).toBe('copter')
   })
 
-  it('a multirotor analysed after a fixed-wing one uses the fixed-wing airspeed scaling', () => {
+  it('a multirotor analysed after a fixed-wing one: upstream uses the fixed-wing airspeed scaling, the port 1 (proven bug)', () => {
+    // Proven upstream bug, fixed (bug-proofs/analytic-tune.md row 105).
     const plane = buildSidLog(FIXED_WING)
     const copter = buildSidLog(COPTER)
     const up = upstream()
     up.loadLog(toArrayBuffer(plane))
     up.calculate()
+    const planeState = up.state()
     up.loadLog(toArrayBuffer(copter))
     up.calculate()
     const s = up.state()
+    // Upstream: the copter prediction is scaled by the plane window's airspeed.
+    expect(planeState.aspeed).not.toBe(1)
+    expect({ aspeed: s.aspeed, eas2tas: s.eas2tas }).toEqual({ aspeed: planeState.aspeed, eas2tas: planeState.eas2tas })
 
-    let airspeed: AirspeedScaling = INITIAL_AIRSPEED_SCALING
+    // An upstream page that loads the same two logs but never calculates the plane window.
+    const fresh = upstream()
+    fresh.loadLog(toArrayBuffer(plane))
+    fresh.loadLog(toArrayBuffer(copter))
+    fresh.calculate()
+    const f = fresh.state()
+    expect([f.aspeed, f.eas2tas]).toEqual([1, 1])
+
     let inputs: Inputs = DEFAULT_INPUTS
     for (const bytes of [plane, copter]) {
       const loaded = loadTuneLog(bytes)
@@ -148,15 +170,20 @@ describe('page state carried between logs', () => {
       const run = loaded.runs[0]!
       const target = tuneTarget(loaded.vehicle, 'Roll')!
       const history = loadTimeHistory(loaded.log, loaded.attitudeMessage, target, run.startTime, run.endTime)
-      airspeed = airspeedScalingFor(history, airspeed)
-      if (bytes !== copter) continue
-      expect(airspeed).toEqual({ aspeed: s.aspeed, eas2tas: s.eas2tas })
-      expect(airspeed.aspeed).not.toBe(1)
+      const airspeed = airspeedScalingFor(history)
+      if (bytes !== copter) {
+        expect(airspeed).toEqual({ aspeed: planeState.aspeed, eas2tas: planeState.eas2tas })
+        continue
+      }
+      expect(airspeed).toEqual(INITIAL_AIRSPEED_SCALING)
       const identified = identifyResponses(history, 'Roll', 1024)
       const measured = measuredResponses(identified, false, inputs.SCHED_LOOP_RATE)
       const predicted = predictResponses(measured.bareAircraft.H, identified.sampleRate, 1024, { target, inputs, airspeed })
-      expectComplexBitEqual(predicted.rate, s.pred.ratectrl_H!, 'rate', true)
-      expectComplexBitEqual(predicted.attitudeFeedforward, s.pred.attctrl_ff_H!, 'attitude ff', true)
+      // The port's prediction is upstream's with aspeed = eas2tas = 1 ...
+      expectComplexBitEqual(predicted.rate, f.pred.ratectrl_H!, 'rate', true)
+      expectComplexBitEqual(predicted.attitudeFeedforward, f.pred.attctrl_ff_H!, 'attitude ff', true)
+      // ... and differs from upstream's carried-over prediction.
+      expect(Array.from(predicted.rate.re)).not.toEqual(s.pred.ratectrl_H![0])
     }
   })
 })
@@ -164,12 +191,7 @@ describe('page state carried between logs', () => {
 describe('calculation failures', () => {
   const bytes = buildSidLog(COPTER)
 
-  it.each([9, 1.5, 12])('a notch selection of %s names no FILTn group: both stop', (selection) => {
-    const up = upstream()
-    up.loadLog(toArrayBuffer(bytes))
-    up.setForm('ATC_RAT_RLL_NEF', selection)
-    expect(() => up.calculate()).toThrow(/Cannot read properties of (null|undefined)/)
-
+  const predictWithNef = (selection: number) => {
     const loaded = loadTuneLog(bytes)
     const inputs = withInputs(withInputs(DEFAULT_INPUTS, loaded.inputs), new Map([['ATC_RAT_RLL_NEF', selection] as const]))
     const run = loaded.runs[0]!
@@ -177,17 +199,50 @@ describe('calculation failures', () => {
     const history = loadTimeHistory(loaded.log, loaded.attitudeMessage, target, run.startTime, run.endTime)
     const identified = identifyResponses(history, 'Roll', 1024)
     const measured = measuredResponses(identified, false, inputs.SCHED_LOOP_RATE)
-    expect(() =>
+    return () =>
       predictResponses(measured.bareAircraft.H, identified.sampleRate, 1024, {
         target,
         inputs,
         airspeed: INITIAL_AIRSPEED_SCALING
       })
-    ).toThrow(NotchSelectionError)
+  }
+
+  it('a notch selection of 1.5 names no FILTn group: both stop', () => {
+    const up = upstream()
+    up.loadLog(toArrayBuffer(bytes))
+    up.setForm('ATC_RAT_RLL_NEF', 1.5)
+    expect(() => up.calculate()).toThrow(/Cannot read properties of (null|undefined)/)
+    expect(predictWithNef(1.5)).toThrow(NotchSelectionError)
+  })
+
+  it.each([9, 12])('proven upstream bug fixed: a notch selection of %s is no notch where upstream stops', (selection) => {
+    // docs/bug-proofs/analytic-tune.md, row 113: the firmware finds no filter for the index and
+    // applies no notch, so the port predicts exactly what it predicts for 0.
+    const up = upstream()
+    up.loadLog(toArrayBuffer(bytes))
+    up.setForm('ATC_RAT_RLL_NEF', selection)
+    expect(() => up.calculate()).toThrow(/Cannot read properties of (null|undefined)/)
+    expect(predictWithNef(selection)()).toEqual(predictWithNef(0)())
+  })
+
+  it('proven upstream bug fixed: SID axes 22 and 23 tune roll and pitch, where upstream tunes yaw and roll', () => {
+    // docs/bug-proofs/analytic-tune.md, "SID axes 22 and 23": the firmware defines 22 as FW mixer
+    // roll and 23 as FW mixer pitch.
+    for (const [axis, upstreamAxis, portAxis] of [
+      [22, 'Yaw', 'Roll'],
+      [23, 'Roll', 'Pitch']
+    ] as const) {
+      const plane = buildSidLog({ ...FIXED_WING, runs: [{ axis, start: 5, length: 20 }] })
+      const up = upstream()
+      up.loadLog(toArrayBuffer(plane))
+      expect(up.state().pageAxis).toBe(upstreamAxis)
+      const loaded = loadTuneLog(plane)
+      expect(tuneAxisForSid(loaded.runs[0]!.axis)).toBe(portAxis)
+    }
   })
 
   it('fixed-wing yaw: upstream has no fixed-wing yaw inputs and throws; the port has no target', () => {
-    const plane = buildSidLog({ ...FIXED_WING, runs: [{ axis: 22, start: 5, length: 20 }] })
+    const plane = buildSidLog({ ...FIXED_WING, runs: [{ axis: 25, start: 5, length: 20 }] })
     const up = upstream()
     up.loadLog(toArrayBuffer(plane))
     expect(up.state().pageAxis).toBe('Yaw')

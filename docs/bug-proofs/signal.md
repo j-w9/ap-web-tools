@@ -51,6 +51,8 @@ length`. Reproduced; apps show the error._
 
 **Verdict: PROVEN** (it fails; contradicts mathematics).
 
+**Status: FIXED.** Port: `packages/signal/src/fft.ts` `runFft` (`numWindows = Math.max(0, ...)`). Tests: `packages/signal/src/fft.test.ts` "proven upstream bug fixed: shorter data gives zero windows where upstream throws" (upstream's throw and the port's zero windows) and "returns zero windows for data within one spacing of a full window, as upstream". No app result changes: Filter Review and PID Review skip batches shorter than one window before calling `runFft`, and Analytic Tune reports the same "too short" error for zero windows as it did for the throw.
+
 **Reproduction:** `signal.test.ts`, "run_fft throws for data shorter than one window minus one
 spacing". Window 64, spacing 32, Hann window: 32 and 63 samples return `{ center: [], x: [] }`; 31
 samples and 3 samples throw `RangeError: Invalid array length`.

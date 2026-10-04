@@ -209,8 +209,10 @@ describe.each(scenarios)('pipeline matches upstream: $name', (s) => {
       a === null ? null : instanceTransfer(a, filters)
     )
 
-    // ---- upstream
-    const up = loadFilterReviewUpstream()
+    // ---- upstream, with the proven fixes the port makes (docs/bug-proofs/filter-review.md; edits in
+    // test-utils/proven-fixes.ts). Raw logs reach rows 2 to 4 (batch slicing, reported rate, FFT
+    // rate); everything else is the original.
+    const up = loadFilterReviewUpstream({ fixed: true })
     const upLog = await parseWithUpstream(bytes)
     upstreamLoadGyro(up, upLog, loaded.gyro.type === 'batch')
     up.element('FFTWindow_size').value = String(s.window.windowSize ?? 1024)
@@ -342,14 +344,17 @@ describe.each(scenarios)('pipeline matches upstream: $name', (s) => {
     expectArrayClose(amp.scale([...bode.ampMax, ...Array.from(bode.ampMin).reverse()]), upBode[0]!.y, 'bode amp band')
     expectArrayClose([...phases[1]!, ...Array.from(phases[2]!).reverse()], upBode[1]!.y, 'bode phase band')
 
-    // A range holding a single window: upstream's max and min phase are then the same array,
-    // so "wrap" shifts the band twice (reproduced by wrapPhase sharing repeated inputs)
+    // A range holding a single window: the original's max and min phase are then the same array,
+    // so "wrap" shifts the band twice (proven upstream bug fixed, docs/bug-proofs/filter-review.md
+    // row 12; the fixed page copies min). The port's max and min are distinct arrays with equal
+    // values, so the band is the mean's, shifted once.
     if (v.wrap) {
       el('TimeStart').value = '0'
       el('TimeEnd').value = '0'
       up.run('redraw_post_estimate_and_bode()')
       const one = bodeResponse(bodeA.bode!.freq, transfers[bodeIndex]!.bode!, bodeA.fft.time, { start: 0, end: 0 })
-      expect(one.phaseMax).toBe(one.phaseMin)
+      expect(one.phaseMax).not.toBe(one.phaseMin)
+      expect(Array.from(one.phaseMax)).toEqual(Array.from(one.phaseMin))
       const wrapped = wrapPhase([one.phaseMean, one.phaseMax, one.phaseMin])
       const upOne = up.run('Bode.data') as { x: number[]; y: number[] }[]
       expectArrayClose(wrapped[0], upOne[3]!.y, 'one-window bode phase')

@@ -63,6 +63,8 @@ MAVProxy `1.000000`) | `Libraries/ParameterMetadata.js` `load_param_inputs` + `f
 **Verdict: PROVEN** (contradicts ArduPilot) for values that equal an option number, such as
 `0.000000` and `1.000000`.
 
+**Status: FIXED.** Port: `apps/filter-tool/src/analysis/fields.ts` `assignFieldText` (a select given valid number text whose value, written as `String(parseFloat(text))`, is an option takes that option). Tests: `apps/filter-tool/src/analysis/param-file.test.ts` "proven upstream bug fixed: a number equal to an option selects it (upstream reads NaN)"; `page.test.ts` "loaded file matches upstream load_parameters" runs upstream's `load_parameters` and expects upstream's values except for exactly those drop-downs (`withProvenSelectFix`). Share links and cookies are unaffected (they assign `String(number)`, which already matches an option).
+
 **Reproduction:** `select-non-option.test.ts`. After `params.json` has turned `_ENABLE` and `_MODE`
 into drop-downs (options `0`, `1` and `0`-`5`), load a file with notch settings `INS_HNTCH_FREQ 80`,
 `INS_HNTCH_BW 40`, `INS_HNTCH_ATT 40`, `INS_HNTCH_REF 0.1`, `INS_HNTCH_FM_RAT 1`, `INS_HNTCH_HMNCS 1`
@@ -184,6 +186,8 @@ the crash._
 
 **Verdict: PROVEN** (it fails). This confirms the deliberate fix already recorded in
 [`../porting-policy.md`](../porting-policy.md).
+
+**Status: no port change needed.** The port already saves the file (the deliberate fix of 2026-10-03: `apps/filter-tool/src/analysis/param-file.ts` `formatParamFile`; `apps/filter-tool/src/analysis/upstream-save-bug.test.ts` pins upstream's crash, `page.test.ts` "saved file matches upstream save_parameters" checks the text).
 
 **Reproduction:** `param-helpers.test.ts`. The `<script src>` list of `index.html` is `filters.js`,
 `FileSaver.js`, `Array_Math.js`, `ParameterMetadata.js`, `Plotly_helpers.js`, `plotly.min.js`. With

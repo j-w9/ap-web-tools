@@ -55,10 +55,11 @@ export interface LoadedPage {
 /**
  * Upstream `load()` as a pure step from the previous page inputs: gyro data, filter inputs (with
  * whatever the previous log left in inputs this log does not set), default analysis window and
- * selections, then the FFTs. Throws with upstream's message when the log cannot be used.
+ * selections, then the FFTs. `preferBatch` is the log type choice (see `loadFilterReviewLog`).
+ * Throws with upstream's message when the log cannot be used.
  */
-export function loadIntoPage(previous: PageInputs, dataflash: DataflashLog): LoadedPage {
-  const log = loadFilterReviewLog(dataflash)
+export function loadIntoPage(previous: PageInputs, dataflash: DataflashLog, preferBatch = false): LoadedPage {
+  const log = loadFilterReviewLog(dataflash, preferBatch)
   const values = pageValuesFromLog(previous.values, dataflash)
   const result = calculate(log, previous)
   return {

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createContext, runInContext } from 'node:vm'
+import { patchChainedSpread } from './chained-spread.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const upstreamDir = resolve(here, '../../../../../upstream')
@@ -55,8 +56,13 @@ function upstreamSource(): string {
   return source
 }
 
+export interface LoadOptions {
+  /** Apply `patchChainedSpread` (the reference for the port's fix of the proven chained-spread bug). */
+  fixChainedSpread?: boolean
+}
+
 /** Load a fresh upstream FilterTool into its own vm context. */
-export function loadFilterToolUpstream(): UpstreamFilterTool {
+export function loadFilterToolUpstream(options: LoadOptions = {}): UpstreamFilterTool {
   const form = new Map<string, { value: string }>()
   const element = (id: string) => {
     let e = form.get(id)
@@ -70,7 +76,8 @@ export function loadFilterToolUpstream(): UpstreamFilterTool {
     document: { getElementById: element, cookie: '' },
     console: { log: () => undefined }
   })
-  const api = runInContext(upstreamSource(), context, { filename: 'upstream-filter-tool.js' })
+  const source = options.fixChainedSpread === true ? patchChainedSpread(upstreamSource()) : upstreamSource()
+  const api = runInContext(source, context, { filename: 'upstream-filter-tool.js' })
   return {
     ...api,
     setForm: (id: string, value: number) => {

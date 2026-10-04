@@ -7,7 +7,7 @@ import type { LoadedLog, PidAxisData, PidAxisFft } from './analysis/data.js'
 import type { FftKey } from './analysis/keys.js'
 import { LoadError, loadLog } from './analysis/load.js'
 import { DEFAULT_SHOWN_KEYS, DEFAULT_SPECTROGRAM_KEY, enabledKeys, selectionsForAxis, validSets } from './analysis/selection.js'
-import { carryOverStaleMeans, stepResponses, type SetStepResponse } from './analysis/step-response.js'
+import { stepResponses, type SetStepResponse } from './analysis/step-response.js'
 import { specLabel, type SpecKey } from './analysis/vehicle.js'
 import type { VehicleType } from '@apwt/dataflash'
 import { Chart, compactFlightLayout, withEmptyNote } from './ui/Chart.js'
@@ -121,8 +121,9 @@ export function App() {
     const keyFft = allFft?.get(key) ?? null
     const prevSteps = previous?.key === key ? previous.steps : null
     // With no FFT upstream returns before redraw_step, leaving the step plot as it was.
-    const steps =
-      data && keyFft ? carryOverStaleMeans(prevSteps, stepResponses(data.sets, keyFft.axis, range), data.sets) : prevSteps
+    // A set without a well-excited window shows no mean (proven upstream bug fixed,
+    // docs/bug-proofs/pid-review.md row 4: upstream kept the previous redraw's mean).
+    const steps = data && keyFft ? stepResponses(data.sets, keyFft.axis, range) : prevSteps
     return { key, range, spectrogramRange: range, steps }
   }
 

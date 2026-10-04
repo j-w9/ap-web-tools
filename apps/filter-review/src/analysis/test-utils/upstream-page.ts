@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { createContext, runInContext } from 'node:vm'
 import { RealFft } from '@apwt/signal'
 import { sanitizeNumberInput } from '../page-values.js'
+import { applyProvenFixes } from './proven-fixes.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const upstreamDir = resolve(here, '../../../../../upstream')
@@ -31,17 +32,21 @@ const files = [
   'FilterReview/tracking/Logged.js'
 ]
 
-let source: string | undefined
-function pageSource(): string {
-  source ??=
+const sources = new Map<boolean, string>()
+function pageSource(fixed: boolean): string {
+  const cached = sources.get(fixed)
+  if (cached !== undefined) return cached
+  const source =
     files
       .map((file) => {
-        const text = readFileSync(resolve(upstreamDir, file), 'utf8')
+        let text = readFileSync(resolve(upstreamDir, file), 'utf8')
+        if (fixed) text = applyProvenFixes(file, text)
         return file.endsWith('FilterReview.js')
           ? text.replace(/^const import_done = import\(.*$/m, 'const import_done = undefined')
           : text
       })
       .join('\n;\n') + '\n;({ run: (code) => eval(code) })'
+  sources.set(fixed, source)
   return source
 }
 
@@ -117,8 +122,9 @@ export interface UpstreamPage {
 type ParserCtor = new () => { processData(buffer: ArrayBuffer, msgs: string[]): void }
 let parser: Promise<ParserCtor> | undefined
 
-/** Load a fresh upstream FilterReview page. */
-export async function loadFilterReviewPage(): Promise<UpstreamPage> {
+/** Load a fresh upstream FilterReview page; `fixed` applies the port's proven fixes (`proven-fixes.ts`). */
+export async function loadFilterReviewPage(options: { readonly fixed?: boolean } = {}): Promise<UpstreamPage> {
+  const fixed = options.fixed ?? false
   parser ??= (async () => {
     const g = globalThis as unknown as Record<string, unknown>
     g['self'] ??= { addEventListener: () => undefined, postMessage: () => undefined }
@@ -144,8 +150,13 @@ export async function loadFilterReviewPage(): Promise<UpstreamPage> {
       },
       set value(v: unknown) {
         const text = String(v)
-        if (tagName === 'SELECT') value = (SELECTS[id] ?? []).includes(text) ? text : ''
-        else if (type === 'number') value = sanitizeNumberInput(text)
+        if (tagName === 'SELECT') {
+          const options = SELECTS[id] ?? []
+          // Proven fix, row 9 (docs/bug-proofs/filter-review.md): with `fixed`, a value the drop-down
+          // does not offer is kept as its number instead of selecting nothing.
+          const number = parseFloat(text)
+          value = options.includes(text) ? text : fixed && !Number.isNaN(number) ? String(number) : ''
+        } else if (type === 'number') value = sanitizeNumberInput(text)
         else if (type === 'file') {
           if (text !== '') throw new Error(`InvalidStateError: ${id}`)
         } else value = text
@@ -215,7 +226,7 @@ export async function loadFilterReviewPage(): Promise<UpstreamPage> {
     plot_default_color: () => '#000',
     open_in_update: noop
   })
-  const api = runInContext(pageSource(), context, { filename: 'upstream-filter-review-page.js' }) as {
+  const api = runInContext(pageSource(fixed), context, { filename: 'upstream-filter-review-page.js' }) as {
     run: (code: string) => unknown
   }
   const run = (code: string): unknown => api.run(code)

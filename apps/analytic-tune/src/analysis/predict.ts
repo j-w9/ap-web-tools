@@ -6,7 +6,8 @@
  * Every complex operation keeps upstream's operand order, so each result has the length upstream
  * gives it. Upstream's hand-written loops run one element past the end of the aircraft response
  * and leave a trailing NaN on two results (attitude with feedforward and whole-system broken
- * loop); those loops stop at the end here. Upstream plots those results against the bin
+ * loop); those loops stop at the end here (a proven upstream bug, docs/bug-proofs/analytic-tune.md
+ * row 110, which this port never reproduced). Upstream plots those results against the bin
  * frequencies, which are one shorter, and Plotly draws only as many points as the shorter array,
  * so the plotted data is the same.
  */
@@ -29,6 +30,7 @@ import {
   type TransferElement
 } from '@apwt/filters'
 import {
+  FILTER_INDICES,
   controllerParams,
   filterIndex,
   filterParam,
@@ -122,6 +124,11 @@ function plusOne(a: ComplexArrayLike, length: number): ComplexArray {
   return out
 }
 
+/** An integer selection above the eight `FILTn_` groups: no notch in the firmware (row 113). */
+function isNoFilterIndex(value: number): boolean {
+  return Number.isInteger(value) && value > FILTER_INDICES.length
+}
+
 /** A rate controller notch selection that names no `FILTn_` group, where upstream's page throws. */
 export class NotchSelectionError extends Error {
   override readonly name = 'NotchSelectionError'
@@ -130,12 +137,16 @@ export class NotchSelectionError extends Error {
 /**
  * Upstream builds the element id `FILT<n>` from a positive selection (to show the group, then to
  * read its frequency) and throws when no such group exists, so the calculation stops.
+ *
+ * Proven upstream bug, fixed (docs/bug-proofs/analytic-tune.md, row 113): for an integer selection
+ * of 9 or more the firmware finds no filter and applies no notch, so the port treats it as 0
+ * (no notch) instead of stopping. Other selections that name no group (e.g. 1.5) still stop.
  */
 export function checkNotchSelections(inputs: Inputs, target: TuneTarget): void {
   const rate = controllerParams(target).rate
   for (const selection of [rate.NTF, rate.NEF]) {
     const value = inputs[selection]
-    if (value > 0 && filterIndex(value) === null) {
+    if (value > 0 && filterIndex(value) === null && !isNoFilterIndex(value)) {
       throw new NotchSelectionError(`${selection} is ${value}, which names no FILT1 to FILT8 notch.`)
     }
   }
@@ -146,7 +157,7 @@ export function checkNotchSelections(inputs: Inputs, target: TuneTarget): void {
  * or null when unset (not positive) or the notch has no frequency.
  */
 function selectedNotch(inputs: Inputs, selection: RateParam, loopRate: number): TransferElement | null {
-  if (!(inputs[selection] > 0)) return null
+  if (!(inputs[selection] > 0) || isNoFilterIndex(inputs[selection])) return null
   const index = filterIndex(inputs[selection])
   if (index === null) throw new NotchSelectionError(`${selection} is ${inputs[selection]}, which names no FILT1 to FILT8 notch.`)
   const freq = inputs[filterParam(index, 'NOTCH_FREQ')]

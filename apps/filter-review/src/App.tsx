@@ -22,6 +22,7 @@ import { GYRO_AXES, type GyroAxis } from './analysis/fft/batch-fft.js'
 import { buildFilters } from './analysis/filters/filter-set.js'
 import { filterToolUrl, filterToolValues } from './analysis/filter-tool-link.js'
 import type { FilterVersion } from './analysis/filter-version.js'
+import type { GyroLogType } from './analysis/gyro-data.js'
 import { gyroInfoText } from './analysis/gyro-sensors.js'
 import { trackingContext, type FilterReviewLog } from './analysis/load.js'
 import {
@@ -81,6 +82,8 @@ export function App() {
   // ----- Log and analysis -----
   const [parsed, setParsed] = useState<{ log: DataflashLog; name: string | null } | null>(null)
   const [loaded, setLoaded] = useState<FilterReviewLog | null>(null)
+  // "Batch" / "Raw sensor" radios: chosen before loading, then set to the type the log used
+  const [logTypeChoice, setLogTypeChoice] = useState<GyroLogType>('raw')
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Page inputs kept as the strings upstream's inputs hold; they carry over to the next log
@@ -110,6 +113,7 @@ export function App() {
   const analysis = result?.analysis ?? null
 
   const inputs = useLatest({ values, ...fft })
+  const logTypeChosen = useLatest(logTypeChoice)
   const { file, openFile } = useLogFile(async (buffer, name) => {
     await run(() => {
       let log: DataflashLog
@@ -122,8 +126,9 @@ export function App() {
       setParsed({ log, name })
       document.title = name ? `Filter Review: ${name}` : 'Filter Review'
       try {
-        const page = loadIntoPage(inputs.current, log)
+        const page = loadIntoPage(inputs.current, log, logTypeChosen.current === 'batch')
         setLoaded(page.log)
+        setLogTypeChoice(page.log.gyro.type)
         setResult(page.result)
         setValues(page.inputs.values)
         setFft({ windowSize: page.inputs.windowSize, windowsPerBatch: page.inputs.windowsPerBatch })
@@ -134,6 +139,7 @@ export function App() {
         setError(null)
       } catch (e) {
         setLoaded(null)
+        setLogTypeChoice('raw')
         setResult(null)
         setError(errorMessage(e))
       }
@@ -342,7 +348,7 @@ export function App() {
   const saveParams = () => downloadText('filter.param', filterParamFileText(values))
   const loadParams = (paramFile: File) => {
     void paramFile.text().then((text) => {
-      const { assignments, error: stop } = applyParamFile(text)
+      const { assignments, skipped } = applyParamFile(text)
       let next = values
       for (const a of assignments) {
         if (a.kind === 'param') {
@@ -366,7 +372,8 @@ export function App() {
         }
       }
       setValues(next)
-      setParamMessage(stop ?? `Applied ${assignments.length} lines from ${paramFile.name}.`)
+      const skippedNote = skipped.length > 0 ? ` Skipped (file inputs cannot be set): ${skipped.join('; ')}.` : ''
+      setParamMessage(`Applied ${assignments.length} lines from ${paramFile.name}.${skippedNote}`)
     })
   }
   const availableModes = useMemo(() => {
@@ -446,6 +453,8 @@ export function App() {
           onFile={openFile}
           available={loaded?.available ?? null}
           logType={loaded?.gyro.type ?? null}
+          logTypeChoice={logTypeChoice}
+          onLogTypeChange={setLogTypeChoice}
           fft={fft}
           onFftChange={changeFft}
           timeRange={timeRange}

@@ -42,12 +42,15 @@ export interface TimeHistory {
 }
 
 /**
- * The airspeed scaling a prediction uses. Upstream keeps `aspeed` and `eas2tas` in page globals
- * that only the fixed-wing loader sets, so a multirotor analysis uses whatever the last
- * fixed-wing analysis left there (in this or an earlier log), or 1 if there was none.
+ * The airspeed scaling a prediction uses: the window's mean on fixed wing, 1 otherwise.
+ *
+ * Proven upstream bug, fixed (docs/bug-proofs/analytic-tune.md, row 105): upstream keeps `aspeed`
+ * and `eas2tas` in page globals that only the fixed-wing loader sets, so a multirotor analysed
+ * after any fixed-wing window has its gains scaled by that window's airspeed. The multicopter rate
+ * loop has no airspeed term, so the port uses upstream's initial values (1, 1) for it.
  */
-export function airspeedScalingFor(history: TimeHistory, previous: AirspeedScaling): AirspeedScaling {
-  return history.airspeed ?? previous
+export function airspeedScalingFor(history: TimeHistory): AirspeedScaling {
+  return history.airspeed ?? INITIAL_AIRSPEED_SCALING
 }
 
 /** Upstream's degrees to radians factor. */
@@ -94,10 +97,16 @@ function slice(values: ArrayLike<number>, w: Window): Float64Array {
 
 const sliceRad = (values: ArrayLike<number>, w: Window): Float64Array => arrayScale(slice(values, w), DEG_TO_RAD)
 
-/** Average sample rate of sliced timestamps (µs): samples over elapsed seconds, as upstream. */
+/**
+ * Average sample rate of sliced timestamps (µs): intervals over elapsed seconds.
+ *
+ * Proven upstream bug, fixed (docs/bug-proofs/analytic-tune.md, row 108): upstream divides the
+ * number of samples by the elapsed time, but n samples span n - 1 intervals, so its rate (and every
+ * bin frequency) is high by n / (n - 1).
+ */
 function averageRate(timeUs: Float64Array): number {
   const record = (timeUs[timeUs.length - 1]! - timeUs[0]!) / 1000000
-  return timeUs.length / record
+  return (timeUs.length - 1) / record
 }
 
 /** Disturbance rejection and whole-system loop signals, shared by both vehicle types. */

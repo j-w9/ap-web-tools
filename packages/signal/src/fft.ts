@@ -145,9 +145,10 @@ function recordOf<K extends string, V>(keys: readonly K[], make: (key: K) => V):
  * Windowed batch FFT over the arrays `data[key]` for each key, in steps of `windowSpacing`.
  * Spectra are single-sided and amplitude-normalised (DC and Nyquist by 1/N, other bins by 2/N);
  * window gain correction (`windowCorrectionFactors`) is left to the caller, as upstream.
- * Missing keys throw. The window count is floor((n - windowSize) / windowSpacing) + 1, as upstream:
- * it can be zero, and when it is negative the allocation throws a RangeError exactly as upstream's
- * `new Array(num_windows)` does.
+ * Missing keys throw. The window count is max(0, floor((n - windowSize) / windowSpacing) + 1).
+ * Upstream omits the max(0, ...) and throws a RangeError (`new Array(num_windows)`) when the data is
+ * shorter than one window by more than one spacing; that is a proven upstream bug, fixed here
+ * (docs/bug-proofs/signal.md, row 2): such data gives zero windows, as slightly longer data does.
  */
 export function runFft<K extends string>(
   data: Readonly<Record<K, ArrayLike<number>>>,
@@ -176,9 +177,9 @@ export function runFft<K extends string>(
   const firstKey = keys[0]
   const numPoints = firstKey === undefined ? 0 : data[firstKey].length
   const realLen = realLength(windowSize)
-  // As upstream, a negative count (data shorter than one window by more than one spacing) is an
-  // invalid array length and throws a RangeError; callers check the length first, as upstream does.
-  const numWindows = Math.floor((numPoints - windowSize) / windowSpacing) + 1
+  // Proven upstream bug fixed (docs/bug-proofs/signal.md, row 2): upstream's count goes negative for
+  // data shorter than windowSize - windowSpacing and its allocation throws; a count is never negative.
+  const numWindows = Math.max(0, Math.floor((numPoints - windowSize) / windowSpacing) + 1)
 
   const center = new Float64Array(numWindows)
   const spectra = recordOf(keys, () => new Array<ComplexArray>(numWindows))

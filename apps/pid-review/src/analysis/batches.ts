@@ -3,14 +3,14 @@ import type { ParamSet } from './param-sets.js'
 /** A run of contiguous samples with a steady rate, within one parameter set. */
 export interface Batch {
   paramSet: number
-  /** Hz, estimated from the batch's own timestamps (upstream formula, see `splitIntoBatches`). */
+  /** Hz, estimated from the batch's own timestamps (see `splitIntoBatches`). */
   sampleRate: number
   /** Inclusive start index into the message's samples. */
   start: number
   /**
-   * Exclusive end index: the batch's samples are `[start, end)`. Upstream records
-   * `batch_end = j - 1` and then reads `slice(batch_start, batch_end)`, so the last sample
-   * before the split point is not part of the batch.
+   * Exclusive end index: the batch's samples are `[start, end)`, `end` being the split point.
+   * Upstream records `batch_end = j - 1` and reads `slice(batch_start, batch_end)`, so the last
+   * sample before the split point was not part of the batch (proven bug, fixed; see below).
    */
   end: number
 }
@@ -25,11 +25,15 @@ export const MIN_BATCH_SAMPLES = 64
  * Batches with fewer than `MIN_BATCH_SAMPLES` counted samples are dropped. Times are in seconds.
  *
  * Reproduced upstream quirks (see docs/audit/pid-review.md):
- * - the sample rate is `1 / ((time[j-1] - time[start]) / count)`, dividing the span of
- *   `j-1-start` intervals by the `count` of samples counted since the batch started;
  * - samples before the current set's start are skipped without being counted, but the
  *   batch start index is not moved past them;
- * - the batch read back is `[start, j-1)`, one sample shorter than the span measured.
+ * - at the end of the log the split point is the last sample, which no batch includes.
+ *
+ * Proven upstream bugs, fixed (docs/bug-proofs/pid-review.md):
+ * - row 1: upstream's rate `1 / ((time[j-1] - time[start]) / count)` divides the span of
+ *   `j-1-start` intervals by a count of samples; the rate is intervals over span;
+ * - row 2: upstream reads the batch back as `[start, j-1)`, dropping the last sample of the span
+ *   it measured; the batch is `[start, j)`.
  */
 export function splitIntoBatches(time: ArrayLike<number>, paramSets: readonly ParamSet[]): Batch[] {
   const batches: Batch[] = []
@@ -51,8 +55,8 @@ export function splitIntoBatches(time: ArrayLike<number>, paramSets: readonly Pa
     const gap = (t - time[j - 1]!) * count > (t - time[batchStart]!) * 5
     if (gap || j === len - 1 || pastSetEnd) {
       if (count >= MIN_BATCH_SAMPLES) {
-        const sampleRate = 1 / ((time[j - 1]! - time[batchStart]!) / count)
-        batches.push({ paramSet: setIndex, sampleRate, start: batchStart, end: j - 1 })
+        const sampleRate = (j - 1 - batchStart) / (time[j - 1]! - time[batchStart]!)
+        batches.push({ paramSet: setIndex, sampleRate, start: batchStart, end: j })
       }
       if (pastSetEnd) {
         setIndex++

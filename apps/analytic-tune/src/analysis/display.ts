@@ -4,7 +4,7 @@
  * meaningful. Ported from upstream `redraw_freq_resp`, `get_amplitude_scale` and
  * `get_frequency_scale`.
  */
-import { phaseDegrees } from '@apwt/filters'
+import { phaseDegrees, unwrapPhase } from '@apwt/filters'
 import { arrayLog10, arrayScale, complexAbs, type ComplexArray } from '@apwt/signal'
 import type { FrequencyResponse, MeasuredResponses } from './freq-resp.js'
 import type { PredictedResponses } from './predict.js'
@@ -159,15 +159,17 @@ export function gainOf(h: ComplexArray, scale: GainScale): Float64Array {
 }
 
 /**
- * Phase of H in degrees, as plotted.
+ * Phase of H in degrees, as plotted: wrapped to ±180 degrees, or un-wrapped with upstream's
+ * `unwrap` (45 degree negative-jump threshold) when that option is selected.
  *
- * Upstream bug, reproduced: upstream offers an un-wrapped phase option, reads it, then sets it
- * to false before drawing (`unwrap_ph = false` in `redraw_freq_resp`), so the phase is always
- * plotted wrapped to ±180 degrees whatever the option says. The option is kept (it is part of
- * the page and its links) and has no effect, as upstream.
+ * Proven upstream bug, fixed (docs/bug-proofs/analytic-tune.md, row 104): upstream reads the
+ * un-wrapped option and then sets it to false before drawing (`unwrap_ph = false` in
+ * `redraw_freq_resp`), so it always plots the wrapped phase. The port applies the option the
+ * page offers; the wrapped phase is unchanged.
  */
-export function phaseOf(h: ComplexArray): Float64Array {
-  return phaseDegrees(h)
+export function phaseOf(h: ComplexArray, scale: PhaseScale): Float64Array {
+  const wrapped = phaseDegrees(h)
+  return scale === 'unwrapped' ? unwrapPhase(wrapped) : wrapped
 }
 
 export function frequencyLabel(unit: FrequencyUnit): string {

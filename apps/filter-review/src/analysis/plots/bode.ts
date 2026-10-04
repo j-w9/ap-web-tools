@@ -55,7 +55,10 @@ export function bodeResponse(
       ampMax = att
       ampMin = att
       phaseMax = phase
-      phaseMin = phase
+      // Proven upstream bug fixed (docs/bug-proofs/filter-review.md, row 12): upstream's max and
+      // min were one array here, so with a single window "wrap" shifted it twice in place. A copy
+      // keeps them distinct; their values are unchanged.
+      phaseMin = Float64Array.from(phase)
     }
   }
   return {

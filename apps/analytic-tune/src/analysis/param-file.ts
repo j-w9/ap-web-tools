@@ -74,10 +74,8 @@ export interface LoadedParamFile {
   readonly endTime?: number
   /** "Use attitude" check box, when the file names an element of its fieldset. */
   readonly useAttitude?: boolean
-  /** Lines naming no element of upstream's page. */
+  /** Lines naming no element of upstream's page, or one that cannot take the value (a file input). */
   readonly ignored: number
-  /** Set when upstream stops part way (a file input given a value); lines after it are not applied. */
-  readonly error?: string
 }
 
 /**
@@ -121,7 +119,7 @@ const FILE_INPUT_IDS: ReadonlySet<string> = new Set(['fileItem', 'param_file'])
  * runs of whitespace, commas and `=`, and for lines with at least two fields set the element whose
  * id is the first field to the second field's text. Nothing is trimmed, so an indented line has an
  * empty first field and sets nothing; text a number input or drop-down cannot hold empties it,
- * which reads as NaN.
+ * which reads as NaN (but see `inputValueFromText` for drop-downs).
  */
 export function loadParamText(text: string): LoadedParamFile {
   const values = new Map<InputName, number>()
@@ -143,11 +141,11 @@ export function loadParamText(text: string): LoadedParamFile {
     } else if (CONTROL_LOOP_FIELDSET_IDS.has(name)) {
       result.useAttitude = (Number(value) & 1) !== 0
     } else if (FILE_INPUT_IDS.has(name)) {
-      // A file input only accepts an empty value; anything else throws and stops the load.
-      if (value !== '') {
-        result.error = `Failed to set the 'value' property on 'HTMLInputElement' (${name}): a file input accepts only an empty value.`
-        break
-      }
+      // A file input only accepts an empty value. Proven upstream bug, fixed
+      // (docs/bug-proofs/analytic-tune.md, row 117): upstream's setter throws for any other value,
+      // which aborts the rest of the file although the loop is written to skip lines it cannot
+      // apply. The port skips the line and carries on.
+      if (value !== '') result.ignored++
     } else if (!INERT_IDS.has(name)) {
       result.ignored++
     }

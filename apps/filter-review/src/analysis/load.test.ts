@@ -74,7 +74,9 @@ describe('raw GYR loading', () => {
   it('matches upstream load_from_raw_log', async () => {
     const bytes = build()
     const loaded = loadFilterReviewLog(bytes)
-    const theirs = upstreamLoadGyro(loadFilterReviewUpstream(), await parseWithUpstream(bytes), false)
+    // Compared with upstream with the proven raw-loading fixes (docs/bug-proofs/filter-review.md,
+    // rows 2 and 3); the original drops samples on instance 1 and takes its rate from IMU 1.
+    const theirs = upstreamLoadGyro(loadFilterReviewUpstream({ fixed: true }), await parseWithUpstream(bytes), false)
     expectSameGyro(loaded.gyro, theirs)
     // The 0.5 s gap splits each instance into two batches
     expect(loaded.gyro.instances[0]!.batches.length).toBe(2)
@@ -111,9 +113,18 @@ describe('raw GYR loading', () => {
       [1, true]
     ])
     expect(loaded.havePost).toBe(true)
-    // Upstream drops the last `instance` samples of each raw batch (slice to `j - i`)
-    expect(loaded.gyro.instances[0]!.batches[0]!.x.length - loaded.gyro.instances[3]!.batches[0]!.x.length).toBe(3)
-    expectSameGyro(loaded.gyro, upstreamLoadGyro(loadFilterReviewUpstream(), await parseWithUpstream(bytes), false))
+    // Proven upstream bugs fixed (docs/bug-proofs/filter-review.md, rows 2 and 3): the original drops
+    // the last `instance` samples of each raw batch (slice to `j - i`) and looks the reported rate up
+    // by logged instance; every instance now keeps its samples and post-filter instances use their
+    // sensor's rate.
+    const original = upstreamLoadGyro(loadFilterReviewUpstream(), await parseWithUpstream(bytes), false)
+    expect(original.instances[0]!.batches[0]!.x.length - original.instances[3]!.batches[0]!.x.length).toBe(3)
+    expect(loaded.gyro.instances[0]!.batches[0]!.x.length - loaded.gyro.instances[3]!.batches[0]!.x.length).toBe(0)
+    expect(loaded.gyro.instances[2]!.gyroRate).toBe(loaded.gyro.instances[0]!.gyroRate)
+    expectSameGyro(
+      loaded.gyro,
+      upstreamLoadGyro(loadFilterReviewUpstream({ fixed: true }), await parseWithUpstream(bytes), false)
+    )
   })
 })
 

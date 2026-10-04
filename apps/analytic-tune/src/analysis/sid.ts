@@ -5,7 +5,15 @@
  */
 import type { TuneAxis, TuneVehicle } from './params.js'
 
-/** Names of the `SID_AXIS` values (upstream `add_sid_sets`). */
+/**
+ * Names of the `SID_AXIS` values (upstream `add_sid_sets`).
+ *
+ * Proven upstream bug, fixed (docs/bug-proofs/analytic-tune.md, "SID axes 22 and 23"): upstream names
+ * and maps 22 as "FW Input Yaw Angle" and 23 as "FW Mixer Roll", but the firmware at the pinned commit
+ * defines 22 as FW mixer roll and 23 as FW mixer pitch (`ArduPlane/systemid.h`, `FW_MIX_ROLL = 22`,
+ * `FW_MIX_PITCH = 23`). The port uses the firmware's meaning for 22 and 23; 24 to 26, which the
+ * firmware does not define, keep upstream's names and axes.
+ */
 export const SID_AXIS_NAMES: Readonly<Record<number, string>> = {
   1: 'Input Roll Angle',
   2: 'Input Pitch Angle',
@@ -28,8 +36,8 @@ export const SID_AXIS_NAMES: Readonly<Record<number, string>> = {
   19: 'Input Longitudinal Velocity',
   20: 'FW Input Roll Angle',
   21: 'FW Input Pitch Angle',
-  22: 'FW Input Yaw Angle',
-  23: 'FW Mixer Roll',
+  22: 'FW Mixer Roll',
+  23: 'FW Mixer Pitch',
   24: 'FW Mixer Pitch',
   25: 'FW Mixer Yaw',
   26: 'FW Mixer Thrust'
@@ -41,9 +49,10 @@ export function sidAxisLabel(axis: number): string {
   return name === undefined ? String(axis) : `${axis}: ${name}`
 }
 
-const ROLL_AXES: readonly number[] = [1, 4, 7, 10, 20, 23]
-const PITCH_AXES: readonly number[] = [2, 5, 8, 11, 21, 24]
-const YAW_AXES: readonly number[] = [3, 6, 9, 12, 22, 25]
+// Upstream: roll 23, pitch 24, yaw 22 and 25 (proven bug for 22 and 23, see SID_AXIS_NAMES).
+const ROLL_AXES: readonly number[] = [1, 4, 7, 10, 20, 22]
+const PITCH_AXES: readonly number[] = [2, 5, 8, 11, 21, 23, 24]
+const YAW_AXES: readonly number[] = [3, 6, 9, 12, 25]
 
 /** The rate controller axis a run tunes, or null for runs that excite no single axis (upstream `set_sid_axis`). */
 export function tuneAxisForSid(axis: number): TuneAxis | null {
@@ -62,19 +71,15 @@ export interface SidRun {
   readonly endTime: number
 }
 
-/** Thrown where upstream's run table fails: a `SIDS` record with no `SIDD` data segment. */
-export class SidRunError extends Error {
-  override readonly name = 'SidRunError'
-}
-
 /**
  * Split `SIDD` timestamps into runs at gaps over 0.5 s, limiting each run to its `SIDS` record's
  * chirp length plus one second. Runs are paired with `SIDS` records in order; as upstream, only
  * as many runs as there are `SIDS` records are listed.
  *
- * Upstream's run table (`add_sid_sets`) throws when there are fewer data segments than `SIDS`
- * records (it formats the missing start time), which stops the log load; this throws
- * `SidRunError` in the same case.
+ * Proven upstream bug, fixed (docs/bug-proofs/analytic-tune.md, row 114): upstream's run table
+ * (`add_sid_sets`) throws when there are fewer data segments than `SIDS` records (it formats the
+ * missing start time), which stops the log load before any parameter is copied. The port lists the
+ * records that have data and the load carries on; with as many segments as records nothing changes.
  */
 export function findSidRuns(siddTime: ArrayLike<number>, sidsAxis: ArrayLike<number>, sidsLength: ArrayLike<number>): SidRun[] {
   if (siddTime.length === 0) return []
@@ -98,13 +103,8 @@ export function findSidRuns(siddTime: ArrayLike<number>, sidsAxis: ArrayLike<num
   tend[j] = siddTime[siddTime.length - 1]!
   clamp(j)
 
-  if (tstart.length < sidsAxis.length) {
-    throw new SidRunError(
-      `The log has ${sidsAxis.length} SIDS records but only ${tstart.length} runs of SIDD data, which upstream cannot list.`
-    )
-  }
   const runs: SidRun[] = []
-  for (let i = 0; i < sidsAxis.length; i++) {
+  for (let i = 0; i < Math.min(sidsAxis.length, tstart.length); i++) {
     runs.push({ axis: sidsAxis[i]!, startTime: tstart[i]!, endTime: tend[i]! })
   }
   return runs

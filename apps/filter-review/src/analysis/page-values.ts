@@ -10,8 +10,7 @@ import {
 /**
  * Upstream keeps every filter setting in a page input and reads it back with `parseFloat` (or
  * `parameter_get_value` for bitmasks) whenever it rebuilds the filters. What the input holds
- * decides the result: an empty input reads as NaN, a drop-down set to a value it does not offer
- * reads as empty, and a parameter missing from the next log keeps the value the previous log
+ * decides the result: an empty input reads as NaN, and a parameter missing from the next log keeps the value the previous log
  * left. This module models those inputs as the strings the DOM holds, so the port reads the
  * same values, writes the same `.param` text and builds the same Filter Tool link.
  */
@@ -90,14 +89,22 @@ export function sanitizeNumberInput(value: string): string {
 }
 
 /**
- * Value the input of `name` holds after upstream `parameter_set_value(name, value)`: a
- * drop-down keeps only one of its option values (anything else selects nothing, value `""`), a
- * number input applies its sanitization.
+ * Value the input of `name` holds after upstream `parameter_set_value(name, value)`: a number
+ * input applies its sanitization; a drop-down keeps one of its option values.
+ *
+ * Proven upstream bug fixed (docs/bug-proofs/filter-review.md, row 9): upstream's drop-down
+ * selects nothing (value `""`, read as NaN) for any other value, so `_ENABLE` 2 or `_MODE` `1.0`
+ * were lost. Here a value that is not an option is kept as its number (`parseFloat` of the text);
+ * text that is not a number still gives `""`.
  */
 export function assignedValue(name: FilterParamName, value: string | number): string {
   const text = String(value)
   const options = selectOptions(name)
-  if (options !== undefined) return options.includes(text) ? text : ''
+  if (options !== undefined) {
+    if (options.includes(text)) return text
+    const number = parseFloat(text)
+    return Number.isNaN(number) ? '' : String(number)
+  }
   return sanitizeNumberInput(text)
 }
 

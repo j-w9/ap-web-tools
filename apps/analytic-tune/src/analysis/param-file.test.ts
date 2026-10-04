@@ -61,9 +61,8 @@ describe('loadParamText matches upstream load_parameters', () => {
     'ATC_RAT_RLL_P,0.2\nRPM1 3000\n# comment\nFOO_BAR,1\nINS_HNTCH_FREQ=95.5\nATC_RAT_PIT_I\tbad\n',
     // Indented lines set nothing; CRLF endings are fine; the second field is taken as written.
     '  ATC_RAT_RLL_P,0.5\r\nATC_RAT_RLL_I,0.25\r\nATC_RAT_RLL_D , 0.004\nATC_RAT_RLL_FF,,0.3\n',
-    // MAVProxy style: drop-downs only hold their exact option texts.
-    'INS_HNTCH_ENABLE 0.000000\nINS_HNTCH_MODE 1.000000\nINS_HNTC2_ENABLE 1\nINS_HNTC2_MODE 3\n',
-    'INS_HNTCH_ENABLE,1\nINS_HNTCH_MODE,7\nINS_HNTC2_ENABLE,2\n',
+    // Drop-downs empty themselves for a value equal to no option.
+    'INS_HNTCH_ENABLE,1\nINS_HNTCH_MODE,7\nINS_HNTC2_ENABLE,2\nINS_HNTC2_MODE,1.5\n',
     // Number inputs keep only valid floating-point text.
     'ATC_RAT_RLL_P,.5\nATC_RAT_RLL_I,5.\nATC_RAT_RLL_D,+1\nATC_RAT_RLL_FF,1e-3\nATC_RAT_RLL_FLTT,0x10\nATC_RAT_RLL_FLTE,-0\nATC_RAT_RLL_FLTD,Infinity\n',
     'GyroSampleRate=4000\nThrottle,0.45\nNUM_MOTORS 4\nESC_RPM,3000\nFILT2_NOTCH_FREQ,80\nSCHED_LOOP_RATE,800\n',
@@ -71,8 +70,7 @@ describe('loadParamText matches upstream load_parameters', () => {
     'FFTWindow_size,512\nstarttime,12.5\nendtime,abc\nUseAttitude,1\n',
     'FFTWindow_size,300\nendtime,40\ntype_Rate_Ctrlr,2\n',
     'FFTWindow_size,x\nUseAttitude,3\ncalculate,0\nPID_ScaleLog,1\nYAW_RATE_NEF,2\n',
-    // A file input given a value throws and stops the load.
-    'ATC_RAT_RLL_P,0.7\nfileItem,x\nATC_RAT_RLL_I,0.9\n',
+    // A file input accepts an empty value.
     'param_file,\nATC_RAT_RLL_I,0.9\n'
   ]
 
@@ -85,8 +83,8 @@ describe('loadParamText matches upstream load_parameters', () => {
     } catch (e) {
       upstreamError = e
     }
+    expect(upstreamError, 'stopped').toBeUndefined()
     const loaded = loadParamText(text)
-    expect(loaded.error !== undefined, 'stopped').toBe(upstreamError !== undefined)
 
     const inputs = withInputs(DEFAULT_INPUTS, loaded.values)
     for (const name of INPUT_NAMES) expect(inputs[name], name).toBe(parseFloat(up.getForm(name)))
@@ -95,6 +93,44 @@ describe('loadParamText matches upstream load_parameters', () => {
     expect(loaded.startTime ?? 0, 'start').toBe(Number(up.getForm('starttime').trim()))
     expect(loaded.endTime ?? 0, 'end').toBe(Number(up.getForm('endtime').trim()))
     expect(loaded.useAttitude ?? false, 'attitude').toBe(up.state().useAttitudeChecked)
+  })
+
+  it('MAVProxy-style drop-down values equal to an option: upstream reads NaN, the port the option (proven bug)', async () => {
+    // Proven upstream bug, fixed (bug-proofs/analytic-tune.md row 107).
+    const text = 'INS_HNTCH_ENABLE 0.000000\nINS_HNTCH_MODE 1.000000\nINS_HNTC2_ENABLE 1\nINS_HNTC2_MODE 3\n'
+    const up = loadAnalyticTuneUpstream()
+    await up.loadParameters(text)
+    const inputs = withInputs(DEFAULT_INPUTS, loadParamText(text).values)
+    expect(up.getForm('INS_HNTCH_ENABLE')).toBe('')
+    expect(up.getForm('INS_HNTCH_MODE')).toBe('')
+    expect(inputs.INS_HNTCH_ENABLE).toBe(0)
+    expect(inputs.INS_HNTCH_MODE).toBe(1)
+    const fixed: readonly InputName[] = ['INS_HNTCH_ENABLE', 'INS_HNTCH_MODE']
+    for (const name of INPUT_NAMES) if (!fixed.includes(name)) expect(inputs[name], name).toBe(parseFloat(up.getForm(name)))
+    // The same values written as option text read the same in both.
+    const plain = loadAnalyticTuneUpstream()
+    await plain.loadParameters('INS_HNTCH_ENABLE 0\nINS_HNTCH_MODE 1\n')
+    expect([inputs.INS_HNTCH_ENABLE, inputs.INS_HNTCH_MODE]).toEqual([
+      parseFloat(plain.getForm('INS_HNTCH_ENABLE')),
+      parseFloat(plain.getForm('INS_HNTCH_MODE'))
+    ])
+  })
+
+  it('a line naming the log file input: upstream stops there, the port skips it (proven bug)', async () => {
+    // Proven upstream bug, fixed (bug-proofs/analytic-tune.md row 117).
+    const text = 'ATC_RAT_RLL_P,0.7\nfileItem,x\nATC_RAT_RLL_I,0.9\n'
+    const up = loadAnalyticTuneUpstream()
+    await expect(up.loadParameters(text)).rejects.toThrow()
+    const loaded = loadParamText(text)
+    const inputs = withInputs(DEFAULT_INPUTS, loaded.values)
+    expect(parseFloat(up.getForm('ATC_RAT_RLL_I'))).toBe(DEFAULT_INPUTS.ATC_RAT_RLL_I)
+    expect(inputs.ATC_RAT_RLL_I).toBe(0.9)
+    expect(loaded.ignored).toBe(1)
+    for (const name of INPUT_NAMES) if (name !== 'ATC_RAT_RLL_I') expect(inputs[name], name).toBe(parseFloat(up.getForm(name)))
+    // Without the file input line, upstream applies the rest exactly as the port does.
+    const clean = loadAnalyticTuneUpstream()
+    await clean.loadParameters('ATC_RAT_RLL_P,0.7\nATC_RAT_RLL_I,0.9\n')
+    for (const name of INPUT_NAMES) expect(inputs[name], name).toBe(parseFloat(clean.getForm(name)))
   })
 
   it('counts lines naming nothing on the page', () => {

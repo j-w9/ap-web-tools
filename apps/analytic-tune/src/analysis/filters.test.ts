@@ -1,6 +1,6 @@
 // The individual elements, chain evaluation and unwrap are tested against upstream in
 // @apwt/filters; this checks the gyro filters the tool builds from its parameters.
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { chainResponse, frequencyGrid, type TransferElement } from '@apwt/filters'
 import { gyroFilters } from './predict.js'
 import { DEFAULT_INPUTS, NOTCH_FIELDS, NOTCH_PREFIXES, notchParam, withInputs, type InputName } from './params.js'
@@ -8,7 +8,11 @@ import { expectBitEqual, expectComplexBitEqual } from './test-utils/compare.js'
 import { rng } from './test-utils/random.js'
 import { loadAnalyticTuneUpstream, type UpstreamFilter } from './test-utils/upstream.js'
 
-const up = loadAnalyticTuneUpstream()
+// Compared with upstream with the proven chained harmonic-notch spread bug fixed
+// (docs/bug-proofs/filters.md, row 2); `original` is the unpatched page, used to check that the fix
+// changes nothing outside the proven case.
+const up = loadAnalyticTuneUpstream(undefined, { fixChainedSpread: true })
+const original = loadAnalyticTuneUpstream()
 
 /** Model grids as the tool builds them: Nyquist and bin width of a measured log rate. */
 const GRIDS = [
@@ -59,8 +63,33 @@ describe('gyro filters match upstream get_filters', () => {
     values.set('ESC_RPM', int(0, 9000))
     values.set('NUM_MOTORS', int(1, 4))
     const inputs = withInputs(DEFAULT_INPUTS, values)
-    for (const [name, value] of values) up.setForm(name, value)
+    for (const [name, value] of values) {
+      up.setForm(name, value)
+      original.setForm(name, value)
+    }
     const rate = [2000, 1000, 4000, 8000][n % 4]!
-    compareChain(gyroFilters(inputs, rate), up.get_filters(rate), `gyro ${n}`)
+    const fixed = up.get_filters(rate)
+    compareChain(gyroFilters(inputs, rate), fixed, `gyro ${n}`)
+    // The original differs only in the proven case: multi-source ESC chaining (mode 3, OPTS bit 1)
+    // with a double or triple notch, more than one motor, and a harmonic centre that is clamped.
+    const centres = (fs: UpstreamFilter[]) => JSON.stringify(fs.map((f) => (f.notches ?? []).map((x) => x.center_freq_hz)))
+    if (centres(original.get_filters(rate)) !== centres(fixed)) {
+      const proven = NOTCH_PREFIXES.some((prefix) => {
+        const v = (field: (typeof NOTCH_FIELDS)[number]) => values.get(notchParam(prefix, field))!
+        const freq = Math.max(values.get('ESC_RPM')! / 60, v('FREQ')) * v('REF')
+        const clamped = [1, 2, 3, 4, 5, 6, 7, 8].some(
+          (h) => (v('HMNCS') & (1 << (h - 1))) !== 0 && Math.min(Math.max(freq * h, v('BW') * h * 0.52), rate * 0.48) !== freq * h
+        )
+        return (
+          v('ENABLE') > 0 &&
+          v('MODE') === 3 &&
+          (v('OPTS') & 2) !== 0 &&
+          (v('OPTS') & 17) !== 0 &&
+          values.get('NUM_MOTORS')! > 1 &&
+          clamped
+        )
+      })
+      expect(proven).toBe(true)
+    }
   })
 })

@@ -24,7 +24,7 @@ import {
 } from './analysis/params.js'
 import { predictResponses } from './analysis/predict.js'
 import { tuneAxisForSid } from './analysis/sid.js'
-import { INITIAL_AIRSPEED_SCALING, airspeedScalingFor, loadTimeHistory, type AirspeedScaling } from './analysis/time-history.js'
+import { airspeedScalingFor, loadTimeHistory, type AirspeedScaling } from './analysis/time-history.js'
 import { LoopChips, ScaleChips } from './ui/ComparisonControls.js'
 import { ParamPanel, type FileStatus } from './ui/ParamPanel.js'
 import { AnalysisRail } from './ui/Rail.js'
@@ -94,10 +94,9 @@ export function App() {
   const setDisplayField = <K extends keyof DisplaySettings>(key: K, value: DisplaySettings[K]) =>
     setDisplay((d) => ({ ...d, [key]: value }))
 
-  // Upstream page globals that outlive a log: vehicle_type (kept when a log has no firmware
-  // banner) and the fixed-wing airspeed scaling aspeed/eas2tas (used by every later prediction).
+  // Upstream page global that outlives a log: vehicle_type (kept when a log has no firmware
+  // banner). Its aspeed/eas2tas globals are not carried over (proven bug, see airspeedScalingFor).
   const vehicleRef = useRef<TuneVehicle>('copter')
-  const airspeedRef = useRef<AirspeedScaling>(INITIAL_AIRSPEED_SCALING)
 
   const vehicle = log?.vehicle ?? vehicleRef.current
   const target = tuneTarget(vehicle, axis)
@@ -115,8 +114,7 @@ export function App() {
           return
         }
         const history = loadTimeHistory(loaded.log, loaded.attitudeMessage, t, range[0], range[1])
-        const airspeed = airspeedScalingFor(history, airspeedRef.current)
-        airspeedRef.current = airspeed
+        const airspeed = airspeedScalingFor(history)
         setAnalysis({ identified: identifyResponses(history, t.axis, size), target: t, sidAxis: sid, airspeed })
         setError(null)
         setDirty(false)
@@ -217,9 +215,10 @@ export function App() {
     () =>
       comparisonTraces(comparison, measured?.freq ?? null, {
         gain: display.gain,
+        phase: display.phase,
         frequencyUnit: display.frequencyUnit
       }),
-    [comparison, measured, display.gain, display.frequencyUnit]
+    [comparison, measured, display.gain, display.phase, display.frequencyUnit]
   )
   const magLayout = useMemo(() => magnitudeLayout(display), [display])
   const phLayout = useMemo(() => phaseLayout(display), [display])
@@ -272,8 +271,7 @@ export function App() {
       if (loaded.windowSizeText !== undefined) setWindowSizeText(sizeText)
       if (loaded.useAttitude !== undefined) setDisplayField('useAttitude', loaded.useAttitude)
       setFileStatus({ kind: 'loaded', name: paramFile.name, count: loaded.values.size, ignored: loaded.ignored })
-      if (loaded.error !== undefined) setError(loaded.error)
-      else recalculateIfStale(range, sizeText)
+      recalculateIfStale(range, sizeText)
     })
   }
   const onSaveParams = () => {

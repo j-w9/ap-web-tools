@@ -144,7 +144,7 @@ describe('runFft', () => {
     expect(res.max.x[0]).toBe(Math.max(...firstWindow))
   })
 
-  it('returns zero windows, or throws, for short data exactly as upstream', () => {
+  it('returns zero windows for data within one spacing of a full window, as upstream', () => {
     const fft = new RealFft(windowSize)
     // Within one spacing of a full window: floor(...) + 1 is 0, so zero windows in both.
     const x = randomArray(next, windowSize - 1)
@@ -153,12 +153,26 @@ describe('runFft', () => {
     expect(res.center.length).toBe(0)
     expect(theirs.center).toEqual([])
     expect(res.spectra.x).toEqual([])
-    // Shorter still: the count is negative and both throw a RangeError (invalid array length).
-    const short = [1, 2, 3]
-    expect(() => up.run_fft({ x: short }, ['x'], windowSize, windowSpacing, Array.from(window), upstreamFft(windowSize))).toThrow(
-      'Invalid array length'
+  })
+
+  it('proven upstream bug fixed: shorter data gives zero windows where upstream throws', () => {
+    // docs/bug-proofs/signal.md, row 2. Upstream's count is negative and `new Array` throws; the
+    // port returns zero windows, exactly what upstream returns for data one sample longer than
+    // windowSize - windowSpacing.
+    const fft = new RealFft(windowSize)
+    for (const short of [[1, 2, 3], randomArray(next, windowSize - windowSpacing - 1)]) {
+      expect(() =>
+        up.run_fft({ x: short }, ['x'], windowSize, windowSpacing, Array.from(window), upstreamFft(windowSize))
+      ).toThrow('Invalid array length')
+      const res = runFft({ x: short }, ['x'], { windowSize, windowSpacing, window, fft, takeMax: true })
+      expect(res.center.length).toBe(0)
+      expect(res.spectra.x).toEqual([])
+      expect(res.max.x.length).toBe(0)
+    }
+    const edge = randomArray(next, windowSize - windowSpacing)
+    expect(up.run_fft({ x: edge }, ['x'], windowSize, windowSpacing, Array.from(window), upstreamFft(windowSize)).center).toEqual(
+      []
     )
-    expect(() => runFft({ x: short }, ['x'], { windowSize, windowSpacing, window, fft })).toThrow(RangeError)
   })
 
   it('throws for missing keys and mismatched fft size', () => {

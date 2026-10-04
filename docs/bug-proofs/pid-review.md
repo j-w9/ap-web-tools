@@ -22,6 +22,8 @@ scaled by count/intervals (about +0.5 % at 200-sample batches)._
 
 **Verdict: PROVEN** (contradicts mathematics).
 
+**Status: FIXED.** Port: `apps/pid-review/src/analysis/batches.ts` `splitIntoBatches` (`sampleRate = (j - 1 - batchStart) / (time[j - 1] - time[batchStart])`). Tests: `apps/pid-review/src/analysis/batches.test.ts` "returns one batch for steady data" (400 Hz; upstream 402.02 Hz) and "skips samples before a set starts without counting them or moving the batch start". The oracle tests in `apps/pid-review/src/analysis/pipeline.test.ts` compare the port with upstream patched as the port behaves (`apps/pid-review/src/test-utils/proven-fixes.ts`, `createUpstreamPidReview({ fixed: true })`).
+
 **Reproduction:** `proofs/pid-review/batches.test.ts`, "reports 402.02 Hz for 200 samples at exactly
 400 Hz" and "reports 323.23 Hz when the parameter set starts at 0.1 s". Input: 200 timestamps
 `i / 400`, one parameter set from 0 s. Output: one batch, `sample_rate` = 199 × 400 / 198 =
@@ -60,6 +62,8 @@ log's last sample, are never analysed or plotted._
 **Verdict: PROVEN** for the sample before each split point (`j - 1`). The "log's last sample" part
 is **NOT PROVEN** (see below); the row should read "the last sample before each split (at the end of
 the log, the second-to-last sample)".
+
+**Status: FIXED** for the sample before each split; the log's last sample stays reproduced. Port: `apps/pid-review/src/analysis/batches.ts` `splitIntoBatches` (`end: j`). Tests: `apps/pid-review/src/analysis/batches.test.ts` "splits at a gap in the data" ([0, 200) and [200, 399); upstream [0, 199) and [200, 398)) and "returns one batch for steady data". The oracle tests in `apps/pid-review/src/analysis/pipeline.test.ts` compare the port with upstream patched as the port behaves (`apps/pid-review/src/test-utils/proven-fixes.ts`, `createUpstreamPidReview({ fixed: true })`).
 
 **Reproduction:** `proofs/pid-review/batches.test.ts`, "leaves the last sample before a gap, and the
 last two of the log, out of every batch". Input: samples 0-99 at 400 Hz, a 1 s gap, samples 100-199
@@ -108,6 +112,8 @@ low-rate logs._
 **Verdict: PROVEN** (contradicts itself, and the symmetry a double-sided spectrum of a real signal
 must have).
 
+**Status: FIXED.** Port: `apps/pid-review/src/analysis/step-response.ts` `noiseEstimate` (reflects the first `realLen` entries). Test: `apps/pid-review/src/analysis/pipeline.test.ts` "matches the fixed noise estimate at low logging rates" (40, 60, 90 Hz logs, every step trace against the fixed page).
+
 **Reproduction:** `proofs/pid-review/step.test.ts`, "is 83 long and not symmetric at 60 Hz, 64
 points". Input: one batch of 256 samples, average rate 60 Hz, window 64; the array `redraw_step`
 passes to `array_add(Pxx[0], sn)` is captured. Output: length 83 (52 + 31), and `sn[k] !== sn[64-k]`
@@ -152,6 +158,8 @@ Row: _PID Review | Mean step trace not cleared when a set has no window above 20
 plot._
 
 **Verdict: PROVEN** (contradicts itself).
+
+**Status: FIXED.** Port: `apps/pid-review/src/App.tsx` (step responses no longer pass through `carryOverStaleMeans`, which is removed from `apps/pid-review/src/analysis/step-response.ts`). Test: `apps/pid-review/src/analysis/pipeline.test.ts` "proven upstream bug fixed: no step mean for a set with no well-excited window, where upstream keeps a stale one" (the original page's mean trace is non-empty; the port's set is null and matches the fixed page).
 
 **Reproduction:** `proofs/pid-review/step.test.ts`, "keeps the previous range mean when the new range
 has no window above 20 deg/s". Input: 1024 samples at 400 Hz, a 5 Hz sine of amplitude 100 for the
@@ -206,6 +214,8 @@ one is selected | `PIDReview/PIDReview.js` `add_param_sets` | The spectrogram ch
 controller change._
 
 **Verdict: PROVEN** (contradicts itself).
+
+**Status: FIXED.** Port: `apps/pid-review/src/analysis/selection.ts` `selectionsForAxis` (`keys.has(spectrogram) ? spectrogram : 'Out'`). Test: `apps/pid-review/src/analysis/pipeline.test.ts` "proven upstream bug fixed: keeps an enabled spectrogram signal on a log without D FF" (original: Output; fixed page and port: P) and "sets up selections and the Tests table as add_param_sets does".
 
 **Reproduction:** `proofs/pid-review/spectrogram-signal.test.ts`, "moves the spectrogram from P
 (enabled) to Output on a PID log without D FF". Input: a `PIDR` controller whose batch has

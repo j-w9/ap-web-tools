@@ -28,6 +28,9 @@ export interface RailProps {
   available: { batch: boolean; raw: boolean } | null
   /** Gyro data in use, null before loading. */
   logType: GyroLogType | null
+  /** Log type chosen for a log with both kinds of data (upstream's "Batch" / "Raw sensor" radios). */
+  logTypeChoice: GyroLogType
+  onLogTypeChange: (type: GyroLogType) => void
   fft: FftSettings
   onFftChange: (fft: FftSettings) => void
   timeRange: [number, number]
@@ -69,18 +72,19 @@ export function Rail(p: RailProps) {
       <ControlGroup label="Gyro data">
         <RadioChips
           name="log-type"
-          value={p.logType ?? 'raw'}
-          onChange={() => undefined}
+          value={p.logType ?? p.logTypeChoice}
+          onChange={p.onLogTypeChange}
           options={[
-            { value: 'raw', label: 'Raw IMU', disabled: true },
-            { value: 'batch', label: 'Batch sampling', disabled: true }
+            // Chosen before loading; the type cannot be changed once a log is loaded (upstream)
+            { value: 'raw', label: 'Raw IMU', disabled: p.logType !== null },
+            { value: 'batch', label: 'Batch sampling', disabled: p.logType !== null }
           ]}
         />
         <p className="fr-hint">
           {p.available === null
-            ? 'Raw IMU data is used whenever the log has it; batch sampling only when there is no raw data.'
+            ? 'Used when a log has both raw IMU and batch sampling data; otherwise the data the log has is used.'
             : p.available.raw && p.available.batch
-              ? 'This log has both; raw IMU data is used, as in the original tool.'
+              ? `This log has both; ${p.logType === 'batch' ? 'batch sampling' : 'raw IMU'} data is used, as chosen before loading.`
               : p.logType === 'raw'
                 ? 'This log has raw IMU data.'
                 : 'This log has batch sampling data.'}

@@ -15,22 +15,23 @@ stub built from `index.html`. Element values follow the HTML rules for the eleme
 The log parser is a fake that hands the page the arrays a test supplies. Line numbers are in `upstream/AnalyticTune/`
 unless stated otherwise.
 
-| Row | Bug                                                 | Verdict    | Reason                                                                                     |
-| --- | --------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------ |
-| 104 | Un-wrapped phase option has no effect               | PROVEN     | The page offers "un-wrapped" but never plots it                                            |
-| 105 | Airspeed scaling outlives its log                   | PROVEN     | Copter gains get scaled by a plane's airspeed; the copter rate loop has no airspeed term   |
-| 106 | Vehicle outlives its log                            | NOT PROVEN | Nothing says what vehicle a log without a banner is                                        |
-| 107 | Drop-down params lose non-option text               | PROVEN     | `ENABLE 0.000000` (that is, 0, Disabled) enables the notch. Only the numeric-match case    |
-| 108 | Sample rate counts samples, not intervals           | PROVEN     | n samples span n-1 intervals; 100 Hz data reads as 101.01 Hz                               |
-| 109 | Signals at different log rates analysed as one rate | NOT PROVEN | The firmware logs all SID signals at one rate; logs that break this are outside the design |
-| 110 | Loops run one past the end                          | PROVEN     | Arrays allocated with length L, loops write L+1; the extra element is NaN                  |
-| 111 | Fixed-wing yaw throws                               | PROVEN     | TypeError on Calculate. No reference defines a fixed-wing yaw result: fix is an error only |
-| 112 | Fixed-wing yaw save throws                          | PROVEN     | The empty pilot prefix matches every element; `param_to_string("on")` throws               |
-| 113 | Notch selection outside 1-8 throws                  | PROVEN     | Index 9 throws; the firmware applies no notch. Non-integer indices NOT PROVEN              |
-| 114 | SIDS record without data stops the load             | PROVEN     | TypeError in `add_sid_sets`; parameters are not copied                                     |
-| 115 | Plane log without SIDS stops the load               | PROVEN     | TypeError. No reference picks FW or VTOL without SIDS: fix is an error only                |
-| 116 | .param lines not trimmed                            | NOT PROVEN | No parameter file format defines indented lines                                            |
-| 117 | File input named in a .param stops the load         | PROVEN     | Throws mid-file, but the loop is written to skip lines it cannot apply                     |
+| Row | Bug                                                      | Verdict    | Reason                                                                                     |
+| --- | -------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------ |
+| 104 | Un-wrapped phase option has no effect                    | PROVEN     | The page offers "un-wrapped" but never plots it                                            |
+| 105 | Airspeed scaling outlives its log                        | PROVEN     | Copter gains get scaled by a plane's airspeed; the copter rate loop has no airspeed term   |
+| 106 | Vehicle outlives its log                                 | NOT PROVEN | Nothing says what vehicle a log without a banner is                                        |
+| 107 | Drop-down params lose non-option text                    | PROVEN     | `ENABLE 0.000000` (that is, 0, Disabled) enables the notch. Only the numeric-match case    |
+| 108 | Sample rate counts samples, not intervals                | PROVEN     | n samples span n-1 intervals; 100 Hz data reads as 101.01 Hz                               |
+| 109 | Signals at different log rates analysed as one rate      | NOT PROVEN | The firmware logs all SID signals at one rate; logs that break this are outside the design |
+| 110 | Loops run one past the end                               | PROVEN     | Arrays allocated with length L, loops write L+1; the extra element is NaN                  |
+| 111 | Fixed-wing yaw throws                                    | PROVEN     | TypeError on Calculate. No reference defines a fixed-wing yaw result: fix is an error only |
+| 112 | Fixed-wing yaw save throws                               | PROVEN     | The empty pilot prefix matches every element; `param_to_string("on")` throws               |
+| 113 | Notch selection outside 1-8 throws                       | PROVEN     | Index 9 throws; the firmware applies no notch. Non-integer indices NOT PROVEN              |
+| 114 | SIDS record without data stops the load                  | PROVEN     | TypeError in `add_sid_sets`; parameters are not copied                                     |
+| 115 | Plane log without SIDS stops the load                    | PROVEN     | TypeError. No reference picks FW or VTOL without SIDS: fix is an error only                |
+| 116 | .param lines not trimmed                                 | NOT PROVEN | No parameter file format defines indented lines                                            |
+| 117 | File input named in a .param stops the load              | PROVEN     | Throws mid-file, but the loop is written to skip lines it cannot apply                     |
+| new | SID axes 22 and 23 mapped as FW yaw input and roll mixer | PROVEN     | The firmware defines 22 as FW mixer roll and 23 as FW mixer pitch                          |
 
 PROVEN 11, NOT PROVEN 3. Two of the PROVEN rows (111, 115) are crashes where no reference defines the correct result.
 For those, the port's existing error message (the crash clause in `docs/porting-policy.md`) is the whole fix, and no
@@ -42,6 +43,8 @@ maths changes. A related finding that is not a row (SID axis numbers 22 to 25) i
 ±180 deg.
 
 **Verdict:** PROVEN (the original never produces the output its own UI offers).
+
+**Status: FIXED.** Port: `apps/analytic-tune/src/analysis/display.ts` `phaseOf` (applies upstream's `unwrap` when "un-wrapped" is selected), used by `apps/analytic-tune/src/ui/traces.ts` `comparisonTraces`. Test: `apps/analytic-tune/src/analysis/pipeline.test.ts`, the trace comparison for the `linear`/`rad/s` scale with un-wrapped phase (expects upstream's own `unwrap` of its wrapped phase); the wrapped phase is unchanged.
 
 **Test:** `unwrap-phase.test.ts`, "Analytic Tune: un-wrapped phase option > plots the wrapped phase whichever option is
 selected". The input is a response with phase -100, -130, ..., -430 deg (30 deg steps), used as both the calculated and
@@ -69,6 +72,8 @@ negative-jump threshold) when un-wrapped is selected. Nothing else changes.
 fixed-wing calculation scale P/I/D by aspeed² and FF/D_FF by aspeed/eas2tas.
 
 **Verdict:** PROVEN (contradicts ArduPilot).
+
+**Status: FIXED.** Port: `apps/analytic-tune/src/analysis/time-history.ts` `airspeedScalingFor` (the window's airspeed on fixed wing, otherwise `INITIAL_AIRSPEED_SCALING` (1, 1)); `apps/analytic-tune/src/App.tsx` no longer carries the scaling between analyses. Test: `apps/analytic-tune/src/analysis/load-upstream.test.ts` "a multirotor analysed after a fixed-wing one: upstream uses the fixed-wing airspeed scaling, the port 1 (proven bug)".
 
 **Test:** `logs.test.ts`, "Analytic Tune: state carried between logs > scales a copter prediction by the airspeed of an
 earlier fixed-wing window".
@@ -121,6 +126,8 @@ NaN is a fixed notch (for example MAVProxy `0.000000`).
 **Verdict:** PROVEN for text that is numerically equal to an option (contradicts ArduPilot). Values equal to no option
 (such as a `MODE` the metadata does not list) are NOT PROVEN and stay reproduced.
 
+**Status: FIXED** for the proven case only. Port: `apps/analytic-tune/src/analysis/form-values.ts` `inputValueFromText` (valid number text equal to an option's number selects it; other non-option text stays NaN). Test: `apps/analytic-tune/src/analysis/param-file.test.ts` "MAVProxy-style drop-down values equal to an option: upstream reads NaN, the port the option (proven bug)".
+
 **Test:** `param-file.test.ts`, "Analytic Tune: .param files > enables the harmonic notch for INS_HNTCH_ENABLE 0.000000".
 
 - After metadata loading, `INS_HNTCH_ENABLE` is a `SELECT` with options `['0', '1']`.
@@ -155,6 +162,8 @@ reads as NaN.
 n/(n-1).
 
 **Verdict:** PROVEN (contradicts mathematics).
+
+**Status: FIXED.** Port: `apps/analytic-tune/src/analysis/time-history.ts` `averageRate` (`(n - 1) / record`). Tests: `apps/analytic-tune/src/analysis/pipeline.test.ts` and `apps/analytic-tune/src/analysis/load-upstream.test.ts` compare every calculation with the page patched to `(n - 1) / span` (`loadAnalyticTuneUpstream(..., { fixSampleRate: true })`; `fixSampleRate: false` is the original).
 
 **Test:** `time-history.test.ts`, "Analytic Tune: time history loading > gives 101.01 Hz for RATE logged at exactly
 100 Hz". RATE time stamps are exactly 10 ms apart, 0 to 1 s, with window 0 to 1 s. The 100 kept samples span 0.99 s, and
@@ -205,6 +214,8 @@ designed for. No reference states what the tool should do with one, so the row s
 
 **Verdict:** PROVEN (contradicts itself). It has no visible effect.
 
+**Status: no port change needed.** The port never reproduced the extra element: `apps/analytic-tune/src/analysis/predict.ts` loops stop at the end. Test: `apps/analytic-tune/src/analysis/pipeline.test.ts` checks upstream's two results are one longer and every port result has the aircraft response's length; the plotted data is the same.
+
 **Test:** `time-history.test.ts`, "Analytic Tune: calculate_predicted_TF loop bounds > returns one extra trailing NaN
 element on two of the predictions". For a 32-bin `H_acft` (window 64, 400 Hz):
 
@@ -227,6 +238,8 @@ Port: the four loop bounds in `apps/analytic-tune/src/analysis/predict.ts` that 
 
 **Verdict:** PROVEN (it fails). No reference defines a correct fixed-wing yaw result, so the only fix is an error
 message, which the port already shows (crash clause). No maths change.
+
+**Status: no port change needed.** The port already reports it: `apps/analytic-tune/src/App.tsx` shows "Fixed-wing yaw has no rate controller model. Pick a roll or pitch run." (`tuneTarget` returns null for fixed-wing yaw). With the SID axis fix below, a firmware run no longer reaches fixed-wing yaw (only the undefined axis 25 does).
 
 **Test:** `logs.test.ts`, "Analytic Tune: fixed-wing yaw > throws on Calculate after a plane log whose run is on axis
 22". After a plane log whose SIDS `Ax` is 22, `[vehicle_type, page_axis]` is `['ArduPlane_FW', 'Yaw']` and there is no
@@ -252,6 +265,8 @@ as FW mixer roll; see the related finding below.
 .param is saved for fixed-wing yaw.
 
 **Verdict:** PROVEN (it fails, and contradicts itself).
+
+**Status: NOT FIXED (needs a decision).** The corrected file contains `YAW_RATE_NTF` and `YAW_RATE_NEF` (and the `FILT<n>` group they select), which the port deliberately does not model (`params.ts` `INPUT_NAMES`, audit "not modelled"): they can come from a log, a `.param` file or a link in upstream. Saving the corrected file faithfully needs those two inputs added to the port's input model, which is wider than this row. Until then the port shows upstream's error (`FIXED_WING_YAW_SAVE_ERROR`), as before. After the SID axis fix only the undefined axis 25 reaches fixed-wing yaw.
 
 **Tests:** `logs.test.ts`, "Analytic Tune: fixed-wing yaw":
 
@@ -288,6 +303,8 @@ unchanged.
 indices (such as 1.5) are NOT PROVEN: the firmware parameter is an integer, so nothing defines what the page should do
 with one.
 
+**Status: FIXED** for integer selections of 9 and above. Port: `apps/analytic-tune/src/analysis/predict.ts` `checkNotchSelections` and `selectedNotch` (`isNoFilterIndex`: no notch); 1.5 still stops. Tests: `apps/analytic-tune/src/analysis/load-upstream.test.ts` "proven upstream bug fixed: a notch selection of %s is no notch where upstream stops" (9, 12: the prediction equals the one for 0) and "a notch selection of 1.5 names no FILTn group: both stop".
+
 **Tests:** `logs.test.ts`, "Analytic Tune: notch filter index":
 
 - "throws for ATC_RAT_RLL_NTF = 9 (and 1.5), in update_PID_filters and calculate_predicted_TF". On a copter Roll page,
@@ -317,6 +334,8 @@ index 8, while the page applies `FILT8`. That is a firmware edge case, not this 
 
 **Verdict:** PROVEN (it fails).
 
+**Status: FIXED.** Port: `apps/analytic-tune/src/analysis/sid.ts` `findSidRuns` (lists the records that have data instead of throwing). Tests: `apps/analytic-tune/src/analysis/load-upstream.test.ts` "proven upstream bug fixed: more SIDS records than SIDD runs loads, where upstream throws before copying parameters" (the load equals that of the same log without the extra record, which upstream loads); `apps/analytic-tune/src/analysis/sid.test.ts`.
+
 **Test:** `logs.test.ts`, "Analytic Tune: logs that stop the load > throws when there are more SIDS records than SIDD
 runs; parameters not copied". The log has two SIDS records and one SIDD run, with `PARM` `INS_HNTCH_FREQ` 80 and
 `ATC_RAT_RLL_P` 0.2. `load_log` throws `TypeError: Cannot read properties of undefined (reading 'toFixed')`.
@@ -338,6 +357,8 @@ table does not abort the load when `tstart[i]` is missing.
 
 **Verdict:** PROVEN (it fails). No reference decides whether such a log is fixed-wing or VTOL, so the only fix is an
 error message, which the port already shows (crash clause). No maths change.
+
+**Status: no port change needed.** The port already reports it: `apps/analytic-tune/src/analysis/load.ts` throws `PartialTuneLogError` ("The log is from a plane but has no SIDS records, which upstream cannot read.") after copying what upstream copies; test `apps/analytic-tune/src/analysis/load-upstream.test.ts` "a plane without SIDS: upstream throws after copying the harmonic notch parameters".
 
 **Test:** `logs.test.ts`, "Analytic Tune: logs that stop the load > throws for a plane log without SIDS; only harmonic
 notch params copied". A fresh page loads a log with banner `ArduPlane` and PARM `INS_HNTCH_FREQ` 80, `RLL_RATE_P` 0.5,
@@ -372,6 +393,8 @@ reasonable reading.
 
 **Verdict:** PROVEN (it fails, and contradicts itself).
 
+**Status: FIXED.** Port: `apps/analytic-tune/src/analysis/param-file.ts` `loadParamText` (a file-input line is counted as ignored and the load continues); `App.tsx` recalculates as for any file. Test: `apps/analytic-tune/src/analysis/param-file.test.ts` "a line naming the log file input: upstream stops there, the port skips it (proven bug)".
+
 **Test:** `param-file.test.ts`, "Analytic Tune: .param files > rejects at a line naming the log file input; later lines
 not applied". The file is `ATC_RAT_RLL_I,0.4` / `fileItem,1` / `ATC_RAT_RLL_P,0.5`. `load_parameters` rejects with the
 file input's `InvalidStateError`. I is `0.4`, but P stays `0.288`, and `update_all_hidden()` never runs.
@@ -389,19 +412,36 @@ file input's `InvalidStateError`. I is `0.4`, but P stays `0.288`, and `update_a
 applied (`ATC_RAT_RLL_P` = 0.5 for the reproduction) and `update_all_hidden()` runs. Port: the `.param` loader treats an
 element that cannot take the value (a file input) as not settable and continues.
 
-## Related finding (not a row): SID axis numbers 22 to 25
+## SID axes 22 and 23 mapped as fixed-wing yaw input and roll mixer
 
-**Verdict:** not part of `upstream-bugs.md`; recorded here because the reproductions above show it.
+**Row:** `add_sid_sets` names and `set_sid_axis` maps SID axis 22 as "FW Input Yaw Angle" (Yaw) and 23 as "FW Mixer Roll"
+(Roll). The firmware defines 22 as FW mixer roll and 23 as FW mixer pitch. (Added to `upstream-bugs.md` with this
+verdict.)
 
-The page labels and maps the fixed-wing SID axes as 20 roll input, 21 pitch input, 22 yaw input, 23 roll mixer, 24 pitch
-mixer and 25 yaw mixer:
+**Verdict:** PROVEN (contradicts ArduPilot).
 
-- `AnalyticTune.js:2343-2346`: `20: "FW Input Roll Angle"`, `22: "FW Input Yaw Angle"`, `23: "FW Mixer Roll"`.
-- `AnalyticTune.js:2431-2436`: 22 and 25 map to Yaw, 23 to Roll, 24 to Pitch.
+**Status: FIXED.** Port: `apps/analytic-tune/src/analysis/sid.ts` `SID_AXIS_NAMES` and `tuneAxisForSid`
+(22 "FW Mixer Roll" tunes Roll, 23 "FW Mixer Pitch" tunes Pitch; 24 to 26, which the firmware does not define, keep
+upstream's names and axes). Tests: `apps/analytic-tune/src/analysis/load-upstream.test.ts` "proven upstream bug fixed: SID
+axes 22 and 23 tune roll and pitch, where upstream tunes yaw and roll"; `sid.test.ts` "proven upstream bug fixed: 22 is FW
+mixer roll and 23 FW mixer pitch, as the firmware defines them". The fixed-wing yaw test now uses axis 25.
 
-The firmware at the pinned commit defines `FW_MIX_ROLL = 22` and `FW_MIX_PITCH = 23`, and nothing above 23
-(`upstream/modules/ardupilot/ArduPlane/systemid.h:64-67`;
-`ArduPlane/systemid.cpp:18`: `@Values: ... 20:FW Input Roll Angle, 21:FW Input Pitch Angle, 22:FW Mixer Roll, 23:FW Mixer Pitch`).
-So a fixed-wing mixer roll run is analysed as yaw and throws (row 111), and a mixer pitch run is analysed as roll.
-`logs.test.ts` shows axis 22 giving `page_axis` `'Yaw'`. This contradicts ArduPilot and would meet the PROVEN bar. It
-is not a row of `upstream-bugs.md`, so no verdict is recorded here. It should be added to the table before any fix.
+**Tests (proof):** `sid-axes.test.ts`. Plane logs with one run on axis 20, 21, 22, 23, 24 give `page_axis` Roll, Pitch,
+Yaw, Roll, Pitch; the run table source names 22 "FW Input Yaw Angle", 23 "FW Mixer Roll", 24 "FW Mixer Pitch".
+`logs.test.ts` shows the axis-22 run then throwing on Calculate (row 111).
+
+**Evidence:**
+
+- `AnalyticTune.js:2343-2346`: `20: "FW Input Roll Angle"`, `21: "FW Input Pitch Angle"`, `22: "FW Input Yaw Angle"`,
+  `23: "FW Mixer Roll"`, `24: "FW Mixer Pitch"`.
+- `AnalyticTune.js:2431-2436`: 23 maps to Roll, 24 to Pitch, 22 and 25 to Yaw.
+- `upstream/modules/ardupilot/ArduPlane/systemid.h:64-67`: `FW_INPUT_ROLL = 20`, `FW_INPUT_PITCH = 21`,
+  `FW_MIX_ROLL = 22`, `FW_MIX_PITCH = 23`, and no value above 23; `ArduPlane/systemid.cpp:18`:
+  `@Values: ... 20:FW Input Roll Angle, 21:FW Input Pitch Angle, 22:FW Mixer Roll, 23:FW Mixer Pitch`.
+
+The page's own convention analyses a mixer run on its axis (VTOL mixer roll 10 and pitch 11 map to Roll and Pitch, and
+its "FW Mixer Roll" maps to Roll), so with the firmware's numbering a run on 22 is a roll run and 23 a pitch run. Upstream
+analyses a mixer roll run as yaw (and stops, row 111) and a mixer pitch run as roll.
+
+**Minimal correct behaviour:** a fixed-wing run on axis 22 tunes Roll and is labelled "FW Mixer Roll"; 23 tunes Pitch
+and is labelled "FW Mixer Pitch". Every other axis is unchanged.
