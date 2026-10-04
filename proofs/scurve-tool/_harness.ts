@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createContext, runInContext } from 'node:vm'
+import { Worker } from 'node:worker_threads'
 
 export const upstreamDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../upstream')
 export const readUpstream = (rel: string): string => readFileSync(resolve(upstreamDir, rel), 'utf8')
@@ -32,21 +32,6 @@ export interface Result {
   axisTitles: { x: string; y: string; z: string }
   /** `SCurveLog`. */
   curves: Curve[]
-}
-
-interface Element {
-  value: string
-  checked: boolean
-}
-
-interface Globals {
-  initial_load(): void
-  replot: () => Promise<void>
-  wp_pos_plot: {
-    data: Trace[]
-    layout: { scene: Record<'xaxis' | 'yaxis' | 'zaxis', { title: { text: string } }> }
-  }
-  SCurveLog: Curve[]
 }
 
 /** Every input of `SCurveTool/index.html` with its default value. */
@@ -92,57 +77,74 @@ export const DEFAULT_CHECKS: Readonly<Record<string, boolean>> = {
   display_wp_jerk: false
 }
 
-let instance: { globals: Globals; elements: Map<string, Element> } | undefined
-
-function load() {
-  if (instance) return instance
-  const elements = new Map<string, Element>()
-  const getElementById = (id: string): Element => {
-    let el = elements.get(id)
-    if (!el) {
-      el = { value: '', checked: false }
-      elements.set(id, el)
-    }
-    return el
+/**
+ * The original page, run in a worker thread: a long simulation (cut at 1000 s) blocks for about a
+ * minute, longer than Vitest allows its own worker to go without answering. Plain JavaScript, as a
+ * worker evaluates it; `workerData` holds the upstream path and the element values.
+ */
+const WORKER_SOURCE = `
+const { parentPort, workerData } = require('node:worker_threads')
+const { readFileSync } = require('node:fs')
+const { resolve } = require('node:path')
+const { createContext, runInContext } = require('node:vm')
+const { upstreamDir, values, checks } = workerData
+const read = (rel) => readFileSync(resolve(upstreamDir, rel), 'utf8')
+const elements = new Map()
+for (const [id, value] of Object.entries(values)) elements.set(id, { value, checked: false })
+for (const [id, checked] of Object.entries(checks)) elements.set(id, { value: '', checked })
+const getElementById = (id) => {
+  let el = elements.get(id)
+  if (!el) {
+    el = { value: '', checked: false }
+    elements.set(id, el)
   }
-  const context = createContext({
-    window: {},
-    console,
-    WebAssembly,
-    TextDecoder,
-    setTimeout,
-    clearTimeout,
-    document: { getElementById },
-    Plotly: { purge() {}, newPlot() {}, redraw() {} },
-    link_plot_axis_range() {},
-    link_plot_reset() {},
-    loading_call: (f: () => Promise<void>) => f(),
-    __wasmBinary: new Uint8Array(readFileSync(resolve(upstreamDir, 'SCurveTool/ardupilot/wpnav.wasm')))
-  })
-  const source = [
-    readUpstream('SCurveTool/ardupilot/wpnav.js'),
-    // The page calls WPNavModule() with no arguments and lets the glue fetch the wasm.
-    'var __factory = WPNavModule; WPNavModule = () => __factory({ wasmBinary: __wasmBinary });',
-    readUpstream('Libraries/Array_Math.js'),
-    readUpstream('SCurveTool/SCurveTool.js'),
-    ';this'
-  ].join('\n')
-  const globals = runInContext(source, context, { filename: 'upstream-scurve.js' }) as Globals
-  globals.initial_load()
-  instance = { globals, elements }
-  return instance
+  return el
 }
-
-/** Run the original `replot()` with these input values (by element id) and return what it plots. */
-export async function replot(values: Record<string, string>, checks: Record<string, boolean> = {}): Promise<Result> {
-  const { globals, elements } = load()
-  for (const [id, value] of Object.entries({ ...DEFAULTS, ...values })) elements.set(id, { value, checked: false })
-  for (const [id, checked] of Object.entries({ ...DEFAULT_CHECKS, ...checks })) elements.set(id, { value: '', checked })
-  await globals.replot()
+const context = createContext({
+  window: {},
+  console,
+  WebAssembly,
+  TextDecoder,
+  setTimeout,
+  clearTimeout,
+  document: { getElementById },
+  Plotly: { purge() {}, newPlot() {}, redraw() {} },
+  link_plot_axis_range() {},
+  link_plot_reset() {},
+  loading_call: (f) => f(),
+  __wasmBinary: new Uint8Array(readFileSync(resolve(upstreamDir, 'SCurveTool/ardupilot/wpnav.wasm')))
+})
+const source = [
+  read('SCurveTool/ardupilot/wpnav.js'),
+  // The page calls WPNavModule() with no arguments and lets the glue fetch the wasm.
+  'var __factory = WPNavModule; WPNavModule = () => __factory({ wasmBinary: __wasmBinary });',
+  read('Libraries/Array_Math.js'),
+  read('SCurveTool/SCurveTool.js'),
+  ';this'
+].join('\\n')
+const globals = runInContext(source, context, { filename: 'upstream-scurve.js' })
+globals.initial_load()
+globals.replot().then(() => {
   const scene = globals.wp_pos_plot.layout.scene
-  return structuredClone({
+  parentPort.postMessage(structuredClone({
     path: globals.wp_pos_plot.data,
     axisTitles: { x: scene.xaxis.title.text, y: scene.yaxis.title.text, z: scene.zaxis.title.text },
     curves: globals.SCurveLog
+  }))
+})
+`
+
+/** Run the original `replot()` with these input values (by element id) and return what it plots. */
+export function replot(values: Record<string, string>, checks: Record<string, boolean> = {}): Promise<Result> {
+  const worker = new Worker(WORKER_SOURCE, {
+    eval: true,
+    workerData: { upstreamDir, values: { ...DEFAULTS, ...values }, checks: { ...DEFAULT_CHECKS, ...checks } }
+  })
+  return new Promise<Result>((resolvePromise, reject) => {
+    worker.once('message', (result: Result) => {
+      resolvePromise(result)
+      void worker.terminate()
+    })
+    worker.once('error', reject)
   })
 }
