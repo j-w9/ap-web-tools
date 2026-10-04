@@ -16,12 +16,12 @@ describe('inputs', () => {
   const upstream = upstreamFormDefaults()
   const upstreamOrder = upstream.numbers.filter((id) => INPUT_NAMES.some((n) => n === id))
 
-  it('lists every upstream input except the fixed-wing yaw notches, in form order', () => {
+  it('lists every upstream input, in form order', () => {
     expect(INPUT_NAMES).toEqual(upstreamOrder)
     const skipped = upstream.numbers.filter(
       (id) => !INPUT_NAMES.some((n) => n === id) && !['FFTWindow_size', 'starttime', 'endtime'].includes(id)
     )
-    expect(skipped).toEqual(['YAW_RATE_NTF', 'YAW_RATE_NEF'])
+    expect(skipped).toEqual([])
   })
 
   it.each(INPUT_NAMES)('%s default and step match upstream index.html', (name) => {

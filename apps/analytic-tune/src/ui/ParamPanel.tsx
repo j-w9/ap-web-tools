@@ -1,12 +1,13 @@
 import { useRef } from 'react'
 import { Download, Upload } from 'lucide-react'
 import { ControlGroup, RailCard } from '@apwt/tool-shell'
-import { notchEnabled, selectedFilters, trackingSourcesInUse } from '../analysis/form.js'
+import { notchEnabled, selectedFilterIndices, selectedFilters, trackingSourcesInUse } from '../analysis/form.js'
 import {
   FILTER_FIELDS,
   INPUT_STEPS,
   NOTCH_FIELDS,
   RATE_GAIN_TERMS,
+  FIXED_WING_YAW_NOTCH,
   RATE_NOTCH_TERMS,
   controllerParams,
   filterParam,
@@ -207,9 +208,20 @@ export function ParamPanel(p: ParamPanelProps) {
           </RailGroup>
         </>
       ) : (
-        <ControlGroup label="Controller">
-          <p className="at-note at-note--warn">Fixed-wing yaw has no rate controller model. Pick a roll or pitch run.</p>
-        </ControlGroup>
+        <>
+          <ControlGroup label="Controller">
+            <p className="at-note at-note--warn">Fixed-wing yaw has no rate controller model. Pick a roll or pitch run.</p>
+          </ControlGroup>
+          <RailGroup label="Controller notches">
+            {RATE_NOTCH_TERMS.map((term) => param(FIXED_WING_YAW_NOTCH[term], RATE_TERM_LABELS[term]))}
+            {selectedFilterIndices(inputs, FIXED_WING_YAW_NOTCH.NTF, FIXED_WING_YAW_NOTCH.NEF).map((index) => (
+              <div key={index}>
+                <p className="at-subhead">Notch filter {index}</p>
+                {FILTER_FIELDS.map((field) => param(filterParam(index, field), FILTER_FIELD_LABELS[field]))}
+              </div>
+            ))}
+          </RailGroup>
+        </>
       )}
     </RailCard>
   )

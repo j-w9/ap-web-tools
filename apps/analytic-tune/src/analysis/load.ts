@@ -4,6 +4,7 @@
  */
 import { DataflashLog, timeUsToSeconds } from '@apwt/dataflash'
 import {
+  FIXED_WING_YAW_NOTCH,
   FILTER_FIELDS,
   FILTER_INDICES,
   NOTCH_FIELDS,
@@ -81,8 +82,7 @@ function notchParamNames(): string[] {
 /**
  * Parameters read from a log for the given vehicle (upstream `load_log`'s parameter lists).
  * Upstream also lists the fixed-wing yaw rate gains and `YAW2SRV_TCONST`, which have no inputs on
- * its page except `YAW_RATE_NTF`/`NEF`; those two only feed upstream's fixed-wing yaw paths, which
- * fail before using them, so they are not modelled.
+ * its page except `YAW_RATE_NTF`/`NEF`; those two are copied (they are saved for fixed-wing yaw).
  */
 function logParamNames(vehicle: TuneVehicle): string[] {
   const names = notchParamNames()
@@ -92,6 +92,7 @@ function logParamNames(vehicle: TuneVehicle): string[] {
     const rate = controllerParams(target).rate
     for (const term of [...RATE_GAIN_TERMS, ...RATE_NOTCH_TERMS]) names.push(rate[term])
   }
+  if (vehicle === 'fixed-wing') names.push(FIXED_WING_YAW_NOTCH.NTF, FIXED_WING_YAW_NOTCH.NEF)
   for (const index of FILTER_INDICES) for (const field of FILTER_FIELDS) names.push(filterParam(index, field))
   names.push(
     'INS_GYRO_FILTER',

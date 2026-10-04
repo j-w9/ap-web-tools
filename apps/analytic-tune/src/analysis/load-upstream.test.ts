@@ -124,6 +124,20 @@ describe('load_log edge cases', () => {
   })
 })
 
+describe('fixed-wing yaw notch selections (YAW_RATE_NTF/NEF)', () => {
+  it('are read from a plane log as upstream reads them, and not from a copter log', () => {
+    for (const options of [FIXED_WING, COPTER]) {
+      const bytes = buildSidLog({ ...options, params: { ...options.params, YAW_RATE_NTF: 2, YAW_RATE_NEF: 3 } })
+      const up = upstream()
+      up.loadLog(toArrayBuffer(bytes))
+      const loaded = loadTuneLog(bytes)
+      expectSameInputs(withInputs(DEFAULT_INPUTS, loaded.inputs), up)
+      const expected = options === FIXED_WING ? [2, 3] : [0, 0]
+      expect([loaded.inputs.get('YAW_RATE_NTF') ?? 0, loaded.inputs.get('YAW_RATE_NEF') ?? 0]).toEqual(expected)
+    }
+  })
+})
+
 describe('page state carried between logs', () => {
   it('a log without a firmware banner keeps the previous vehicle', () => {
     const plane = buildSidLog(FIXED_WING)

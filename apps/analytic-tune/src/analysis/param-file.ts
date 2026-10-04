@@ -6,31 +6,46 @@ import { paramToString } from '@apwt/ardupilot'
 import type { ControlLoop, DisplaySettings } from './display.js'
 import { inputValueFromNumber, inputValueFromText, isDropDown, isValidFloatText } from './form-values.js'
 import {
+  FIXED_WING_YAW_NOTCH,
   INPUT_NAMES,
   controllerParams,
   isInputName,
   targetPrefixes,
   type InputName,
   type Inputs,
+  type TargetPrefixes,
+  type TuneAxis,
   type TuneTarget
 } from './params.js'
 
+/** What upstream's save matches names against, for one controller. */
+interface SaveSelection {
+  readonly prefix: TargetPrefixes
+  readonly axis: TuneAxis
+  readonly ntf: InputName
+  readonly nef: InputName
+}
+
 /**
- * The inputs upstream saves for the target, in upstream's order: input shaping (roll and pitch
- * `INPUT_` or yaw pilot rate), the rate and angle controllers, the `FILTn_` notches the rate
- * controller selects, every `INS_` and `SCHED_` parameter.
+ * The inputs upstream saves, in upstream's order: input shaping (roll and pitch `INPUT_` or yaw
+ * pilot rate), the rate and angle controllers, the `FILTn_` notches the rate controller selects,
+ * every `INS_` and `SCHED_` parameter.
+ *
+ * Proven upstream bug, fixed (docs/bug-proofs/analytic-tune.md, row 112): upstream applies the yaw
+ * pilot-rate rule with the vehicle's pilot prefix even when it is empty (fixed wing), so every
+ * element matches and the save throws on a check box's "on". The rule is skipped for an empty
+ * prefix; it never matched anything for the other vehicles' axes.
  */
-export function savedParamNames(inputs: Inputs, target: TuneTarget): InputName[] {
-  const prefix = targetPrefixes(target)
-  const rate = controllerParams(target).rate
-  const nef = inputs[rate.NEF]
-  const ntf = inputs[rate.NTF]
-  const rollPitch = target.axis === 'Roll' || target.axis === 'Pitch'
+function savedNames(inputs: Inputs, s: SaveSelection): InputName[] {
+  const { prefix } = s
+  const nef = inputs[s.nef]
+  const ntf = inputs[s.ntf]
+  const rollPitch = s.axis === 'Roll' || s.axis === 'Pitch'
 
   const select = (name: InputName): InputName[] => {
     const out: InputName[] = []
     if (name.startsWith(prefix.atc + 'INPUT_') && rollPitch) out.push(name)
-    if (name.startsWith(prefix.pilot) && target.axis === 'Yaw') out.push(name)
+    if (prefix.pilot !== '' && name.startsWith(prefix.pilot) && s.axis === 'Yaw') out.push(name)
     if (name.startsWith(prefix.rate)) out.push(name)
     if (name.startsWith(prefix.angle)) out.push(name)
     if (nef > 0 && name.startsWith(`FILT${nef}_`)) out.push(name)
@@ -42,26 +57,40 @@ export function savedParamNames(inputs: Inputs, target: TuneTarget): InputName[]
   return [...INPUT_NAMES.filter((n) => !isDropDown(n)), ...INPUT_NAMES.filter(isDropDown)].flatMap(select)
 }
 
+/** The inputs upstream saves for the target (see `savedNames`). */
+export function savedParamNames(inputs: Inputs, target: TuneTarget): InputName[] {
+  const rate = controllerParams(target).rate
+  return savedNames(inputs, { prefix: targetPrefixes(target), axis: target.axis, ntf: rate.NTF, nef: rate.NEF })
+}
+
 /**
- * `.param` text for the target (upstream `save_parameters`, saved as `filter.param`). An empty
- * (NaN) input is saved as 0: upstream passes the input's empty text to `param_to_string`, where
- * `Math.fround("")` is 0.
+ * The inputs saved for fixed-wing yaw, which has no target here: upstream's prefixes for it are
+ * `YAW_RATE_` (rate) and `YAW2SRV_` (angle), with empty `ATC_` and pilot prefixes, so the file holds
+ * `YAW_RATE_NTF`/`NEF`, the `FILTn_` notches they select and every `INS_` and `SCHED_` parameter.
  */
-export function saveParamText(inputs: Inputs, target: TuneTarget): string {
-  return savedParamNames(inputs, target)
+export function savedFixedWingYawParamNames(inputs: Inputs): InputName[] {
+  return savedNames(inputs, {
+    prefix: { atc: '', pilot: '', rate: 'YAW_RATE_', angle: 'YAW2SRV_' },
+    axis: 'Yaw',
+    ntf: FIXED_WING_YAW_NOTCH.NTF,
+    nef: FIXED_WING_YAW_NOTCH.NEF
+  })
+}
+
+/**
+ * `.param` text upstream `save_parameters` builds (saved as `filter.param`), for the target or, when
+ * it is null, fixed-wing yaw. An empty (NaN) input is saved as 0: upstream passes the input's empty
+ * text to `param_to_string`, where `Math.fround("")` is 0.
+ */
+export function saveParamText(inputs: Inputs, target: TuneTarget | null): string {
+  const names = target ? savedParamNames(inputs, target) : savedFixedWingYawParamNames(inputs)
+  return names
     .map((name) => {
       const value = inputs[name]
       return name + ',' + paramToString(Number.isNaN(value) ? 0 : value) + '\n'
     })
     .join('')
 }
-
-/**
- * What upstream's save does for fixed-wing yaw, which has no target here: its pilot-rate prefix
- * is empty there, so every element of the form matches, including the harmonic bitmask
- * check boxes, whose value "on" `param_to_string` cannot convert. It throws this and saves nothing.
- */
-export const FIXED_WING_YAW_SAVE_ERROR = 'Could not convert on to float string'
 
 /** What loading a `.param` file sets, as upstream `load_parameters` sets page elements by id. */
 export interface LoadedParamFile {
@@ -98,8 +127,6 @@ const CONTROL_LOOP_FIELDSET_IDS: ReadonlySet<string> = new Set([
 
 /** Other elements of upstream's page whose value can be set without changing any result. */
 const INERT_IDS: ReadonlySet<string> = new Set([
-  'YAW_RATE_NTF',
-  'YAW_RATE_NEF',
   'calculate',
   'SaveParams',
   'PID_ScaleLog',

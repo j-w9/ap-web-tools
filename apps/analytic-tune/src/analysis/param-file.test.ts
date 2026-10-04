@@ -43,6 +43,38 @@ describe('saveParamText matches upstream save_parameters', () => {
     expect(saveParamText(withInputs(DEFAULT_INPUTS, values), target)).toBe(saved.text)
   })
 
+  it.each(selections)(
+    'proven upstream bug fixed: fixed-wing yaw, NTF $ntf, NEF $nef, saves the file upstream throws on',
+    ({ ntf, nef }) => {
+      // docs/bug-proofs/analytic-tune.md, row 112.
+      const values = new Map<InputName, number>([
+        ['YAW_RATE_NTF', ntf],
+        ['YAW_RATE_NEF', nef],
+        ['FILT3_NOTCH_FREQ', 33.3],
+        ['INS_HNTCH_MODE', 3]
+      ])
+      const page = (fixFixedWingYawSave: boolean) => {
+        const up = loadAnalyticTuneUpstream(undefined, { fixFixedWingYawSave })
+        up.setVehicleType('ArduPlane_FW')
+        up.setPageAxis('Yaw')
+        for (const [name, value] of values) up.setForm(name, value)
+        return up
+      }
+      // The original's empty pilot prefix matches every element. On the real page that includes the
+      // bitmask check boxes and the save throws "Could not convert on to float string"
+      // (proofs/analytic-tune/logs.test.ts); this stub page has no check boxes, so it saves every input.
+      const original = page(false).saveParameters().text.split('\n')
+      expect(original).toContain('ATC_RAT_RLL_P,0.288')
+      const fixed = page(true).saveParameters()
+      expect(fixed.name).toBe('filter.param')
+      const text = saveParamText(withInputs(DEFAULT_INPUTS, values), null)
+      expect(text).toBe(fixed.text)
+      expect(text.split('\n')).toContain(`YAW_RATE_NTF,${ntf}`)
+      expect(text.split('\n')).toContain(`YAW_RATE_NEF,${nef}`)
+      expect(text).not.toContain('ATC_RAT_RLL_P')
+    }
+  )
+
   it('lists input shaping, controllers, selected notches and INS/SCHED parameters', () => {
     const target: TuneTarget = { vehicle: 'copter', axis: 'Yaw' }
     const names = savedParamNames(withInputs(DEFAULT_INPUTS, new Map([['ATC_RAT_YAW_NTF', 4] as const])), target)
@@ -149,6 +181,49 @@ describe('saveParamText of empty inputs', () => {
       ['INS_HNTCH_MODE', NaN]
     ])
     expect(saveParamText(withInputs(DEFAULT_INPUTS, values), target)).toBe(up.saveParameters().text)
+  })
+})
+
+describe('fixed-wing yaw save', () => {
+  it('saves the file of proofs/analytic-tune/logs.test.ts for the page defaults (row 112)', () => {
+    expect(saveParamText(DEFAULT_INPUTS, null).trimEnd().split('\n')).toEqual([
+      'INS_GYRO_FILTER,20',
+      'INS_HNTCH_FREQ,150',
+      'INS_HNTCH_BW,75',
+      'INS_HNTCH_ATT,40',
+      'INS_HNTCH_REF,0.29',
+      'INS_HNTCH_FM_RAT,0',
+      'INS_HNTCH_HMNCS,3',
+      'INS_HNTCH_OPTS,0',
+      'INS_HNTC2_FREQ,0',
+      'INS_HNTC2_BW,0',
+      'INS_HNTC2_ATT,0',
+      'INS_HNTC2_REF,0',
+      'INS_HNTC2_FM_RAT,0',
+      'INS_HNTC2_HMNCS,0',
+      'INS_HNTC2_OPTS,0',
+      'SCHED_LOOP_RATE,400',
+      'YAW_RATE_NTF,0',
+      'YAW_RATE_NEF,0',
+      'INS_HNTCH_ENABLE,1',
+      'INS_HNTCH_MODE,1',
+      'INS_HNTC2_ENABLE,0',
+      'INS_HNTC2_MODE,0'
+    ])
+  })
+
+  it('reads YAW_RATE_NTF/NEF from a .param file and a link, as upstream', async () => {
+    const text = 'YAW_RATE_NTF,4\nYAW_RATE_NEF,6\n'
+    const up = loadAnalyticTuneUpstream()
+    await up.loadParameters(text)
+    const loaded = loadParamText(text)
+    expect(loaded.ignored).toBe(0)
+    const inputs = withInputs(DEFAULT_INPUTS, loaded.values)
+    for (const name of INPUT_NAMES) expect(inputs[name], name).toBe(parseFloat(up.getForm(name)))
+    expect([...urlSettings('https://x/AnalyticTune/?yaw_rate_ntf=4&YAW_RATE_NEF=6').inputs]).toEqual([
+      ['YAW_RATE_NTF', 4],
+      ['YAW_RATE_NEF', 6]
+    ])
   })
 })
 

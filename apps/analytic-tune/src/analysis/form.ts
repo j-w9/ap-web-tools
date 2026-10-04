@@ -2,7 +2,15 @@
  * Which inputs the parameter form shows for the current settings. Ported from upstream
  * `update_PID_filters`, `update_hidden` and `update_hidden_mode`.
  */
-import { controllerParams, filterIndex, type FilterIndex, type Inputs, type NotchPrefix, type TuneTarget } from './params.js'
+import {
+  controllerParams,
+  filterIndex,
+  type FilterIndex,
+  type InputName,
+  type Inputs,
+  type NotchPrefix,
+  type TuneTarget
+} from './params.js'
 
 /** A harmonic notch's other fields are disabled while its `_ENABLE` is not positive. */
 export function notchEnabled(inputs: Inputs, prefix: NotchPrefix): boolean {
@@ -32,8 +40,13 @@ export function trackingSourcesInUse(inputs: Inputs): ReadonlySet<TrackingSource
 /** The `FILTn_` notches the target's rate controller selects: the target notch, then the error notch if different. */
 export function selectedFilters(inputs: Inputs, target: TuneTarget): FilterIndex[] {
   const rate = controllerParams(target).rate
-  const ntf = filterIndex(inputs[rate.NTF])
-  const nef = filterIndex(inputs[rate.NEF])
+  return selectedFilterIndices(inputs, rate.NTF, rate.NEF)
+}
+
+/** The `FILTn_` notches a pair of notch selections names (also used for fixed-wing yaw, which has no target). */
+export function selectedFilterIndices(inputs: Inputs, ntfName: InputName, nefName: InputName): FilterIndex[] {
+  const ntf = filterIndex(inputs[ntfName])
+  const nef = filterIndex(inputs[nefName])
   const out: FilterIndex[] = []
   if (ntf !== null) out.push(ntf)
   if (nef !== null && nef !== ntf) out.push(nef)

@@ -1005,6 +1005,20 @@ export const PARAM_METADATA: Readonly<Record<ParamName, ParamMetadata>> = {
     range: { low: 1, high: 8 },
     kind: 'number'
   },
+  YAW_RATE_NTF: {
+    displayName: 'Yaw Target notch filter index',
+    description: 'Yaw Target notch filter index',
+    user: 'Advanced',
+    range: { low: 1, high: 8 },
+    kind: 'number'
+  },
+  YAW_RATE_NEF: {
+    displayName: 'Yaw Error notch filter index',
+    description: 'Yaw Error notch filter index',
+    user: 'Advanced',
+    range: { low: 1, high: 8 },
+    kind: 'number'
+  },
   ATC_RAT_YAW_NTF: {
     displayName: 'Yaw Target Notch Filter Index',
     description: 'Yaw Target Notch Filter Index',

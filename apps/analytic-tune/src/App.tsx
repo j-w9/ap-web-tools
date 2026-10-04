@@ -11,7 +11,7 @@ import { ErrorBanner, OpenInButton, Section, ToolPage, useLoading, useLogFile, t
 import { CONTROL_LOOP_LABELS, DEFAULT_DISPLAY, loopComparison, type DisplaySettings } from './analysis/display.js'
 import { identifyResponses, measuredResponses, windowSizeFromText, type IdentifiedResponses } from './analysis/freq-resp.js'
 import { PartialTuneLogError, loadTuneLog, type LoadedTuneLog } from './analysis/load.js'
-import { FIXED_WING_YAW_SAVE_ERROR, loadParamText, saveParamText, urlSettings } from './analysis/param-file.js'
+import { loadParamText, saveParamText, urlSettings } from './analysis/param-file.js'
 import {
   DEFAULT_INPUTS,
   tuneTarget,
@@ -274,10 +274,9 @@ export function App() {
       recalculateIfStale(range, sizeText)
     })
   }
-  const onSaveParams = () => {
-    if (target) download(saveParamText(inputs, target), 'filter.param')
-    else setError(FIXED_WING_YAW_SAVE_ERROR)
-  }
+  // Fixed-wing yaw (no target) saves what upstream builds for it; upstream throws there (proven
+  // bug fixed, docs/bug-proofs/analytic-tune.md row 112).
+  const onSaveParams = () => download(saveParamText(inputs, target), 'filter.param')
 
   const identified = analysis?.identified
   const facts: LogFact[] | null = log

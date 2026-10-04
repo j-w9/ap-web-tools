@@ -167,7 +167,21 @@ function patchSampleRate(source: string): string {
   return out
 }
 
+const PILOT_RULE = 'if (name.startsWith(get_vehicle_plt_prefix()) && page_axis == "Yaw") {'
+
+/**
+ * Upstream `save_parameters` with the proven fixed-wing yaw save bug fixed
+ * (docs/bug-proofs/analytic-tune.md, row 112): the yaw pilot-rate rule is skipped when the vehicle's
+ * pilot prefix is empty. The patched page differs from the original only for fixed-wing yaw saves.
+ */
+function patchFixedWingYawSave(source: string): string {
+  if (source.split(PILOT_RULE).length !== 2) throw new Error('patchFixedWingYawSave: upstream pilot rule no longer matches')
+  return source.replace(PILOT_RULE, PILOT_RULE.replace('if (', 'if (get_vehicle_plt_prefix() != "" && '))
+}
+
 export interface LoadOptions {
+  /** Load the page with `patchFixedWingYawSave` applied (the reference for the port's fixed behaviour). */
+  fixFixedWingYawSave?: boolean
   /** Load the page with `patchChainedSpread` applied (the reference for the port's fixed behaviour). */
   fixChainedSpread?: boolean
   /** Load the page with `patchSampleRate` applied (the reference for the port's fixed behaviour). */
@@ -381,6 +395,7 @@ export function loadAnalyticTuneUpstream(parser?: unknown, options: LoadOptions 
   })
   let source = options.fixChainedSpread === true ? patchChainedSpread(upstreamSource()) : upstreamSource()
   if (options.fixSampleRate === true) source = patchSampleRate(source)
+  if (options.fixFixedWingYawSave === true) source = patchFixedWingYawSave(source)
   const api = runInContext(source, context, { filename: 'upstream-analytic-tune.js' }) as UpstreamApi
   return {
     ...api,

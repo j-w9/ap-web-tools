@@ -78,7 +78,26 @@ export const NOTCH_FIELDS = ['ENABLE', 'MODE', 'FREQ', 'BW', 'ATT', 'REF', 'FM_R
 export type NotchField = (typeof NOTCH_FIELDS)[number]
 export type NotchParam = `${NotchPrefix}_${NotchField}`
 
-export type ParamName = 'SCHED_LOOP_RATE' | 'INS_GYRO_FILTER' | NotchParam | InputTcParam | AngleParam | RateParam | FilterParam
+/**
+ * Fixed-wing yaw rate controller notch selections: the only fixed-wing yaw controller inputs on
+ * upstream's page. The tool has no fixed-wing yaw model; they are read, shown and saved as upstream
+ * does (its fixed-wing yaw save, a proven bug fixed: docs/bug-proofs/analytic-tune.md, row 112).
+ */
+export type FixedWingYawNotchParam = `YAW_RATE_${(typeof RATE_NOTCH_TERMS)[number]}`
+export const FIXED_WING_YAW_NOTCH: Readonly<Record<(typeof RATE_NOTCH_TERMS)[number], FixedWingYawNotchParam>> = {
+  NTF: 'YAW_RATE_NTF',
+  NEF: 'YAW_RATE_NEF'
+}
+
+export type ParamName =
+  | 'SCHED_LOOP_RATE'
+  | 'INS_GYRO_FILTER'
+  | NotchParam
+  | InputTcParam
+  | AngleParam
+  | RateParam
+  | FixedWingYawNotchParam
+  | FilterParam
 
 /** Operating-point inputs (upstream form ids). */
 export const SIM_INPUT_NAMES = ['GyroSampleRate', 'Throttle', 'NUM_MOTORS', 'ESC_RPM', 'RPM1', 'RPM2'] as const
@@ -203,10 +222,7 @@ const AXIS_ORDER: readonly TuneTarget[] = TUNE_AXES.flatMap((axis): TuneTarget[]
   return axis === 'Yaw' ? multirotor : [...multirotor, { vehicle: 'fixed-wing', axis }]
 })
 
-/**
- * Every input in the order of upstream's form. Upstream's fixed-wing yaw notch inputs
- * (`YAW_RATE_NTF`/`NEF`) are left out with the rest of the unsupported fixed-wing yaw axis.
- */
+/** Every input in the order of upstream's form. */
 export const INPUT_NAMES: readonly InputName[] = [
   'GyroSampleRate',
   'INS_GYRO_FILTER',
@@ -218,6 +234,8 @@ export const INPUT_NAMES: readonly InputName[] = [
   'Q_PLT_Y_RATE_TC',
   ...AXIS_ORDER.flatMap(controllerBlock),
   ...AXIS_ORDER.flatMap(notchBlock),
+  FIXED_WING_YAW_NOTCH.NTF,
+  FIXED_WING_YAW_NOTCH.NEF,
   ...FILTER_INDICES.flatMap((i) => FILTER_FIELDS.map((f) => filterParam(i, f))),
   'Throttle',
   'NUM_MOTORS',
@@ -343,6 +361,7 @@ for (const target of ALL_TARGETS) {
   for (const term of [...RATE_GAIN_TERMS, ...RATE_NOTCH_TERMS]) RATE_TERM_BY_PARAM.set(p.rate[term], term)
   ANGLE_KIND_BY_PARAM.set(p.angle.param, p.angle.kind)
 }
+for (const term of RATE_NOTCH_TERMS) RATE_TERM_BY_PARAM.set(FIXED_WING_YAW_NOTCH[term], term)
 
 /** Classify an input by name. */
 export function inputKind(name: InputName): InputKind {
