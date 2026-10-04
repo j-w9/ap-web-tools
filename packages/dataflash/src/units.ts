@@ -62,11 +62,12 @@ export const BUILTIN_MULTIPLIERS: Readonly<Record<string, number>> = {
 export const INSTANCE_UNIT_ID = '#'
 
 /**
- * Prefix prepended to a unit label for a given multiplier: upstream `multipliersTable`, including
- * its `n` (nano) for 1e-6 where micro is meant (upstream bug, reproduced).
+ * Prefix prepended to a unit label for a given multiplier: upstream `multipliersTable`, except that
+ * 1e-6 is the SI prefix micro (`µ`), where upstream has `n` (nano). Proven upstream bug, fixed: see
+ * docs/bug-proofs/js-dataflash-parser.md.
  */
 const SI_PREFIXES: ReadonlyMap<number, string> = new Map([
-  [0.000001, 'n'],
+  [0.000001, '\u00b5'],
   [1000, 'M'],
   [0.001, 'm']
 ])
@@ -75,7 +76,7 @@ const SI_PREFIXES: ReadonlyMap<number, string> = new Map([
 export interface FieldUnits {
   /** Unit id character from FMTU, or `undefined` when the log has no FMTU for the message. */
   readonly unitId: string | undefined
-  /** Human unit label, with upstream's prefix applied for multipliers 1e-6 (`n`), 1e-3 (`m`) and 1e3 (`M`). `"?"` when unknown. */
+  /** Human unit label, with upstream's prefix applied for multipliers 1e-6 (`µ`), 1e-3 (`m`) and 1e3 (`M`). `"?"` when unknown. */
   readonly unit: string
   /** Multiplier id character from FMTU, or `undefined` when unknown. */
   readonly multiplierId: string | undefined

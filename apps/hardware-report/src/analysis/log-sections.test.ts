@@ -84,8 +84,10 @@ describe('watchdog', () => {
     expect(taskName(-2)).toBe('Fast loop')
     expect(taskName(5)).toBeUndefined()
     expect(faultName(3)).toBe('HardFault')
-    // Upstream bug, reproduced: BusFault/UsageFault sit under duplicate `case 4` labels.
-    expect(faultName(5)).toBeUndefined()
+    // Proven upstream bug fixed: BusFault/UsageFault (upstream's duplicate `case 4` labels).
+    expect(faultName(5)).toBe('BusFault')
+    expect(faultName(6)).toBe('UsageFault')
+    expect(faultName(7)).toBeUndefined()
     expect(faultName(4)).toBe('MemManage')
     expect(watchdogDecodeLine(w[1] as never)).toBe('"WDOG, 0, 5, 1, 2, 3, 4, 5, 6, 7, 5, 8, 9, 0, 10, io"')
     expect(buildLogReport(log).warnings.map((x) => [x.kind, x.level])).toEqual([['watchdog', 'error']])
@@ -97,8 +99,8 @@ describe('watchdog', () => {
     expect(byName['VECTACTIVE']).toMatchObject({ value: 3, description: 'Hard fault' })
     expect(byName['RETOBASE']).toMatchObject({ value: 1, description: 'no (or no more) active exceptions' })
     expect(byName['ISRPENDING']).toMatchObject({ value: 1, description: 'Interrupt pending' })
-    // Upstream's signed shift reads bit 31 as -1 (bug, reproduced); -1 is truthy, so 'NMI pending'.
-    expect(byName['NMIPENDSET']).toMatchObject({ value: -1, description: 'NMI pending' })
+    // Proven upstream bug fixed: bit 31 reads 1 (upstream's signed shift gave -1).
+    expect(byName['NMIPENDSET']).toMatchObject({ value: 1, description: 'NMI pending' })
     expect(byName['RESERVED1']?.description).toBeUndefined()
     expect(decodeIcsr(0x30 << 12).find((x) => x.name === 'VECTPENDING')?.description).toBe('IRQ32')
   })
@@ -194,7 +196,8 @@ describe('missions, fences and rally points', () => {
 })
 
 describe('embedded files', () => {
-  it('appends a file written twice (upstream processFiles) and flags crash dumps', () => {
+  // Upstream processFiles appends both copies ('hello worldHELLO'); proven upstream bug, fixed.
+  it('keeps the last copy of a file written twice and flags crash dumps', () => {
     const chunk = (s: string): string => s
     const log = baseLog()
       .define('FILE', 'NIBZ', 'FileName,Offset,Length,Data')
@@ -205,7 +208,7 @@ describe('embedded files', () => {
       .parse()
     const files = readEmbeddedFiles(log)
     expect(files.map((f) => [f.name, new TextDecoder().decode(f.data), f.isCrashDump])).toEqual([
-      ['a.txt', 'hello worldHELLO', false],
+      ['a.txt', 'HELLO', false],
       ['crash_dump.bin', 'abc', true]
     ])
   })
@@ -277,12 +280,12 @@ describe('GPS boot messages', () => {
     expect(r.sensors.gps.map((g) => g?.device)).toEqual(['u-blox', undefined])
   })
 
-  it('fails where upstream crashes: a message names an unconfigured receiver', () => {
+  it('ignores a message naming an unconfigured receiver (proven upstream crash, fixed)', () => {
     const log = baseLog()
       .params({ GPS_TYPE: 1, GPS_TYPE2: 0 })
       .write('MSG', [1, 'GPS 1: detected as u-blox at 230400 baud'])
       .write('MSG', [2, 'GPS 2: detected as NMEA at 9600 baud'])
       .parse()
-    expect(() => buildLogReport(log)).toThrow(/names GPS 2, which is not configured/)
+    expect(buildLogReport(log).sensors.gps.map((g) => g?.device)).toEqual(['u-blox', undefined])
   })
 })

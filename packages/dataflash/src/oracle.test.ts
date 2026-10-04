@@ -156,6 +156,9 @@ describe.each(['copter-sitl.bin', 'copter-files.bin'])('oracle: %s', (file) => {
       const uarts = files.get('@SYS/uarts.txt')
       expect(uarts).toBeDefined()
       expect(new TextDecoder().decode(uarts)).toMatch(/UART/i)
+      // Offset/Length semantics (upstream: 1664 and 171 bytes; proven upstream bug, fixed).
+      expect(uarts?.length).toBe(832)
+      expect(files.get('@SYS/storage.bin')?.length).toBe(32768)
     } else {
       expect(files.size).toBe(0)
     }

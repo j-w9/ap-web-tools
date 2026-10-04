@@ -3,11 +3,10 @@ import { baseLog } from '../test-utils/synthetic.js'
 import { interestingParamChanges, isChangedFromDefault, parseParamFile, readLogParams } from './params.js'
 
 describe('parseParamFile', () => {
-  it('reads every line with two fields, comments and junk included, as upstream load_param_file', () => {
+  it('reads every line with two fields, junk included, as upstream load_param_file, but skips # comment lines', () => {
     const text = '# comment line\nA,1\r\nB 2.5\nC\t-3\nD=4\n  E  5\nF\n\nG,abc\nH,1e3,extra\n7,1\n'
     expect([...parseParamFile(text).values]).toEqual([
       ['7', 1],
-      ['#', NaN],
       ['A', 1],
       ['B', 2.5],
       ['C', -3],

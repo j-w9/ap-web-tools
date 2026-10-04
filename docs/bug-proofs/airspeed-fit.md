@@ -61,6 +61,15 @@ or flight span is skipped, as `get_velocity_sources` already does for a missing 
 return the existing "BARO has no instance field" error as a user message rather than an exception).
 Turn the missing-column cases into the same user-facing load errors.
 
+**Status.** FIXED (commit pending). Port: `apps/airspeed-fit/src/analysis/load.ts` `loadAirspeedLog`
+reads a BARO without an instance field as one barometer (the "BARO has no instance field" error is
+gone). The missing XKF1 velocity and STAT `isFlying` columns needed no port change: the port already
+stops the load with a user-facing message ("XKF1 is missing VN, VE or VD", "STAT is missing TimeUS or
+isFlying"). Tests: `apps/airspeed-fit/src/analysis/oracle.test.ts` › "reads a BARO message without
+instances as one barometer (upstream crashes: proven bug, fixed)" (compared with upstream on the same
+records logged as instance 0) and › "stops with a message on XKF1 without velocity columns / STAT
+without isFlying (upstream crashes: proven bug, no port change)".
+
 ## 2. Bias bar is `Math.abs(null)` = 0 without a logged ratio
 
 **Row.** Bug: "Bias bar is `Math.abs(null)` = 0 without a logged ratio". Where: `redraw_rms_bar`.

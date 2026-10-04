@@ -27,8 +27,9 @@ describe('IMU parameters', () => {
       gyro: { id: 'INS4_GYR_ID', calTemp: 'INS4_GYR_CALTEMP' },
       pos: ['INS4_POS_X', 'INS4_POS_Y', 'INS4_POS_Z']
     })
-    // Upstream typos, reproduced: gyro coefficients repeat the ACC names; TMAN for TMAX.
-    expect(insParamNames(0).tcal.gyro[0]).toEqual(['INS_TCAL1_ACC1_X', 'INS_TCAL1_ACC1_Y', 'INS_TCAL1_ACC1_Z'])
+    // Proven upstream bug fixed: gyro coefficients are ArduPilot's GYR names (upstream repeats ACC).
+    expect(insParamNames(0).tcal.gyro[0]).toEqual(['INS_TCAL1_GYR1_X', 'INS_TCAL1_GYR1_Y', 'INS_TCAL1_GYR1_Z'])
+    // Upstream typo, kept (the name is never read): TMAN for TMAX.
     expect(insParamNames(0).tcal.tMax).toBe('INS_TCAL1_TMAN')
   })
 
@@ -72,25 +73,27 @@ describe('IMU parameters', () => {
       INS_ACC2_ID: 0
     }
     const clean = readIns(m(base), undefined, EMPTY_CAN)[0]
-    // Upstream bug, reproduced: the scale check compares the offsets (all 0) with 1.0.
+    // Proven upstream bug fixed: default offsets (0) and scales (1) are not calibrated (upstream
+    // compared the offsets with 1.0 and showed calibrated).
     expect(clean).toMatchObject({
-      accelCalibrated: true,
+      accelCalibrated: false,
       gyroCalibrated: false,
       accelTempCalibrated: false,
       gyroTempCalibrated: false,
       posSet: false,
       combined: true
     })
-    // Gyro temperature calibration is judged from the ACC coefficients, so a GYR coefficient
-    // changes nothing and an ACC one sets both.
+    // Each temperature calibration is judged from its own coefficients.
     const gyrOnly = readIns(m({ ...base, INS_TCAL1_GYR2_Z: 0.5 }), undefined, EMPTY_CAN)[0]
-    expect(gyrOnly).toMatchObject({ accelTempCalibrated: false, gyroTempCalibrated: false })
+    expect(gyrOnly).toMatchObject({ accelTempCalibrated: false, gyroTempCalibrated: true })
+    const scaleOnly = readIns(m({ ...base, INS_ACCSCAL_Y: 1.01 }), undefined, EMPTY_CAN)[0]
+    expect(scaleOnly).toMatchObject({ accelCalibrated: true })
     const cal = readIns(m({ ...base, INS_ACCSCAL_Y: 1.01, INS_TCAL1_ACC2_Z: 0.5, INS_POS1_X: 0.1 }), undefined, EMPTY_CAN)[0]
     expect(cal).toMatchObject({
       accelCalibrated: true,
       gyroCalibrated: false,
       accelTempCalibrated: true,
-      gyroTempCalibrated: true,
+      gyroTempCalibrated: false,
       posSet: true
     })
     // Both ids zero: slot empty. Missing: slot empty.

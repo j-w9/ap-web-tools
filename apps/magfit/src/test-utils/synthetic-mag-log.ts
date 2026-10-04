@@ -126,6 +126,8 @@ export interface SyntheticOptions {
   magEvery?: readonly number[]
   /** Parameters to leave out of the log. */
   omitParams?: readonly string[]
+  /** Parameter values to write instead of the defaults (the logged field is unchanged). */
+  paramValues?: Readonly<Record<string, number>>
 }
 
 /** Build the synthetic log bytes. */
@@ -177,7 +179,8 @@ export function buildSyntheticMagLog(options: SyntheticOptions = {}): ArrayBuffe
 
   const omit = new Set(options.omitParams ?? [])
   const param = (name: string, value: number): void => {
-    if (!omit.has(name)) w.write('PARM', [t0, name, value, value, 0])
+    const v = options.paramValues?.[name] ?? value
+    if (!omit.has(name)) w.write('PARM', [t0, name, v, v, 0])
   }
   param('AHRS_EKF_TYPE', 3)
   param('EK3_PRIMARY', 0)

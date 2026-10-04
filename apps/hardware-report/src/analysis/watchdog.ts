@@ -117,9 +117,9 @@ export function taskName(task: number): string | undefined {
 }
 
 /**
- * Name of a fault type, as upstream's `switch`. Upstream bug, reproduced: BusFault and
- * UsageFault are listed under duplicate `case 4` labels, which never match, so fault types 5
- * and 6 get no name.
+ * Name of a fault type, as upstream's `switch`. Proven upstream bug fixed: upstream lists BusFault
+ * and UsageFault under duplicate `case 4` labels, so types 5 and 6 got no name; ArduPilot's
+ * `FaultType` has `BusFault = 5, UsageFault = 6` (docs/bug-proofs/hardware-report.md).
  */
 export function faultName(type: number): string | undefined {
   return FAULT_NAMES[type]
@@ -129,7 +129,9 @@ const FAULT_NAMES: Readonly<Record<number, string>> = {
   1: 'Reset',
   2: 'NMI',
   3: 'HardFault',
-  4: 'MemManage'
+  4: 'MemManage',
+  5: 'BusFault',
+  6: 'UsageFault'
 }
 
 /** One decoded ICSR bit field. */
@@ -185,20 +187,21 @@ const ICSR_FIELDS: readonly (readonly [string, string, ((v: number) => string) |
 ]
 
 /**
- * Decode the ICSR register into its bit fields (upstream `decode_ICSR`). Values are extracted
- * with upstream's signed shift, so a set bit 31 (NMIPENDSET) reads -1 (upstream bug, reproduced).
+ * Decode the ICSR register into its bit fields (upstream `decode_ICSR`). Values are extracted with
+ * an unsigned shift (proven upstream bug fixed: upstream's signed `>>` makes a set bit 31,
+ * NMIPENDSET, read -1; the register is a `uint32_t`).
  */
 export function decodeIcsr(icsr: number): IcsrField[] {
   return ICSR_FIELDS.map(([bits, name, decoder]) => {
     const [start, stop] = bits.includes('-') ? (bits.split('-').map(Number) as [number, number]) : [Number(bits), Number(bits)]
     let mask = 0
     for (let i = start; i <= stop; i++) mask |= 1 << i
-    const value = (icsr & mask) >> start
+    const value = (icsr & mask) >>> start
     return { bits, name, value, description: decoder?.(value) }
   })
 }
 
-/** Upstream's hex text for a value: `"0x" + value.toString(16)` (so -1 reads `0x-1`). */
+/** Upstream's hex text for a value: `"0x" + value.toString(16)`. */
 export function upstreamHex(value: number): string {
   return '0x' + value.toString(16)
 }

@@ -12,6 +12,21 @@ import { decodeIcsr, faultName, taskName, upstreamHex, type WatchdogRecord } fro
 
 const named = (value: number, name: string | undefined): string => String(value) + (name === undefined ? '' : ` (${name})`)
 
+/**
+ * Two proven upstream bugs are fixed in the port (docs/bug-proofs/hardware-report.md); the text
+ * upstream renders is rebuilt from the port's values with upstream's results for those: fault types
+ * 5 and 6 have no name (duplicate `case 4` labels), and ICSR fields are extracted with a signed
+ * shift (a set bit 31 reads -1).
+ */
+function upstreamFaultName(type: number): string | undefined {
+  return type === 5 || type === 6 ? undefined : faultName(type)
+}
+
+function upstreamIcsrValue(bits: string, value: number): number {
+  const start = Number(bits.split('-')[0])
+  return ((value << start) | 0) >> start
+}
+
 function watchdogText(list: readonly WatchdogRecord[]): string {
   return list
     .map((w, i) => {
@@ -24,12 +39,14 @@ function watchdogText(list: readonly WatchdogRecord[]): string {
       out += 'Last MAVLink Command: ' + named(w.lastMavlinkCmd, w.lastMavlinkCmd === 0 ? 'none' : undefined)
       out += 'Semaphore Line: ' + named(w.semaphoreLine, w.semaphoreLine === 0 ? 'not waiting' : undefined)
       out += 'Fault Line: ' + String(w.faultLine)
-      out += 'Fault Type: ' + named(w.faultType, faultName(w.faultType))
+      out += 'Fault Type: ' + named(w.faultType, upstreamFaultName(w.faultType))
       out += 'Fault Address: ' + upstreamHex(w.faultAddr)
       out += 'Fault Thread Priority: ' + String(w.faultThreadPriority)
       out += 'Fault ICS Register: ' + upstreamHex(w.faultIcsr)
       for (const f of decodeIcsr(w.faultIcsr)) {
-        out += `${f.name}: ${upstreamHex(f.value)}` + (f.description === undefined ? '' : `  (${f.description})`)
+        out +=
+          `${f.name}: ${upstreamHex(upstreamIcsrValue(f.bits, f.value))}` +
+          (f.description === undefined ? '' : `  (${f.description})`)
       }
       out += 'Fault Long Return Address: ' + upstreamHex(w.faultLr)
       out += 'Fault Thread name: ' + w.threadName
@@ -71,7 +88,7 @@ describe('oracle: watchdog and internal errors', () => {
     await compare(readFixture(name))
   })
 
-  it('reproduces the fault-type 5/6 names and the ICSR bit 31 sign', async () => {
+  it('fixes the proven fault-type 5/6 names and the ICSR bit 31 sign', async () => {
     const bytes = baseLog()
       .define('WDOG', 'QbIHHHHHHHIBIIn', 'TimeUS,Tsk,IE,IEC,IEL,MvMsg,MvCmd,SmLn,FL,FT,FA,FP,ICSR,LR,TN')
       .params({ ARMING_CHECK: 1 })
@@ -81,9 +98,18 @@ describe('oracle: watchdog and internal errors', () => {
       .write('WDOG', [4, 12, 1, 2, 3, 0, 0, 0, 7, 6, 8, 9, 0x00008008, 10, 'io'])
       .write('WDOG', [5, -1, 1, 2, 3, 0, 0, 0, 7, 4, 0xfffffff0, 9, 0x0003f00f, 0xffffffff, 'x'])
       .bytes()
+    const up = await createUpstreamHardwareReport()
+    await up.loadLog(bytes)
+    const text = up.dom.getElementById('WDOG').textContent
+    // Upstream: no name for types 5 and 6; NMIPENDSET of 0xffffffff reads 0x-1.
+    expect(text).toContain('Fault Type: 5Fault Address')
+    expect(text).toContain('Fault Type: 6Fault Address')
+    expect(text).toContain('NMIPENDSET: 0x-1')
     const r = await compare(bytes)
-    expect(r.watchdogs.map((w) => faultName(w.faultType))).toEqual(['HardFault', undefined, undefined, 'MemManage'])
-    expect(decodeIcsr(0x80000000).find((f) => f.name === 'NMIPENDSET')?.value).toBe(-1)
+    // Port: ArduPilot's BusFault/UsageFault, and bit 31 reads 1.
+    expect(r.watchdogs.map((w) => faultName(w.faultType))).toEqual(['HardFault', 'BusFault', 'UsageFault', 'MemManage'])
+    expect(decodeIcsr(0x80000000).find((f) => f.name === 'NMIPENDSET')?.value).toBe(1)
+    expect(decodeIcsr(0xffffffff).find((f) => f.name === 'NMIPENDSET')?.value).toBe(1)
   })
 
   it('names bits past the table "undefined" and works out counts and lines as upstream', async () => {

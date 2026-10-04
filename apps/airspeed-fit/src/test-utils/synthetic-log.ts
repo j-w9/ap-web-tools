@@ -32,6 +32,10 @@ export interface SyntheticOptions {
   readonly metar?: boolean
   /** Log BARO without an instance field (as very old firmware did). */
   readonly baroNoInstance?: boolean
+  /** Log XKF1 without the VN, VE, VD columns. */
+  readonly xkfNoVelocity?: boolean
+  /** Log STAT without the isFlying column. */
+  readonly statNoFlying?: boolean
 }
 
 /** Field elevation of the synthetic flight, m AMSL. */
@@ -72,13 +76,15 @@ export function buildSyntheticAirspeedLog(options: SyntheticOptions = {}): Array
   w.defineFormat(0x84, 'PARM', 'QNfff', 'TimeUS,Name,Value,Default,Flags')
   w.defineFormat(0x85, 'MSG', 'QZ', 'TimeUS,Message')
   w.defineFormat(0x90, 'ARSP', 'QBffffBBB', 'TimeUS,I,Airspeed,DiffPress,Temp,Offset,U,H,Pri')
-  w.defineFormat(0x91, 'XKF1', 'QBffffff', 'TimeUS,C,Roll,Pitch,Yaw,VN,VE,VD')
+  if (options.xkfNoVelocity) w.defineFormat(0x91, 'XKF1', 'QBfff', 'TimeUS,C,Roll,Pitch,Yaw')
+  else w.defineFormat(0x91, 'XKF1', 'QBffffff', 'TimeUS,C,Roll,Pitch,Yaw,VN,VE,VD')
   w.defineFormat(0x92, 'XKF2', 'QBff', 'TimeUS,C,VWN,VWE')
   if (options.baroNoInstance) w.defineFormat(0x93, 'BARO', 'Qfff', 'TimeUS,Alt,Press,GndTemp')
   else w.defineFormat(0x93, 'BARO', 'QBfff', 'TimeUS,I,Alt,Press,GndTemp')
   w.defineFormat(0x94, 'POS', 'QLLfff', 'TimeUS,Lat,Lng,Alt,RelHomeAlt,RelOriginAlt')
   w.defineFormat(0x95, 'ATT', 'Qfff', 'TimeUS,DesRoll,Roll,Pitch')
-  w.defineFormat(0x96, 'STAT', 'QBf', 'TimeUS,isFlying,isFlyProb')
+  if (options.statNoFlying) w.defineFormat(0x96, 'STAT', 'Qf', 'TimeUS,isFlyProb')
+  else w.defineFormat(0x96, 'STAT', 'QBf', 'TimeUS,isFlying,isFlyProb')
   w.defineFormat(0x97, 'GPS', 'QBBIHBcLLeffffB', 'TimeUS,I,Status,GMS,GWk,NSats,HDop,Lat,Lng,Alt,Spd,GCrs,VZ,Yaw,U')
 
   const t0 = 1_000_000
@@ -96,7 +102,7 @@ export function buildSyntheticAirspeedLog(options: SyntheticOptions = {}): Array
     w.write('MULT', [t0, id.charCodeAt(0), m])
   }
   w.write('FMTU', [t0, 0x90, 's#-------', 'F--------'])
-  w.write('FMTU', [t0, 0x91, 's#------', 'F-------'])
+  w.write('FMTU', options.xkfNoVelocity ? [t0, 0x91, 's#---', 'F----'] : [t0, 0x91, 's#------', 'F-------'])
   w.write('FMTU', [t0, 0x92, 's#--', 'F---'])
   w.write('FMTU', options.baroNoInstance ? [t0, 0x93, 's---', 'F---'] : [t0, 0x93, 's#---', 'F----'])
   w.write('FMTU', [t0, 0x97, 's#-------------', 'F--------------'])
@@ -147,7 +153,8 @@ export function buildSyntheticAirspeedLog(options: SyntheticOptions = {}): Array
     })
     for (let core = 0; core < 2; core++) {
       const e = core * 0.05
-      w.write('XKF1', [timeUs + 3000 + core * 100, core, 0, 0, s.heading, vn + e, ve - e, s.vd])
+      if (options.xkfNoVelocity) w.write('XKF1', [timeUs + 3000 + core * 100, core, 0, 0, s.heading])
+      else w.write('XKF1', [timeUs + 3000 + core * 100, core, 0, 0, s.heading, vn + e, ve - e, s.vd])
       w.write('XKF2', [timeUs + 3500 + core * 100, core, windN + 0.2, windE - 0.2])
     }
     if (options.baroNoInstance) w.write('BARO', [timeUs + 4000, s.relAlt, press + noise(2), 35])
@@ -175,7 +182,8 @@ export function buildSyntheticAirspeedLog(options: SyntheticOptions = {}): Array
         1
       ])
     }
-    if (k % rate === 0) w.write('STAT', [timeUs + 8000, flying ? 1 : 0, flying ? 1 : 0])
+    if (k % rate === 0)
+      w.write('STAT', options.statNoFlying ? [timeUs + 8000, flying ? 1 : 0] : [timeUs + 8000, flying ? 1 : 0, flying ? 1 : 0])
   }
 
   const bytes = w.toBytes()

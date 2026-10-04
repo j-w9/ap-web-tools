@@ -40,9 +40,10 @@ export interface InsParamNames {
 /**
  * Parameter names for a 0-based IMU index (upstream `get_ins_param_names`).
  *
- * Upstream typos, reproduced: the temperature-calibration max is `..._TMAN` (ArduPilot's is
- * `TMAX`) and the gyro coefficient names repeat the accel ones (`..._ACC1_..` to `..._ACC3_..`),
- * so gyro temperature calibration is judged from the accel coefficients.
+ * The gyro temperature coefficients are ArduPilot's `..._GYR1_..` to `..._GYR3_..` (proven upstream
+ * bug fixed: upstream repeats the accel names `..._ACC1_..`, see docs/bug-proofs/hardware-report.md).
+ * Upstream typo, kept (never read, no effect): the temperature-calibration max is `..._TMAN`
+ * (ArduPilot's is `TMAX`).
  */
 export function insParamNames(index: number): InsParamNames {
   const n = index + 1
@@ -70,7 +71,7 @@ export function insParamNames(index: number): InsParamNames {
       tMin: tcal + 'TMIN',
       tMax: tcal + 'TMAN',
       accel: [paramNameVector3(tcal + 'ACC1_'), paramNameVector3(tcal + 'ACC2_'), paramNameVector3(tcal + 'ACC3_')],
-      gyro: [paramNameVector3(tcal + 'ACC1_'), paramNameVector3(tcal + 'ACC2_'), paramNameVector3(tcal + 'ACC3_')]
+      gyro: [paramNameVector3(tcal + 'GYR1_'), paramNameVector3(tcal + 'GYR2_'), paramNameVector3(tcal + 'GYR3_')]
     },
     pos: paramNameVector3(prefix + '_POS' + fullNum + '_'),
     use: prefix + '_USE' + num
@@ -102,11 +103,11 @@ export interface InsSensor {
   /** Position offset set (any component non-zero or missing). */
   readonly posSet: boolean
   /**
-   * What upstream shows as "Accel health": whether `IMU.GH` (the gyro flag) is 1 throughout the
-   * log (upstream bug, reproduced: the two health lines are swapped). `undefined` without log data.
+   * "Accel health": whether `IMU.AH` is 1 throughout the log (proven upstream bug fixed: upstream
+   * shows the gyro flag here and the accel flag as gyro health). `undefined` without log data.
    */
   readonly accelHealthy: boolean | undefined
-  /** What upstream shows as "Gyro health": `IMU.AH` (the accel flag), swapped as above. */
+  /** "Gyro health": whether `IMU.GH` is 1 throughout the log. */
   readonly gyroHealthy: boolean | undefined
 }
 
@@ -130,11 +131,11 @@ function readInstance(
     }
   }
 
-  // Upstream bug, reproduced: the "scale" check reads the accel *offset* names again and compares
-  // them with 1.0, so any IMU whose offsets are not all exactly 1 counts as calibrated.
+  // Proven upstream bug fixed: upstream compares the accel *offset* names with 1.0 instead of the
+  // scale names (docs/bug-proofs/hardware-report.md).
   const accelCalibrated =
     paramArrayConfigured(paramArray(params, names.accel.offset), 0) ||
-    paramArrayConfigured(paramArray(params, names.accel.offset), 1)
+    paramArrayConfigured(paramArray(params, names.accel.scale), 1)
 
   // Upstream treats a missing id as `undefined`; decode it as 0 so the device is still typed.
   const gyro = describeDevice(gyroId ?? 0, DeviceType.imu, can)
@@ -165,8 +166,7 @@ export function readIns(params: ParamValues, log: DataflashLog | undefined, can:
   const out: (InsSensor | undefined)[] = []
   for (let i = 0; i < MAX_NUM_INS; i++) {
     const inst = readInstance(params, i, can)
-    // Swapped as upstream displays them.
-    out.push(inst === undefined ? undefined : { ...inst, accelHealthy: gyroHealth.get(i), gyroHealthy: accHealth.get(i) })
+    out.push(inst === undefined ? undefined : { ...inst, accelHealthy: accHealth.get(i), gyroHealthy: gyroHealth.get(i) })
   }
   return out
 }

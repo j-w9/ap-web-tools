@@ -48,6 +48,12 @@ records (16 bytes each with header) at 0, 1, …, 9 s. Settings: window 10, Bits
 **Smallest port change:** multiply the per-type byte total by 8 where the port builds the `.bin`
 composition in bits mode.
 
+**Status:** FIXED (commit pending). Port: `apps/stream-stats/src/analysis/stats.ts:113`
+(`m.totalBytes * 8`). Tests: `apps/stream-stats/src/analysis/stats.test.ts` › "matches upstream
+plot_log on copter-sitl.bin / copter-files.bin (bits, 2 s / 10 s)" (identical to upstream with its pie
+values × 8) and "plots bits in the bits pie (upstream: bytes) and lists types without records, as
+upstream".
+
 ## 2. Parser's built-in FMT definition has no Size
 
 **Row:** `modules/JsDataflashParser/parser.js` constructor (`FMT[128]`), `stats()`. "A log that never
@@ -79,6 +85,11 @@ reports `size` 0.
 
 **Smallest port change:** give the port's built-in FMT definition its record length (89, body 86) so
 its stats are `{ count: 0, recordSize: 89, bytes: 0 }`.
+
+**Status:** FIXED (commit pending). Port: `apps/stream-stats/src/analysis/bin.ts:58` (the NaN for the
+built-in FMT definition is removed; `@apwt/dataflash` `stats()` already gives it 89 bytes). Test:
+`apps/stream-stats/src/analysis/stats.test.ts` › "loads an empty file as an empty log; FMT is 0 bits,
+where upstream has NaN".
 
 ## 3. Window size not validated
 
@@ -118,3 +129,10 @@ already reports the 0/empty error; extend the same check to negative and sub-0.1
 **Row correction:** "nothing is replotted" is not exact: for 0 or empty the composition pie is redrawn
 first (`StreamStats.js:131-141` run before `bin_count`), and the rate data is cleared; only the rate and
 total plots are not redrawn.
+
+**Status:** FIXED (commit pending). Port: `apps/stream-stats/src/analysis/stats.ts:131`
+(`streamStats` throws `RangeError: Window size must be a number of at least 0.1 s` for `NaN` or values
+below `MIN_BIN_WIDTH` = 0.1; the page shows the error instead of plots). Tests:
+`apps/stream-stats/src/analysis/stats.test.ts` › "rejects a negative window, where upstream plots
+negative rates", "rejects a 0 s / NaN s window, where upstream throws while binning (or plots nothing
+when everything is excluded)" and "rejects a negative window on copter-sitl.bin / copter-files.bin".

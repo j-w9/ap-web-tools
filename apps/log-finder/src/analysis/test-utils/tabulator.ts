@@ -80,6 +80,11 @@ export class UpstreamTable {
     return col
   }
 
+  /** Give `field` Tabulator's built-in sorter `name` (as an explicit column `sorter` would). */
+  useSorter(field: string, name: string): void {
+    this.column(field).modules.sort.sorter = this.Sort.sorters[name]!
+  }
+
   /** Sort by `field` from data order, as a header click or `initialSort` does. */
   sort(field: string, dir: 'asc' | 'desc'): UpstreamRow[] {
     const column = this.column(field)

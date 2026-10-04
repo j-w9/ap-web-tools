@@ -91,23 +91,14 @@ export function gpsDeviceMessages(messages: readonly string[]): GpsDeviceMessage
 }
 
 /**
- * Thrown where upstream `load_gps` crashes: a boot message names a GPS number that is not
- * configured (upstream assigns to `gps[n].device` of a missing entry and the report stops).
- */
-export class UnconfiguredGpsError extends Error {
-  constructor(readonly gps: GpsDeviceMessage) {
-    super(`The log message "${gps.message}" names GPS ${gps.index + 1}, which is not configured; the report can not be built.`)
-    this.name = 'UnconfiguredGpsError'
-  }
-}
-
-/**
  * GPS receivers from `GPS_TYPE[n]` (pre 4.6) or `GPSn_TYPE` (4.6+) parameters, with the device
  * name from the last boot message naming each (upstream `load_gps`). Every configured receiver
  * is returned, as the offset plot uses them all; upstream lists only those with a
  * {@link GpsSensor.device}, which the UI filters on.
  *
- * @throws {UnconfiguredGpsError} where upstream crashes (a message names an unconfigured GPS).
+ * A message naming a GPS that is not configured is ignored (proven upstream bug fixed: upstream
+ * assigns to `gps[n].device` of a missing entry, throws and leaves the page half built; see
+ * docs/bug-proofs/hardware-report.md).
  */
 export function readGps(params: ParamValues, log: DataflashLog | undefined, can: CanInventory): (GpsSensor | undefined)[] {
   const configured: (Omit<GpsSensor, 'device'> | undefined)[] = []
@@ -145,7 +136,7 @@ export function readGps(params: ParamValues, log: DataflashLog | undefined, can:
 
   const devices = new Map<number, string>()
   for (const m of log === undefined ? [] : gpsDeviceMessages(log.textMessages())) {
-    if (configured[m.index] === undefined) throw new UnconfiguredGpsError(m)
+    if (configured[m.index] === undefined) continue
     devices.set(m.index, m.device)
   }
   return configured.map((g, i) => (g === undefined ? undefined : { ...g, device: devices.get(i) }))

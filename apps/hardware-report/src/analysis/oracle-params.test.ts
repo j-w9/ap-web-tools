@@ -68,8 +68,19 @@ function compareExports(up: UpstreamHardwareReport, params: ParamData, inputName
   })
 }
 
-function compareParams(up: UpstreamHardwareReport, r: HardwareReport): void {
-  expect(up.get('Object.entries(params)')).toEqual([...r.params.values])
+/**
+ * Upstream's parameter entries. Proven upstream bug fixed in the port: `load_param_file` stores a
+ * `#` comment line as an entry (e.g. `"#"` → NaN); the port skips those lines as ArduPilot does
+ * (docs/bug-proofs/hardware-report.md). A name starting with `#` can only come from such a line, so
+ * those entries are left out of the comparison and asserted separately.
+ */
+function upstreamParamEntries(up: UpstreamHardwareReport, skipComments: boolean): [string, number][] {
+  const entries = up.get('Object.entries(params)') as [string, number][]
+  return skipComments ? entries.filter(([k]) => !k.startsWith('#')) : entries
+}
+
+function compareParams(up: UpstreamHardwareReport, r: HardwareReport, skipComments = false): void {
+  expect(upstreamParamEntries(up, skipComments)).toEqual([...r.params.values])
   expect(up.get('Object.entries(defaults)')).toEqual([...r.params.defaults])
   const changes = up.dom.getElementById('ParameterChanges')
   expect(changes.textContent).toBe(changesText(r.paramChanges))
@@ -81,11 +92,25 @@ async function compareParamFile(text: string, inputName = 'vehicle.param'): Prom
   up.loadParamFile(text)
   up.dom.getElementById('fileItem').value = 'C:\\fakepath\\' + inputName
   const r = buildParamFileReport(text)
-  compareParams(up, r)
+  compareParams(up, r, true)
+  const upstreamNaN = upstreamParamEntries(up, false).some(([, v]) => Number.isNaN(v))
   if ([...r.params.values.values()].some(Number.isNaN)) {
     // A NaN value (from a junk line) makes upstream's param_to_string throw, so nothing is saved.
     expect(() => up.call('save_all_parameters')).toThrow(/Could not convert NaN to float string/)
     expect(() => allParamsText(r.params.values)).toThrow(/Could not convert NaN to float string/)
+  } else if (upstreamNaN) {
+    // Only comment lines gave upstream a NaN: it can not save (proven bug); the port saves exactly
+    // what upstream saves for the same file without those lines.
+    expect(() => up.call('save_all_parameters')).toThrow(/Could not convert NaN to float string/)
+    const clean = await createUpstreamHardwareReport()
+    const withoutComments = text
+      .split('\n')
+      .filter((l) => !l.startsWith('#'))
+      .join('\n')
+    clean.loadParamFile(withoutComments)
+    clean.dom.getElementById('fileItem').value = 'C:\\fakepath\\' + inputName
+    compareParams(clean, r)
+    compareExports(clean, r.params, inputName)
   } else {
     compareExports(up, r.params, inputName)
   }
@@ -103,7 +128,23 @@ async function compareLog(bytes: Uint8Array, inputName = 'flight.BIN'): Promise<
 }
 
 describe('oracle: parameter files', () => {
-  it('parses every line with two fields, junk included', async () => {
+  it('saves a parameter file with # comment lines, which upstream can not save (proven bug, fixed)', async () => {
+    const text = '#NOTE: 2024-01-01 Plane 4.5\n# comment\nINS_GYR_ID,3408138\nRC1_MIN,1100\nFLTMODE1,7\n'
+    const up = await createUpstreamHardwareReport()
+    up.loadParamFile(text)
+    // Upstream stores the comments as parameters and its Save All throws.
+    expect(upstreamParamEntries(up, false).slice(0, 2)).toEqual([
+      ['#NOTE:', 2024],
+      ['#', NaN]
+    ])
+    expect(() => up.call('save_all_parameters')).toThrow(/Could not convert NaN to float string/)
+    // Port: comments skipped; every file matches upstream's for the text without the comment lines.
+    const r = await compareParamFile(text)
+    expect([...r.params.values.keys()]).toEqual(['INS_GYR_ID', 'RC1_MIN', 'FLTMODE1'])
+    expect(allParamsText(r.params.values)).toContain('INS_GYR_ID')
+  })
+
+  it('parses every line with two fields, junk included (comment lines skipped)', async () => {
     const r = await compareParamFile(
       [
         '# Mission Planner export,1',
@@ -126,7 +167,7 @@ describe('oracle: parameter files', () => {
         'SERIAL2_BAUD,921'
       ].join('\n') + '\n'
     )
-    expect([...r.params.values.keys()].slice(0, 3)).toEqual(['3', '12', '#'])
+    expect([...r.params.values.keys()].slice(0, 3)).toEqual(['3', '12', 'INS_GYR_ID'])
   })
 
   it('writes the same files for a clean parameter file', async () => {

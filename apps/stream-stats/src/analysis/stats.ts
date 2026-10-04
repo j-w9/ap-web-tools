@@ -43,11 +43,18 @@ export type StreamSource =
 export interface StatsSettings {
   readonly unit: RateUnit
   /**
-   * Width of each rate bin, seconds, as upstream `parseFloat` reads it. Not validated: a negative
-   * width gives upstream's odd results and 0 or NaN throws a `RangeError`, as upstream does.
+   * Width of each rate bin, seconds, as upstream `parseFloat` reads it. Must be at least
+   * {@link MIN_BIN_WIDTH}, the window box's `min`.
    */
   readonly binWidth: number
 }
+
+/**
+ * Smallest window size, seconds: `min="0.1"` of upstream's Window size box. Upstream does not check
+ * it, so a negative window gives negative rates and 0 or an empty box throws while binning (proven
+ * upstream bug, fixed: see docs/bug-proofs/stream-stats.md).
+ */
+export const MIN_BIN_WIDTH = 0.1
 
 /** Rate of one message stream. */
 export interface StreamRate extends RateSeries {
@@ -98,11 +105,12 @@ function tlogStats(tlog: Tlog, selection: TlogSelection, { unit, binWidth }: Sta
 }
 
 function binLogStats(log: BinLog, { unit, binWidth }: StatsSettings): StreamStats {
-  // Upstream bug reproduced: in bits mode the pie plots each type's size in bytes, while its
-  // hover text says bits (docs/upstream-bugs.md). Types without records are included at 0.
+  // Upstream plots each type's size in bytes in the bits pie, while its hover text says bits; the
+  // port plots bits (proven upstream bug, fixed: see docs/bug-proofs/stream-stats.md). Types
+  // without records are included at 0.
   const composition: CompositionSlice[] = log.messages.map((m) => ({
     label: m.name,
-    value: unit === 'bits' ? m.totalBytes : m.count
+    value: unit === 'bits' ? m.totalBytes * 8 : m.count
   }))
   const rates: StreamRate[] = []
   const total = emptyTotal()
@@ -117,9 +125,12 @@ function binLogStats(log: BinLog, { unit, binWidth }: StatsSettings): StreamStat
 /**
  * Rates and composition of a log under the given settings.
  *
- * @throws {RangeError} for a window of 0 or NaN when any stream is included (upstream crashes too).
+ * @throws {RangeError} for a window that is not a number or is below {@link MIN_BIN_WIDTH}.
  */
 export function streamStats(source: StreamSource, settings: StatsSettings): StreamStats {
+  if (!(settings.binWidth >= MIN_BIN_WIDTH)) {
+    throw new RangeError(`Window size must be a number of at least ${MIN_BIN_WIDTH} s`)
+  }
   switch (source.kind) {
     case 'tlog':
       return tlogStats(source.tlog, source.selection, settings)

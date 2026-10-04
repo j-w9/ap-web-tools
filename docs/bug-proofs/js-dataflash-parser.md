@@ -60,6 +60,16 @@ second read), `@SYS/storage.bin` is 32768 bytes.
 raw bytes, slice to `Length`, write at `Offset` into a buffer sized `max(Offset + Length)`, and restart
 the buffer when a record with `Offset` 0 arrives for a name that already has data.
 
+**Status:** FIXED (commit pending). Port: `packages/dataflash/src/log.ts:445` (`DataflashLog.files()`;
+a FILE format without `Offset`/`Length` columns keeps upstream's assembly). Tests:
+`packages/dataflash/src/oracle-edges.test.ts` › "matches the embedded files" (copter-files.bin: every
+file identical to upstream except the four affected) and "places file chunks at Offset with Length
+bytes, keeping the last copy (upstream appends them; proven bug)"; `oracle.test.ts` › "reassembles
+embedded files" (`@SYS/uarts.txt` 832 bytes, `@SYS/storage.bin` 32768); `files.test.ts`; Hardware
+Report `oracle-log.test.ts` (FILES downloads). In `copter-files.bin` `@SYS/uarts.txt`,
+`@SYS/memory.txt` and `@SYS/threads.txt` are logged twice and `@SYS/storage.bin` has zero-ended
+chunks.
+
 ## 2. `multipliersTable` maps 1e-6 to `n`
 
 **Row:** `parser.js` `multipliersTable`. "`TimeUS` and other 1e-6 fields are labelled `ns` instead of
@@ -90,6 +100,12 @@ The label for 1e-6 is the prefix for 1e-9: every `F` field is labelled 1000x too
 1000, `LogStructure.h:93-111`, so it is unreachable and outside this row.)
 
 **Smallest port change:** in the port's multiplier-prefix table, map 1e-6 to `µ` instead of `n`.
+
+**Status:** FIXED (commit pending). Port: `packages/dataflash/src/units.ts:70` (1e-6 → `µ`, U+00B5).
+Tests: `packages/dataflash/src/oracle-edges.test.ts` › "matches units, multipliers and instances"
+(every label identical to upstream except `n` → `µ` for 1e-6) and "splits instances and applies the
+built-in units when FMTU is valid"; `log.test.ts` › "resolves units and multipliers from the built-in
+tables, as upstream does".
 
 ## 3. FMTU for an undefined type aborts unit loading
 
@@ -124,6 +140,12 @@ instances 0 and 1).
 **Smallest port change:** in the port's FMTU handling, `continue` past records whose type is undefined
 instead of stopping unit loading.
 
+**Status:** FIXED (commit pending). Port: `packages/dataflash/src/log.ts:572` (`readFmtu`: `continue`
+instead of `break`). Test: `packages/dataflash/src/oracle-edges.test.ts` › "skips a FMTU record for an
+undefined type (upstream abandons every later FMTU; proven bug)" (upstream: `IMU` units `?`, no
+instances; port: `µs`, instances `[0, 1]`, the same fields as upstream for the log without the bad
+record).
+
 ## 4. Unknown type code ends the scan
 
 **Row:** `parser.js` `DfReader` (`get_size_of` undefined, offset NaN). "Every record after the first
@@ -149,3 +171,5 @@ character ArduPilot defines at the pinned commit
 so an ArduPilot log never contains such a format, and no firmware definition says what the record
 should decode to. Stopping, skipping or resynchronising are all readings the code does not choose
 between. Stays reproduced.
+
+**Status:** not fixed (not proven); reproduced as before.

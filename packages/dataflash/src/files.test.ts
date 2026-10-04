@@ -21,14 +21,21 @@ describe('files', () => {
     expect(text(log.files().get('@SYS/a.txt'))).toBe('hello world')
   })
 
-  it('appends a file written twice, as upstream processFiles does (bug, reproduced)', () => {
+  // Upstream appends both copies ('first copysecond run'); proven upstream bug, fixed. The upstream
+  // side by side check is in oracle-edges.test.ts.
+  it('keeps the last copy of a file written twice (a chunk at Offset 0 starts a new copy)', () => {
     const log = fileLog([
       ['@SYS/a.txt', 0, 'first '],
       ['@SYS/a.txt', 6, 'copy'],
       ['@SYS/a.txt', 0, 'second'],
       ['@SYS/a.txt', 6, ' run']
     ])
-    expect(text(log.files().get('@SYS/a.txt'))).toBe('first copysecond run')
+    expect(text(log.files().get('@SYS/a.txt'))).toBe('second run')
+  })
+
+  it('keeps all Length bytes of a chunk, including trailing zeros', () => {
+    const log = fileLog([['crash_dump.bin', 0, 'a\u0000\u0000']])
+    expect(Array.from(log.files().get('crash_dump.bin') ?? [])).toEqual([0x61, 0, 0])
   })
 
   it('lists message types with no records in stats, as upstream does', () => {

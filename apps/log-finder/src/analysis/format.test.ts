@@ -8,7 +8,8 @@ describe('format', () => {
     expect(formatSize(1536)).toBe('1.50 kB')
     expect(formatSize(5 * 1024 ** 3)).toBe('5.00 GB')
     // Upstream indexes past its unit list.
-    expect(formatSize(2 * 1024 ** 5)).toBe('2.00 undefined')
+    // Clamped to TB (upstream prints '2.00 undefined'; proven upstream bug).
+    expect(formatSize(2 * 1024 ** 5)).toBe('2048.00 TB')
   })
 
   it('distances switch to km at 2 km', () => {

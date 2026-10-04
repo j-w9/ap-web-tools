@@ -220,7 +220,27 @@ function compareMissions({ up, port }: Compared): void {
   })
 }
 
-function compareFiles({ up, port }: Compared): void {
+/**
+ * The port's file with each 64-byte FILE chunk's trailing zeros removed, as upstream's
+ * NUL-stripped `Data` strings hold it.
+ */
+function strippedChunks(data: Uint8Array): number[] {
+  const out: number[] = []
+  for (let at = 0; at < data.length; at += 64) {
+    const chunk = Array.from(data.subarray(at, at + 64))
+    while (chunk.length > 0 && chunk[chunk.length - 1] === 0) chunk.pop()
+    out.push(...chunk)
+  }
+  return out
+}
+
+/**
+ * Upstream's downloads against the port's files: identical, except for the files named in
+ * `fixed`, where upstream's `processFiles()` appended a second copy or dropped trailing zero bytes
+ * (proven upstream bug, docs/bug-proofs/js-dataflash-parser.md). For those the port holds the last
+ * copy with every byte, so upstream's bytes end with the port's file read the upstream way.
+ */
+function compareFiles({ up, port }: Compared, fixed: readonly string[] = []): void {
   const section = up.dom.getElementById('FILES')
   const links = section.getElementsByTagName('a')
   expect(links.map((a) => a.textContent)).toEqual(port.files.map((f) => f.name))
@@ -228,8 +248,17 @@ function compareFiles({ up, port }: Compared): void {
     up.saved.length = 0
     a.dispatch('click')
     const saved = up.saved[0]
-    expect(saved?.name).toBe(port.files[i]?.name)
-    expect(Array.from(saved?.parts[0] as Uint8Array)).toEqual(Array.from(port.files[i]?.data ?? []))
+    const name = port.files[i]?.name ?? ''
+    expect(saved?.name).toBe(name)
+    const theirs = Array.from(saved?.parts[0] as Uint8Array)
+    const mine = port.files[i]?.data ?? new Uint8Array()
+    if (!fixed.includes(name)) {
+      expect(Array.from(mine), name).toEqual(theirs)
+      return
+    }
+    expect(Array.from(mine), name).not.toEqual(theirs)
+    const read = strippedChunks(mine)
+    expect(theirs.slice(theirs.length - read.length), name).toEqual(read)
   })
 }
 
@@ -272,7 +301,7 @@ function compareClockDrift({ up, port }: Compared): void {
   expect(yaxis.range).toEqual(d?.yRange === undefined ? undefined : [-d.yRange, d.yRange])
 }
 
-function compareAll(c: Compared): void {
+function compareAll(c: Compared, fixedFiles: readonly string[] = []): void {
   compareFirmware(c)
   compareIomcu(c)
   compareBoardHealth(c)
@@ -280,7 +309,7 @@ function compareAll(c: Compared): void {
   compareDataRates(c)
   compareCan(c)
   compareMissions(c)
-  compareFiles(c)
+  compareFiles(c, fixedFiles)
   compareWarnings(c)
   compareLogging(c)
   compareClockDrift(c)
@@ -290,7 +319,10 @@ describe.each(['copter-sitl.bin', 'copter-files.bin'])('oracle load_log sections
   it('matches upstream', async () => {
     const c = await both(readFixture(fixture))
     expect(c.up.alerts).toEqual([])
-    compareAll(c)
+    // copter-files.bin logs uarts.txt, memory.txt and threads.txt twice, and storage.bin with
+    // zero-ended chunks.
+    const fixed = ['@SYS/uarts.txt', '@SYS/memory.txt', '@SYS/threads.txt', '@SYS/storage.bin']
+    compareAll(c, fixture === 'copter-files.bin' ? fixed : [])
     if (fixture === 'copter-files.bin') {
       expect(c.port.plots.uartRates.length).toBeGreaterThan(3)
       expect(c.port.files.length).toBeGreaterThan(3)
@@ -457,9 +489,10 @@ function filesLog(): Uint8Array {
 describe('oracle load_log sections: synthetic files', () => {
   it('matches upstream file downloads and warnings', async () => {
     const c = await both(filesLog())
-    compareAll(c)
+    compareAll(c, ['@SYS/uarts.txt'])
     expect(c.port.warnings.map((w) => w.kind)).toEqual(['armingChecksDisabled', 'crashDump', 'crashDump'])
-    expect(new TextDecoder().decode(c.port.files[0]?.data)).toBe('UARTV1UARTV1')
+    // Upstream appends the second copy ('UARTV1UARTV1'); the port keeps the last (proven bug, fixed).
+    expect(new TextDecoder().decode(c.port.files[0]?.data)).toBe('UARTV1')
   })
 })
 

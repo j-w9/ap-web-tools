@@ -101,7 +101,8 @@ function velocitySources(log: DataflashLog): VelocitySource[] {
       const ve = log.getNumbers(v.velocity, 'VE', core)
       const vd = log.getNumbers(v.velocity, 'VD', core)
       if (time === undefined || time.length === 0) continue
-      // Upstream runs Array.from on these columns and crashes when one is missing.
+      // Upstream runs Array.from on these columns and crashes when one is missing (proven bug,
+      // docs/bug-proofs/airspeed-fit.md row 1); the port stops with a message instead.
       if (vn === undefined || ve === undefined || vd === undefined) throw new Error(`${v.velocity} is missing VN, VE or VD`)
       let wind: VelocitySource['wind'] = null
       if (windCores.has(core)) {
@@ -181,10 +182,10 @@ export function loadAirspeedLog(log: DataflashLog): AirspeedLog {
   const [firstSource, ...otherSources] = velocitySources(log)
   if (firstSource === undefined) throw new Error('Could not read EKF velocity')
 
-  // Static pressure from the first barometer. Upstream reads `BARO.instances` and crashes when
-  // BARO has no instance field; stop with an error instead.
+  // Static pressure from the first barometer. A BARO without an instance field (older firmware)
+  // is read as a single barometer; upstream reads `BARO.instances` and crashes there (proven bug,
+  // fixed: docs/bug-proofs/airspeed-fit.md row 1).
   const baroInst = firstInstance(log, 'BARO')
-  if (baroInst === undefined) throw new Error('BARO has no instance field')
   const baro = {
     time: required(seconds(log, 'BARO', baroInst), 'No BARO.TimeUS in log'),
     press: required(log.getNumbers('BARO', 'Press', baroInst), 'No BARO.Press in log')
@@ -206,7 +207,8 @@ export function loadAirspeedLog(log: DataflashLog): AirspeedLog {
   let flyingTo: number | undefined
   const statTime = seconds(log, 'STAT')
   const flying = log.getNumbers('STAT', 'isFlying')
-  // Upstream crashes on a STAT message without isFlying.
+  // Upstream crashes on a STAT message without isFlying (proven bug, docs/bug-proofs/airspeed-fit.md
+  // row 1); the port stops with a message instead.
   if (log.has('STAT') && (statTime === undefined || flying === undefined)) throw new Error('STAT is missing TimeUS or isFlying')
   if (statTime !== undefined && flying !== undefined) {
     for (let i = 0; i < flying.length; i++) {

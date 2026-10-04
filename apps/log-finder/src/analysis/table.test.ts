@@ -3,7 +3,6 @@ import {
   INITIAL_SORT,
   NO_FILTER,
   UNKNOWN_BOARD,
-  afterIgnoreChange,
   buildTables,
   commonPath,
   groupByBoard,
@@ -68,13 +67,14 @@ describe('sorting (Tabulator semantics)', () => {
     // Names guess `string`: "10.bin" sorts before "9.bin".
     expect(names(sortLogs([makeLog('9.bin'), makeLog('10.bin')], by('name', 'asc')))).toEqual(['10.bin', '9.bin'])
     const size = nextSort(INITIAL_SORT, 'size', logs)
-    expect(size).toEqual({ key: 'size', direction: 'asc', sorters: { size: 'number' }, diffOrder: 'sorted' })
+    expect(size).toEqual({ key: 'size', direction: 'asc', sorters: { size: 'number' } })
     expect(names(sortLogs(logs, { ...size, direction: 'desc' }))).toEqual(['c.bin', 'b.bin', 'a.bin'])
-    // An unknown flight time in the first row makes Tabulator compare flight times as strings.
+    // Flight Time always sorts as numbers, even when the first row has no flight time (upstream
+    // guesses `string` there and puts 300 s before 60 s; proven upstream bug).
     const ft = [makeLog('x.bin'), makeLog('y.bin', { flightTimeS: 300 }), makeLog('z.bin', { flightTimeS: 60 })]
     const ftSort = nextSort(INITIAL_SORT, 'flightTime', ft)
-    expect(ftSort.sorters.flightTime).toBe('string')
-    expect(names(sortLogs(ft, ftSort))).toEqual(['x.bin', 'y.bin', 'z.bin'])
+    expect(ftSort.sorters.flightTime).toBeUndefined()
+    expect(names(sortLogs(ft, ftSort))).toEqual(['x.bin', 'z.bin', 'y.bin'])
   })
 
   it('toggles direction on the same column', () => {
@@ -167,11 +167,13 @@ describe('rows and totals', () => {
     expect(buildTables(logs, { filter: { ...NO_FILTER, text: 'zzz' }, sorts, ignored })).toEqual([])
   })
 
-  it('diffs in data order after an ignore change until the next sort (upstream bug)', () => {
-    const sorts = new Map([['CubeOrange 0033003A', afterIgnoreChange({ ...INITIAL_SORT, key: 'size', direction: 'desc' })]])
-    const rows = buildTables(logs, { filter: NO_FILTER, sorts, ignored })[0]?.rows ?? []
-    expect(rows.map((r) => r.log.name)).toEqual(['3.bin', '2.bin', '1.bin'])
-    expect(rows[2]?.paramDiff).toBeNull()
-    expect([...(rows[1]?.paramDiff?.changed ?? [])]).toEqual([['A', { from: 1, to: 2 }]])
+  it('diffs in display order whatever the ignore options (upstream re-diffs in data order: proven bug)', () => {
+    const sorts = new Map([['CubeOrange 0033003A', { ...INITIAL_SORT, key: 'size' as const, direction: 'desc' as const }]])
+    for (const ign of [ignored, new Set<never>()]) {
+      const rows = buildTables(logs, { filter: NO_FILTER, sorts, ignored: ign })[0]?.rows ?? []
+      expect(rows.map((r) => r.log.name)).toEqual(['3.bin', '2.bin', '1.bin'])
+      expect(rows[0]?.paramDiff).toBeNull()
+      expect([...(rows[2]?.paramDiff?.changed ?? [])]).toEqual([['A', { from: 2, to: 1 }]])
+    }
   })
 })

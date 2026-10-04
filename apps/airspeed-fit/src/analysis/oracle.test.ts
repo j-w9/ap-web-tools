@@ -306,12 +306,46 @@ describe('AirspeedFit saving and load failures against upstream', () => {
     expect(plan.summary).toBe(up.alerts[0])
   }, 60_000)
 
-  it('stops like upstream on a BARO message without instances', async () => {
+  it('reads a BARO message without instances as one barometer (upstream crashes: proven bug, fixed)', async () => {
+    // docs/bug-proofs/airspeed-fit.md row 1, proofs/airspeed-fit/load-crashes.test.ts.
     const buffer = buildSyntheticAirspeedLog({ flightSeconds: 120, baroNoInstance: true })
+    const upFails = await createUpstreamTool()
+    await expect(upstreamLoad(upFails, buffer)).rejects.toThrow("Cannot use 'in' operator to search for '0' in undefined")
+    // Corrected: the same records as instance 0, which upstream loads and fits.
+    const withInstance = buildSyntheticAirspeedLog({ flightSeconds: 120 })
     const up = await createUpstreamTool()
-    await expect(upstreamLoad(up, buffer)).rejects.toThrow()
-    expect(() => loadAirspeedLog(DataflashLog.parse(buffer))).toThrow('BARO has no instance field')
+    await upstreamLoad(up, withInstance)
+    await new Promise((r) => setTimeout(r, 0))
+    const log = loadAirspeedLog(DataflashLog.parse(buffer))
+    expect(log.baro.time.length).toBeGreaterThan(0)
+    expect(log.baro).toEqual(loadAirspeedLog(DataflashLog.parse(withInstance)).baro)
+    // Upstream offers no BARO.GndTemp preset for an un-instanced BARO (baro_gnd_temp_at); nor does the port.
+    expect(log.tempSources.baro).toBeUndefined()
+    const { prepared, model } = portCalculate(log, up)
+    compareFit(up, log, prepared, model, 'baro without instance')
   }, 60_000)
+
+  it.each([
+    ['XKF1 without velocity columns', { xkfNoVelocity: true }, 'undefined is not iterable', 'XKF1 is missing VN, VE or VD'],
+    [
+      'STAT without isFlying',
+      { statNoFlying: true },
+      "Cannot read properties of undefined (reading 'length')",
+      'STAT is missing TimeUS or isFlying'
+    ]
+  ])(
+    'stops with a message on %s (upstream crashes: proven bug, no port change)',
+    async (_label, options, theirs, mine) => {
+      // docs/bug-proofs/airspeed-fit.md row 1: upstream throws with no alert; the port already
+      // stops the load with a user-facing message, the minimal correct behaviour.
+      const buffer = buildSyntheticAirspeedLog({ flightSeconds: 120, ...options })
+      const up = await createUpstreamTool()
+      await expect(upstreamLoad(up, buffer)).rejects.toThrow(theirs)
+      expect(up.alerts).toEqual([])
+      expect(() => loadAirspeedLog(DataflashLog.parse(buffer))).toThrow(mine)
+    },
+    60_000
+  )
 
   it('zooms the flight data plot to the exact auto window like upstream', async () => {
     const buffer = buildSyntheticAirspeedLog({ flightSeconds: 300 })

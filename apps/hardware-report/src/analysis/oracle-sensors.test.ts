@@ -9,26 +9,44 @@ import { readFixture } from '../test-utils/fixtures.js'
 import { baseLog } from '../test-utils/synthetic.js'
 import { createUpstreamHardwareReport, type UpstreamHardwareReport } from '../test-utils/upstream.js'
 import { deviceLines } from './device.js'
+import { insParamNames } from './ins.js'
+import { paramArray, paramArrayConfigured } from './param-arrays.js'
 import { buildLogReport, buildParamFileReport, type HardwareReport } from './report.js'
 
 const mark = (v: unknown): string => (v ? '✅' : '❌')
 
+/**
+ * Upstream's "Accel calibration" for IMU `index` (proven bug, fixed in the port): the scale check
+ * reads the accel *offset* names again and compares them with 1.0.
+ */
+function upstreamAccelCalibrated(r: HardwareReport, index: number): boolean {
+  const offsets = paramArray(r.params.values, insParamNames(index).accel.offset)
+  return paramArrayConfigured(offsets, 0) || paramArrayConfigured(offsets, 1)
+}
+
+/**
+ * The IMU section text upstream renders, rebuilt from the port's report. Three proven upstream
+ * bugs are fixed in the port (docs/bug-proofs/hardware-report.md), so upstream's values are derived
+ * here: "Accel calibration" from the offsets compared with 1.0, "Gyro temperature calibration" from
+ * the accel coefficients (upstream reads the ACC names for the gyro, so it equals the port's accel
+ * temperature calibration), and the two health lines swapped. Everything else is the port's value.
+ */
 function insText(r: HardwareReport): string {
   let out = ''
-  for (const s of r.sensors.ins) {
+  for (const [index, s] of r.sensors.ins.entries()) {
     if (s === undefined) continue
     out += `IMU ${s.number}`
     out += s.combined
       ? deviceLines(s.gyro).join('')
       : 'Gyro: ' + deviceLines(s.gyro).join('') + 'Accel: ' + deviceLines(s.accel).join('')
     out += 'Use: ' + mark(s.use)
-    out += 'Accel calibration: ' + mark(s.accelCalibrated)
+    out += 'Accel calibration: ' + mark(upstreamAccelCalibrated(r, index))
     out += 'Gyro calibration: ' + mark(s.gyroCalibrated)
     out += 'Accel temperature calibration: ' + mark(s.accelTempCalibrated)
-    out += 'Gyro temperature calibration: ' + mark(s.gyroTempCalibrated)
+    out += 'Gyro temperature calibration: ' + mark(s.accelTempCalibrated)
     out += 'Position offset: ' + mark(s.posSet)
-    if (s.accelHealthy !== undefined) out += 'Accel health: ' + mark(s.accelHealthy)
-    if (s.gyroHealthy !== undefined) out += 'Gyro health: ' + mark(s.gyroHealthy)
+    if (s.gyroHealthy !== undefined) out += 'Accel health: ' + mark(s.gyroHealthy)
+    if (s.accelHealthy !== undefined) out += 'Gyro health: ' + mark(s.accelHealthy)
   }
   return out
 }
@@ -124,6 +142,12 @@ async function compareParamFile(text: string): Promise<HardwareReport> {
   return r
 }
 
+async function uploaded(bytes: Uint8Array): Promise<UpstreamHardwareReport> {
+  const up = await createUpstreamHardwareReport()
+  await up.loadLog(bytes)
+  return up
+}
+
 async function compareLog(bytes: Uint8Array): Promise<HardwareReport> {
   const up = await createUpstreamHardwareReport()
   await up.loadLog(bytes)
@@ -168,14 +192,19 @@ const IMU_BASE = {
 }
 
 describe('oracle: sensor sections from parameter files', () => {
-  it('reproduces the IMU calibration and temperature-calibration name bugs', async () => {
+  it('fixes the proven IMU calibration and temperature-calibration name bugs', async () => {
+    const up = await createUpstreamHardwareReport()
+    up.loadParamFile(lines(IMU_BASE))
     const r = await compareParamFile(lines(IMU_BASE))
-    // Zero offsets and unit scales still read as calibrated: the "scale" check compares the
-    // offsets (read twice) with 1.0.
-    expect(r.sensors.ins[0]?.accelCalibrated).toBe(true)
-    // A GYR coefficient does not count; upstream reads the ACC names for the gyro.
-    expect(r.sensors.ins[0]?.gyroTempCalibrated).toBe(false)
-    expect(r.sensors.ins[1]?.gyroTempCalibrated).toBe(true)
+    const imu1 = up.dom.getElementById('INS').textContent.split('IMU 2')[0] ?? ''
+    // Upstream: zero offsets and unit scales read as calibrated (offsets compared with 1.0); the
+    // GYR coefficient of IMU 1 does not count and IMU 2's ACC coefficient counts for the gyro.
+    expect(imu1).toContain('Accel calibration: ✅')
+    expect(imu1).toContain('Gyro temperature calibration: ❌')
+    expect(up.dom.getElementById('INS').textContent.split('IMU 2')[1]).toContain('Gyro temperature calibration: ✅')
+    // Port: ArduPilot's SCAL and GYR names.
+    expect(r.sensors.ins[0]?.accelCalibrated).toBe(false)
+    expect(r.sensors.ins[0]?.gyroTempCalibrated).toBe(true)
   })
 
   it('matches compasses in priority and device-id slots', async () => {
@@ -282,7 +311,7 @@ describe('oracle: sensor sections from logs', () => {
     await compareLog(readFixture(name))
   })
 
-  it('shows IMU health swapped, and compass, baro and airspeed health', async () => {
+  it('shows IMU health (unswapped), and compass, baro and airspeed health', async () => {
     const bytes = baseLog()
       .define('IMU', 'QBBB', 'TimeUS,I,AH,GH', 'I')
       .define('MAG', 'QBB', 'TimeUS,I,Health', 'I')
@@ -313,15 +342,30 @@ describe('oracle: sensor sections from logs', () => {
       .write('MSG', [7, 'GPS 1: detected as u-blox-F9 at 460800 baud'])
       .bytes()
     const r = await compareLog(bytes)
-    // IMU 1: AH all 1, GH not: upstream's "Accel health" line shows the gyro flag.
-    expect([r.sensors.ins[0]?.accelHealthy, r.sensors.ins[0]?.gyroHealthy]).toEqual([false, true])
+    // IMU 1: AH all 1, GH not. Upstream's "Accel health" line shows the gyro flag (proven bug);
+    // the port shows AH as accel health and GH as gyro health.
+    const upIns = (await uploaded(bytes)).dom.getElementById('INS').textContent
+    expect(upIns.split('IMU 2')[0]).toContain('Accel health: ❌Gyro health: ✅')
+    expect([r.sensors.ins[0]?.accelHealthy, r.sensors.ins[0]?.gyroHealthy]).toEqual([true, false])
     expect(r.sensors.gps.map((g) => g?.device)).toEqual(['u-blox-F9', 'NMEA'])
   })
 
-  it('fails like upstream when a boot message names an unconfigured GPS', async () => {
-    const bytes = baseLog().params({ GPS_TYPE: 1 }).write('MSG', [5, 'GPS 2: detected as u-blox at 230400 baud']).bytes()
+  it('ignores a boot message naming an unconfigured GPS, where upstream throws', async () => {
+    const bytes = baseLog()
+      .params({ GPS_TYPE: 1 })
+      .write('MSG', [4, 'GPS 1: detected as u-blox at 230400 baud'])
+      .write('MSG', [5, 'GPS 2: detected as u-blox at 230400 baud'])
+      .bytes()
     const up = await createUpstreamHardwareReport()
     await expect(up.loadLog(bytes)).rejects.toThrow(/Cannot set properties of undefined/)
-    expect(() => buildLogReport(DataflashLog.parse(bytes))).toThrow(/names GPS 2, which is not configured/)
+    // Port (proven bug fixed): the message is ignored and the report is built; GPS 1 keeps its device.
+    const r = buildLogReport(DataflashLog.parse(bytes))
+    expect(r.sensors.gps.map((g) => g?.device)).toEqual(
+      ['u-blox', undefined, undefined, undefined].slice(0, r.sensors.gps.length)
+    )
+    // Without that message, the port's report matches upstream's in full.
+    const control = baseLog().params({ GPS_TYPE: 1 }).write('MSG', [4, 'GPS 1: detected as u-blox at 230400 baud']).bytes()
+    const fixed = await compareLog(control)
+    expect(fixed.sensors).toEqual(r.sensors)
   })
 })

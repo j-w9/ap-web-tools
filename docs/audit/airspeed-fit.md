@@ -27,23 +27,23 @@ Status values: **identical**, **presentation**, **convenience** (changes no comp
 
 ### Loading (`load`)
 
-| Upstream item                                                                                                                          | Port location                                        | Status                                                                              |
-| -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Alerts: no ARSP instances, no XKF1/NKF1, no BARO, could not read EKF velocity, no POS, no usable airspeed data                         | `analysis/load.ts` `loadAirspeedLog` errors          | identical text and order                                                            |
-| Velocity sources: XKF1 then NKF1 cores, name "EKFn core c", wind from XKF2/NKF2 of the same core; first ticked; single source disabled | `load.ts` `velocitySources`, `ui/Rail.tsx`           | identical                                                                           |
-| Missing VN/VE/VD or VWN/VWE column crashes upstream                                                                                    | `velocitySources` throws                             | **reverted-in-this-audit** (port skipped the source / dropped the wind)             |
-| BARO instance 0 else first instance; BARO without instance field crashes (`0 in undefined`)                                            | `load.ts`                                            | **reverted-in-this-audit** (port read the whole BARO message and continued; oracle) |
-| POS time/RelHomeAlt/Alt; ATT roll for the plot                                                                                         | `load.ts`                                            | identical                                                                           |
-| `STAT.isFlying` flight span; STAT without isFlying crashes                                                                             | `load.ts`                                            | identical / **reverted-in-this-audit** for the crash case                           |
-| Field elevation and time (interpolated POS.Alt at first flying, else last POS.Alt)                                                     | `load.ts`                                            | identical (oracle)                                                                  |
-| Takeoff lat/lng and UTC start for the weather lookup                                                                                   | `load.ts`                                            | identical (oracle)                                                                  |
-| Temperature presets: ISA at field elevation, BARO.GndTemp at field time, Carbonix METAR `GCS:WX`                                       | `load.ts`, `analysis/temperature.ts`                 | identical (oracle)                                                                  |
-| `set_temp_select`: order openmeteo, isa, baro, metar, Custom; default ISA, else first, else Custom (box unchanged)                     | `temperature.ts` `chooseTempSource`, `App.tsx`       | identical                                                                           |
-| Box filled with `value.toFixed(0)`; editing the box selects Custom                                                                     | `tempBoxText`, `App.tsx`                             | identical                                                                           |
-| ARSP instances sorted; ratio/use/devid parameter names; health all 1; primary = last Pri                                               | `load.ts` `airspeedSensor`                           | identical (oracle)                                                                  |
-| Auto window from sensor 0 over the flight span, whole log on failure; inputs `floor`/`ceil`                                            | `load.ts` `autoWindow`                               | identical (oracle)                                                                  |
-| Flight data plot zoomed to the exact (unrounded) auto window on load                                                                   | `load.ts` `autoWindowExact`, `App.tsx` `plotRange`   | **reverted-in-this-audit** (port zoomed to the rounded inputs)                      |
-| Open-Meteo lookup (URL by recency, 5 s timeout, nearest hour), selected and recalculated when it returns                               | `analysis/weather.ts`, `io/open-meteo.ts`, `App.tsx` | identical (oracle with stubbed fetch)                                               |
+| Upstream item                                                                                                                          | Port location                                        | Status                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Alerts: no ARSP instances, no XKF1/NKF1, no BARO, could not read EKF velocity, no POS, no usable airspeed data                         | `analysis/load.ts` `loadAirspeedLog` errors          | identical text and order                                                                                                                              |
+| Velocity sources: XKF1 then NKF1 cores, name "EKFn core c", wind from XKF2/NKF2 of the same core; first ticked; single source disabled | `load.ts` `velocitySources`, `ui/Rail.tsx`           | identical                                                                                                                                             |
+| Missing VN/VE/VD or VWN/VWE column crashes upstream                                                                                    | `velocitySources` throws                             | **reverted-in-this-audit** (port skipped the source / dropped the wind)                                                                               |
+| BARO instance 0 else first instance; BARO without instance field crashes (`0 in undefined`)                                            | `load.ts`                                            | **fixed (proven upstream bug)**: a BARO without instance field is read as one barometer (oracle against upstream with the same records as instance 0) |
+| POS time/RelHomeAlt/Alt; ATT roll for the plot                                                                                         | `load.ts`                                            | identical                                                                                                                                             |
+| `STAT.isFlying` flight span; STAT without isFlying crashes                                                                             | `load.ts`                                            | identical / **reverted-in-this-audit** for the crash case                                                                                             |
+| Field elevation and time (interpolated POS.Alt at first flying, else last POS.Alt)                                                     | `load.ts`                                            | identical (oracle)                                                                                                                                    |
+| Takeoff lat/lng and UTC start for the weather lookup                                                                                   | `load.ts`                                            | identical (oracle)                                                                                                                                    |
+| Temperature presets: ISA at field elevation, BARO.GndTemp at field time, Carbonix METAR `GCS:WX`                                       | `load.ts`, `analysis/temperature.ts`                 | identical (oracle)                                                                                                                                    |
+| `set_temp_select`: order openmeteo, isa, baro, metar, Custom; default ISA, else first, else Custom (box unchanged)                     | `temperature.ts` `chooseTempSource`, `App.tsx`       | identical                                                                                                                                             |
+| Box filled with `value.toFixed(0)`; editing the box selects Custom                                                                     | `tempBoxText`, `App.tsx`                             | identical                                                                                                                                             |
+| ARSP instances sorted; ratio/use/devid parameter names; health all 1; primary = last Pri                                               | `load.ts` `airspeedSensor`                           | identical (oracle)                                                                                                                                    |
+| Auto window from sensor 0 over the flight span, whole log on failure; inputs `floor`/`ceil`                                            | `load.ts` `autoWindow`                               | identical (oracle)                                                                                                                                    |
+| Flight data plot zoomed to the exact (unrounded) auto window on load                                                                   | `load.ts` `autoWindowExact`, `App.tsx` `plotRange`   | **reverted-in-this-audit** (port zoomed to the rounded inputs)                                                                                        |
+| Open-Meteo lookup (URL by recency, 5 s timeout, nearest hour), selected and recalculated when it returns                               | `analysis/weather.ts`, `io/open-meteo.ts`, `App.tsx` | identical (oracle with stubbed fetch)                                                                                                                 |
 
 ### Calculation and display
 
@@ -73,17 +73,23 @@ Status values: **identical**, **presentation**, **convenience** (changes no comp
 - **Convenience**: a "Logged ratio" column in the sensor summary (the logged `ARSPDn_RATIO`, which
   upstream reads and shows beside the suggestion); out-of-range warnings listed before saving;
   results shown again when the inputs return to the calculated values; "Fit samples" fact.
-- **Crashes**: missing columns, BARO without instances and STAT without isFlying stop with an error.
+- **Crashes**: missing columns and STAT without isFlying stop with an error (proven upstream bug; the
+  message is the fix). A BARO without instances is read as one barometer.
 - `alert`/`confirm` are in-page messages with the same text and choices.
+
+## Proven upstream bugs fixed
+
+Verdicts and tests: [`../bug-proofs/airspeed-fit.md`](../bug-proofs/airspeed-fit.md).
+
+1. **BARO without an instance field crashes the load** (`0 in log.messageTypes.BARO.instances` with
+   `instances` undefined). The port reads it as one barometer.
+2. **Missing EKF/STAT columns crash the load** (`Array.from(undefined)`, `flying.length`). No port
+   change: the port already stops the load with a message ("XKF1 is missing VN, VE or VD", "STAT is
+   missing TimeUS or isFlying").
 
 ## Upstream bugs reproduced
 
-1. **BARO without an instance field crashes the load.** `load`: `0 in log.messageTypes.BARO.instances`
-   with `instances` undefined. Reproduce: synthetic log with BARO lacking the `#` instance unit (oracle).
-   Effect: nothing is loaded.
-2. **Missing EKF/STAT columns crash the load** (`Array.from(undefined)`, `flying.length`). Effect:
-   nothing is loaded.
-3. **Bias bar of 0 for sensors without a logged ratio** (`Math.abs(null)`): a zero-height bar is drawn
+1. **Bias bar of 0 for sensors without a logged ratio** (`Math.abs(null)`): a zero-height bar is drawn
    for "Existing". Cosmetic.
 
 ## Tests added in this audit

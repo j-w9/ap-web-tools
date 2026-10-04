@@ -32,11 +32,17 @@ describe('loadMagFitLog', () => {
   })
 
   it('loads a synthetic log with current and partial compasses', () => {
-    // Without compass 1 the battery current cannot be resampled (upstream crashes).
-    expect(() => loadMagFitLog(buildSyntheticMagLog({ duration: 10, compasses: [1] }))).toThrow('without compass 1')
+    // Without compass 1 the current is resampled on compass 2's times (upstream crashed: proven bug fixed).
+    const noFirst = loadMagFitLog(buildSyntheticMagLog({ duration: 10, compasses: [1] }))
+    expect(noFirst.motorSources[0]!.atCompass[0]).toBeUndefined()
+    expect(noFirst.motorSources[0]!.atCompass[1]!.length).toBe(noFirst.compasses[1]!.time.length)
     const log = loadMagFitLog(buildSyntheticMagLog({ duration: 10, compasses: [0, 1] }))
     expect(log.compasses.map((c) => c !== undefined)).toEqual([true, true, false])
-    expect(log.motorSources[0]!.atCompass0.length).toBe(log.compasses[0]!.time.length)
+    expect(log.motorSources[0]!.atCompass.map((a) => a?.length)).toEqual([
+      log.compasses[0]!.time.length,
+      log.compasses[1]!.time.length,
+      undefined
+    ])
     expect(loadMagFitLog(buildSyntheticMagLog({ duration: 10, compasses: [1], battery: false })).motorSources).toEqual([])
     expect(log.location.lat).toBeCloseTo(SYNTHETIC_LAT, 6)
     expect(log.location.lon).toBeCloseTo(SYNTHETIC_LON, 6)
@@ -45,9 +51,8 @@ describe('loadMagFitLog', () => {
     expect(noBattery.motorSources).toEqual([])
   })
 
-  it('resamples motor sources onto compass 1 time base', () => {
+  it('resamples motor sources onto a compass time base', () => {
     const source = { name: 'b', type: 2 as const, time: Float64Array.of(0, 1, 2), value: Float64Array.of(0, 10, 30) }
     expect(Array.from(motorSourceAt(source, [-1, 0.5, 1.5, 5]))).toEqual([0, 5, 20, 30])
-    expect(() => motorSourceAt(source, undefined)).toThrow()
   })
 })

@@ -34,8 +34,8 @@ describe('DataflashLog (synthetic log)', () => {
     expect(imu.instanceField).toBe('I')
     expect(imu.fields[1]).toMatchObject({ name: 'I', unitId: '#', isInstance: true })
     expect(imu.fields[2]).toMatchObject({ name: 'GyrX', unit: 'rad/s', multiplier: 1, type: 'f' })
-    // Upstream prefixes 1e-6 with `n` (bug, reproduced).
-    expect(imu.fields[0]).toMatchObject({ name: 'TimeUS', unit: 'ns', multiplier: 1e-6 })
+    // Upstream prefixes 1e-6 with `n`; the port uses `µ` (proven upstream bug, fixed).
+    expect(imu.fields[0]).toMatchObject({ name: 'TimeUS', unit: 'µs', multiplier: 1e-6 })
     const att = log.messageType('ATT')
     // The log's UNIT table says `deg`; upstream ignores it and uses its built-in `°`.
     expect(att?.fields[2]).toMatchObject({ unit: '°', multiplierId: 'B', multiplier: 0.01 })

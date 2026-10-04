@@ -67,6 +67,15 @@ value per compass `j` sample. A log without compass 1 loads like one without bat
 compass on that compass's time array, instead of on compass 1's. Then remove the "without compass 1"
 error, which only exists to mirror the crash.
 
+**Status.** FIXED (commit pending). Port: `apps/magfit/src/analysis/motor.ts` (`motorSourceAt` takes
+one compass's times), `apps/magfit/src/analysis/load.ts` (`atCompass`: one resample per compass; the
+"without compass 1" error is gone), `apps/magfit/src/analysis/magfit.ts` (`runFits` uses
+`atCompass[i]`). Tests: `apps/magfit/src/analysis/oracle.test.ts` › "oracle: synthetic log, compasses on
+different time bases" (asserts upstream's compass-1 resample, then gives upstream each compass's own
+resample and requires identical fits) and › "loads a battery current without compass 1 (upstream
+crashes: proven bug, fixed)"; `apps/magfit/src/analysis/load.test.ts` › "loads a synthetic log with
+current and partial compasses".
+
 ## 2. Invalid fits keep stale plot data and stay ticked
 
 **Row.** Bug: "Invalid fits keep stale plot data and stay ticked (can be saved)". Where: `fit`:
@@ -128,6 +137,12 @@ its omitted error bar.
 merge), replace the fit result outright. An invalid fit then carries only `params` and `valid`, and
 the chart builders skip it. The ticked and saved behaviour stays as upstream.
 
+**Status.** FIXED (commit pending), stale traces only. Port: `apps/magfit/src/ui/calibrations.ts`
+(`InvalidCalibration` has no plot data, `plotData` returns `undefined` for it, `compassCalibrations` no
+longer takes the previous calculation). Ticked and saved behaviour unchanged. Test:
+`apps/magfit/src/ui/ui.test.ts` › "keeps ticks on fits that become invalid, without plot data, and can
+save them"; upstream's stale traces: `proofs/magfit/selection.test.ts`.
+
 ## 3. Recalculating resets the save priority to fit order
 
 **Row.** Bug: "Recalculating resets the save priority to fit order". Where: `redraw` rebuilds
@@ -160,6 +175,12 @@ previously ticked ones, as `update_hidden` orders them.
 **Smallest port change.** Carry the selection order across recalculations. Keep the user's ordered
 list of ticked fit ids, rather than rebuilding it in fit order. The port's selection reconcile step
 (currently mirroring the reset) keeps the existing order and drops only fits that no longer exist.
+
+**Status.** FIXED (commit pending). Port: `apps/magfit/src/ui/calibrations.ts` `reconcileSelection`
+keeps the pick order (drops fits that no longer exist, appends new ones in upstream order). Tests:
+`apps/magfit/src/analysis/oracle.test.ts` › "keeps the last pick after recalculating (upstream resets
+it), then matches upstream"; `apps/magfit/src/ui/ui.test.ts` › "saves the most recently ticked fit and falls back when it is
+unticked".
 
 ## 4. NaN location / missing iron parameter / missing orientation parameter crash
 
@@ -234,6 +255,18 @@ list of ticked fit ids, rather than rebuilding it in fit order. The port's selec
   "diagonals all zero" (skip the inverse). Keep the existing error for a partial set.
 - Orientation: in the port's parameter-file builder, return a not-ok result with a message when the
   orientation is not a number, instead of throwing.
+
+**Status.** FIXED (commit pending), iron and orientation parts. NaN location unchanged.
+
+- Iron: `apps/magfit/src/analysis/calibration.ts` `removeCalibration` skips the iron step when every
+  `COMPASS_DIA*`/`ODI*` value is absent; a partial set still throws upstream's error. Tests:
+  `apps/magfit/src/analysis/oracle.test.ts` › "loads a compass with no iron parameters (upstream
+  crashes: proven bug, fixed)" (compared with upstream on the same log with those parameters 0) and ›
+  "still stops like upstream when only part of an iron matrix is missing".
+- Orientation: `apps/magfit/src/analysis/params.ts` `buildParamFile` returns
+  `{ ok: false, error: missingOrientationError(name) }` ("COMPASS_ORIENT is not in the log, so the
+  calibration cannot be saved"). Test: `apps/magfit/src/analysis/oracle.test.ts` › "oracle: synthetic
+  log, missing parameters" (`compareParamFile`: upstream throws, the port returns that message).
 
 ## 5. Samples with no attitude bin get NaN weight but are counted
 

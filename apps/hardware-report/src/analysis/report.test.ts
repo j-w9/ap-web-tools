@@ -54,8 +54,9 @@ describe('buildLogReport on copter-files.bin (real H743 board)', () => {
     for (const u of r.plots.uartRates) expect(u.rx.length).toBe(u.time.length)
   })
 
-  it('reassembles embedded files by appending chunks, as upstream processFiles', () => {
-    // uarts.txt is written twice in this log; upstream ignores Offset, so both copies are kept.
+  it('reassembles embedded files at their Offsets, keeping the last copy', () => {
+    // uarts.txt is written twice in this log; upstream ignores Offset and keeps both copies (1664
+    // bytes) and drops trailing zeros (storage.bin 171 bytes): proven upstream bug, fixed.
     expect(r.files.map((f) => f.name)).toEqual([
       '@SYS/uarts.txt',
       '@SYS/memory.txt',
@@ -65,7 +66,8 @@ describe('buildLogReport on copter-files.bin (real H743 board)', () => {
       '@SYS/storage.bin',
       'defaults.parm'
     ])
-    expect(r.files[0]?.data.length).toBe(1664)
+    expect(r.files[0]?.data.length).toBe(832)
+    expect(r.files[5]?.data.length).toBe(32768)
     expect(r.files.some((f) => f.isCrashDump)).toBe(false)
   })
 

@@ -118,7 +118,7 @@ export function App() {
         // The expected field only depends on the attitude source, so reuse it when that is unchanged.
         const prepared = previous?.sourceIndex === src ? previous.prepared : prepareAttitude(d, src)
         const compasses = runFits(d, prepared, { timeStart: range[0], timeEnd: range[1], orientation: options })
-        const calibrations = compasses.map((c, i) => (c ? compassCalibrations(c, previous?.calibrations[i]) : undefined))
+        const calibrations = compasses.map((c) => (c ? compassCalibrations(c) : undefined))
         setApplied({ sourceIndex: src, range, prepared, compasses, calibrations })
         setSelections(compasses.map((c, i) => (c ? reconcileSelection(previousSelections[i], c) : undefined)))
         setDirty(false)

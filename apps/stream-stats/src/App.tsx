@@ -87,8 +87,8 @@ export function App() {
         return { kind: 'bin', log: log.log }
     }
   }, [log, selection])
-  // A window of 0 or an empty one makes upstream throw while binning; the port shows that error
-  // instead of plots.
+  // A window below the box's 0.1 s minimum (negative, 0 or empty) is rejected: the port shows the
+  // error instead of plots (upstream plots negative rates or throws while binning; proven bug, fixed).
   const computed = useMemo(() => {
     if (source === null) return { stats: null, error: null }
     try {

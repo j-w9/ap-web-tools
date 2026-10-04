@@ -18,8 +18,8 @@ export interface MotorSource {
 
 /** A motor source with its values resampled for the fits (see {@link motorSourceAt}). */
 export interface FitMotorSource extends MotorSource {
-  /** {@link value} interpolated at compass 1's sample times. */
-  readonly atCompass0: Float64Array
+  /** {@link value} interpolated at each compass's own sample times, by compass index (`undefined` where absent). */
+  readonly atCompass: readonly (Float64Array | undefined)[]
 }
 
 /**
@@ -42,18 +42,11 @@ export function loadMotorSources(log: DataflashLog): MotorSource[] {
 }
 
 /**
- * Resample a motor source onto the compass time base upstream uses. Upstream interpolates onto
- * `MAG_Data[i].time` where `i` is the battery index (always 0), so every compass's fit uses the
- * current resampled at compass 1's sample times, indexed by its own sample number. Reproduced
- * (upstream bug, see docs/upstream-bugs.md): when compasses log at different times or rates the
- * current is misaligned, and samples past compass 1's length read as `undefined` (NaN).
- *
- * @param compass0Time Sample times of MAG instance 0. Upstream crashes when that compass is
- * absent and a battery current source exists; this throws instead.
+ * Resample a motor source onto one compass's sample times, so the fit reads one value per compass
+ * sample. Proven upstream bug fixed (docs/bug-proofs/magfit.md, row 1): upstream interpolates onto
+ * `MAG_Data[i].time` with `i` the battery index (always 0), i.e. compass 1's times for every
+ * compass, and crashes when compass 1 is absent.
  */
-export function motorSourceAt(source: MotorSource, compass0Time: ArrayLike<number> | undefined): Float64Array {
-  if (compass0Time === undefined) {
-    throw new Error(source.name + ' cannot be used for motor compensation without compass 1 (MAG instance 0) in the log')
-  }
-  return linearInterp(source.value, source.time, compass0Time)
+export function motorSourceAt(source: MotorSource, compassTime: ArrayLike<number>): Float64Array {
+  return linearInterp(source.value, source.time, compassTime)
 }

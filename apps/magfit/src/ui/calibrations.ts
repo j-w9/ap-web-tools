@@ -46,28 +46,24 @@ export interface CalibrationData {
 /** A fit that produced parameters outside the typical ranges. */
 export interface InvalidCalibration extends CalibrationBase {
   readonly valid: false
-  readonly params: CalParams
   /**
-   * Plot data from the last calculation in which this fit was valid. Upstream merges an invalid
-   * result into the previous one (`Object.assign`), so a fit that is still ticked keeps drawing
-   * its old traces; reproduced (see docs/upstream-bugs.md).
+   * No plot data. Upstream merges an invalid result into the previous one (`Object.assign`), so a
+   * fit that is still ticked keeps drawing its old traces; proven bug, fixed
+   * (docs/bug-proofs/magfit.md row 2): an invalid fit draws nothing, like its omitted error bar.
    */
-  readonly stale: CalibrationData | undefined
+  readonly params: CalParams
 }
 
 /** One selectable calibration of one compass. */
 export type Calibration = ValidCalibration | InvalidCalibration
 
-/** Data to plot for a calibration: its own, or the stale data of an invalid fit. */
+/** Data to plot for a calibration; `undefined` for an invalid fit. */
 export function plotData(c: Calibration): CalibrationData | undefined {
-  return c.valid ? c : c.stale
+  return c.valid ? c : undefined
 }
 
-/**
- * The existing calibration and every fit of a compass, in upstream order. `previous` is the
- * same compass's calibrations from the last calculation, for the stale data of invalid fits.
- */
-export function compassCalibrations(result: CompassFitResult, previous?: readonly Calibration[]): Calibration[] {
+/** The existing calibration and every fit of a compass, in upstream order. */
+export function compassCalibrations(result: CompassFitResult): Calibration[] {
   const p = result.prepared
   const out: Calibration[] = [
     {
@@ -95,8 +91,7 @@ export function compassCalibrations(result: CompassFitResult, previous?: readonl
       if (fit.valid) {
         out.push({ ...base, ...fit })
       } else {
-        const before = previous?.find((c) => c.id === base.id)
-        out.push({ ...base, valid: false, params: fit.params, stale: before ? plotData(before) : undefined })
+        out.push({ ...base, valid: false, params: fit.params })
       }
     }
   })
@@ -131,12 +126,17 @@ export function initialSelection(result: CompassFitResult): CompassSelection {
 
 /**
  * Selection after recalculating, as upstream: ticks survive (also on fits that are no longer
- * valid, whose boxes are disabled but stay ticked), the default fit is ticked again, and the
- * priority order goes back to the upstream order, forgetting the order of picks.
+ * valid, whose boxes are disabled but stay ticked) and the default fit is ticked again. The
+ * priority order of picks is kept, dropping fits that no longer exist and appending new ones in
+ * upstream order. Upstream rebuilds the order in fit order, contrary to its tooltip "the last
+ * calibration selected will be saved"; proven bug, fixed (docs/bug-proofs/magfit.md row 3).
  */
 export function reconcileSelection(previous: CompassSelection | undefined, result: CompassFitResult): CompassSelection {
   if (previous === undefined) return initialSelection(result)
-  return { shown: new Set([...previous.shown, ...defaults(result)]), order: fitOrder(result), toggled: false }
+  const ids = fitOrder(result)
+  const kept = previous.order.filter((id) => ids.includes(id))
+  const order = [...kept, ...ids.filter((id) => !kept.includes(id))]
+  return { shown: new Set([...previous.shown, ...defaults(result)]), order, toggled: false }
 }
 
 /** Show or hide one calibration (upstream `update_hidden`: a newly shown one moves to the front). */

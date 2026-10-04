@@ -53,6 +53,12 @@ function upstreamResult(upstream: UpstreamStreamStats) {
   }
 }
 
+/** Upstream's `.bin` result with its bits-mode pie converted from bytes to bits. */
+function bitsPie(result: ReturnType<typeof upstreamResult>, unit: RateUnit): ReturnType<typeof upstreamResult> {
+  if (unit !== 'bits') return result
+  return { ...result, composition: result.composition.map((c) => ({ ...c, value: (c.value ?? 0) * 8 })) }
+}
+
 function portResult(stats: StreamStats) {
   return {
     rates: stats.rates.map((r) => ({ name: r.name, time: Array.from(r.time), rate: Array.from(r.rate) })),
@@ -100,30 +106,30 @@ describe('streamStats for a tlog', () => {
     expect(portResult(stats)).toEqual(upstreamResult(upstream))
   })
 
-  it('matches upstream with a negative window', () => {
+  // Window sizes below the box's min="0.1" (proven upstream bug, fixed: docs/bug-proofs/stream-stats.md).
+  it('rejects a negative window, where upstream plots negative rates', () => {
     const upstream = loadUpstream()
     upstream.loadTlog(bytes.slice().buffer)
     upstream.setSettings(-4, true)
     upstream.plotTlog()
-    const stats = streamStats({ kind: 'tlog', tlog, selection: EMPTY_SELECTION }, { unit: 'bits', binWidth: -4 })
-    expect(portResult(stats)).toEqual(upstreamResult(upstream))
+    expect(upstream.rates().some((r) => (r.y ?? []).some((v) => v < 0))).toBe(true)
+    expect(() => streamStats({ kind: 'tlog', tlog, selection: EMPTY_SELECTION }, { unit: 'bits', binWidth: -4 })).toThrow(
+      new RangeError('Window size must be a number of at least 0.1 s')
+    )
   })
 
   for (const width of [0, Number.NaN]) {
-    it(`throws like upstream for a ${width} s window, unless everything is excluded`, () => {
+    it(`rejects a ${width} s window, where upstream throws while binning (or plots nothing when everything is excluded)`, () => {
       const upstream = loadUpstream()
       upstream.loadTlog(bytes.slice().buffer)
       upstream.setSettings(width, true)
       expect(() => upstream.plotTlog()).toThrow('Invalid array length')
-      expect(() => streamStats({ kind: 'tlog', tlog, selection: EMPTY_SELECTION }, { unit: 'bits', binWidth: width })).toThrow(
-        RangeError
-      )
       const none = { excludedComponents: new Set<ComponentKey>(['1,1', '1,68']), excludedMessages: new Set<MessageKey>() }
-      expect(streamStats({ kind: 'tlog', tlog, selection: none }, { unit: 'bits', binWidth: width })).toEqual({
-        rates: [],
-        total: null,
-        composition: []
-      })
+      for (const selection of [EMPTY_SELECTION, none]) {
+        expect(() => streamStats({ kind: 'tlog', tlog, selection }, { unit: 'bits', binWidth: width })).toThrow(
+          new RangeError('Window size must be a number of at least 0.1 s')
+        )
+      }
     })
   }
 
@@ -166,7 +172,7 @@ describe('streamStats for a DataFlash log', () => {
 
   for (const file of ['copter-sitl.bin', 'copter-files.bin']) {
     for (const unit of ['bits', 'messages'] as const satisfies readonly RateUnit[]) {
-      for (const width of [2, 10, -3]) {
+      for (const width of [2, 10]) {
         it(`matches upstream plot_log on ${file} (${unit}, ${width} s)`, async () => {
           const upstream = loadUpstream()
           upstream.setSettings(width, unit === 'bits')
@@ -174,29 +180,46 @@ describe('streamStats for a DataFlash log', () => {
           const log = binStreams(DataflashLog.parse(fixture(file)))
           const stats = streamStats({ kind: 'bin', log }, { unit, binWidth: width })
           expect(stats.rates.length).toBeGreaterThan(5)
-          // Includes zero-count types and, in bits mode, bytes (upstream's bug).
-          expect(portResult(stats)).toEqual(upstreamResult(upstream))
+          // Includes zero-count types. In bits mode upstream's pie holds bytes under a "bits" hover;
+          // the port's holds bits (proven upstream bug, fixed): everything else is identical.
+          expect(portResult(stats)).toEqual(bitsPie(upstreamResult(upstream), unit))
         })
       }
+      it(`rejects a negative window on ${file} (${unit}), where upstream plots negative rates`, async () => {
+        const upstream = loadUpstream()
+        upstream.setSettings(-3, unit === 'bits')
+        upstream.plotLog(await upstreamParser(fixture(file)))
+        expect(upstream.rates().some((r) => (r.y ?? []).some((v) => v < 0))).toBe(true)
+        const log = binStreams(DataflashLog.parse(fixture(file)))
+        expect(() => streamStats({ kind: 'bin', log }, { unit, binWidth: -3 })).toThrow(RangeError)
+      })
     }
   }
 
-  it('plots bytes in the bits pie and lists types without records, as upstream', async () => {
+  it('plots bits in the bits pie (upstream: bytes) and lists types without records, as upstream', async () => {
     const log = binStreams(DataflashLog.parse(fixture('copter-sitl.bin')))
     const stats = streamStats({ kind: 'bin', log }, { unit: 'bits', binWidth: 10 })
     const imu = log.messages.find((m) => m.name === 'IMU')
-    expect(stats.composition.find((c) => c.label === 'IMU')?.value).toBe(imu?.totalBytes)
+    expect(stats.composition.find((c) => c.label === 'IMU')?.value).toBe((imu?.totalBytes ?? 0) * 8)
     const upstream = loadUpstream()
     upstream.plotLog(await upstreamParser(fixture('copter-sitl.bin')))
+    const labels = upstream.composition().labels
+    expect(upstream.composition().values[labels.indexOf('IMU')]).toBe(imu?.totalBytes)
     expect(upstream.composition().values).toContain(0)
     expect(stats.composition.some((c) => c.value === 0)).toBe(true)
   })
 
-  it('loads an empty file as an empty log, as upstream', async () => {
+  it('loads an empty file as an empty log; FMT is 0 bits, where upstream has NaN', async () => {
     const empty = new ArrayBuffer(100)
     const upstream = loadUpstream()
     upstream.plotLog(await upstreamParser(empty))
     const log = binStreams(DataflashLog.parse(empty))
-    expect(portResult(streamStats({ kind: 'bin', log }, { unit: 'bits', binWidth: 10 }))).toEqual(upstreamResult(upstream))
+    // Upstream's built-in FMT has no Size (proven upstream bug, fixed): its slice is NaN.
+    expect(upstreamResult(upstream).composition).toEqual([{ label: 'FMT', value: NaN }])
+    expect(log.messages.find((m) => m.name === 'FMT')).toMatchObject({ count: 0, recordBytes: 89, totalBytes: 0 })
+    expect(portResult(streamStats({ kind: 'bin', log }, { unit: 'bits', binWidth: 10 }))).toEqual({
+      ...upstreamResult(upstream),
+      composition: [{ label: 'FMT', value: 0 }]
+    })
   })
 })

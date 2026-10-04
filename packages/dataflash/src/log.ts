@@ -7,7 +7,7 @@
  * that are cached for subsequent calls.
  */
 import { decodeAllColumns, decodeColumn, type Column, type NumericColumn } from './decode.js'
-import { HEADER_SIZE, STRING_TYPES, readUint64, type FormatDefinition, type TypeCode } from './format.js'
+import { HEADER_SIZE, STRING_TYPES, TYPE_SIZES, readUint64, type FormatDefinition, type TypeCode } from './format.js'
 import { splitInstances } from './instances.js'
 import {
   detectVehicleType,
@@ -431,16 +431,60 @@ export class DataflashLog {
   }
 
   /**
-   * Files embedded in the log via FILE records (e.g. `@SYS/uarts.txt`), as upstream
-   * `processFiles()` builds them: the `Data` text of every record (trailing NULs already
-   * stripped by the string decoder) is appended in log order under its `FileName`. `Offset` and
-   * `Length` are ignored, so a file written twice appears twice and trailing zero bytes of a
-   * chunk are lost (upstream bugs, reproduced).
+   * Files embedded in the log via FILE records (e.g. `@SYS/uarts.txt`). Each record carries the
+   * first `Length` bytes of its 64-byte `Data` field, to be placed at `Offset` in the file
+   * (ArduPilot `AP_Logger::file_content_update`). A record at `Offset` 0 for a file already seen
+   * starts a new read of that file, which replaces the earlier copy.
+   *
+   * Upstream `processFiles()` appends the NUL-stripped `Data` text of every record in log order,
+   * ignoring `Offset` and `Length`: a file written twice holds both copies and trailing zero bytes
+   * of each chunk are lost. Proven upstream bug, fixed: see docs/bug-proofs/js-dataflash-parser.md.
+   * A FILE format without `Offset`/`Length` columns (never written by ArduPilot) is assembled the
+   * upstream way.
    */
   files(): ReadonlyMap<string, Uint8Array> {
     const out = new Map<string, Uint8Array>()
     const names = this.getStrings(FILE, 'FileName')
-    if (names === undefined) return out
+    const info = this.infos.get(FILE)
+    if (names === undefined || info === undefined) return out
+    const fmt = info.format
+    const offsets = numeric(this.column(FILE, undefined, 'Offset'))
+    const lengths = numeric(this.column(FILE, undefined, 'Length'))
+    const dataIndex = fmt.columns.indexOf('Data')
+    const records = this.scan.offsets[fmt.id]
+    if (offsets === undefined || lengths === undefined || dataIndex === -1 || records === undefined) {
+      return this.filesInLogOrder(names)
+    }
+    const dataStart = fmt.fieldOffsets[dataIndex] as number
+    const dataSize = TYPE_SIZES[fmt.types[dataIndex] as TypeCode]
+
+    // Latest copy of each file: its chunks and its size so far.
+    const copies = new Map<string, { chunks: { at: number; bytes: Uint8Array }[]; size: number }>()
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i]!
+      const at = offsets[i] as number
+      const length = Math.min(lengths[i] as number, dataSize)
+      const body = (records[i] as number) + dataStart
+      const bytes = this.bytes.subarray(body, body + length)
+      let copy = copies.get(name)
+      if (copy === undefined || at === 0) {
+        copy = { chunks: [], size: 0 }
+        copies.set(name, copy)
+      }
+      copy.chunks.push({ at, bytes })
+      copy.size = Math.max(copy.size, at + bytes.byteLength)
+    }
+    for (const [name, copy] of copies) {
+      const file = new Uint8Array(copy.size)
+      for (const c of copy.chunks) file.set(c.bytes, c.at)
+      out.set(name, file)
+    }
+    return out
+  }
+
+  /** Upstream `processFiles()`: every record's `Data` text appended in log order under its name. */
+  private filesInLogOrder(names: readonly string[]): Map<string, Uint8Array> {
+    const out = new Map<string, Uint8Array>()
     const data = this.getStrings(FILE, 'Data')
     const parts = new Map<string, Uint8Array[]>()
     for (let i = 0; i < names.length; i++) {
@@ -523,8 +567,9 @@ export class DataflashLog {
     for (let i = 0; i < types.length; i++) {
       const type = types[i]!
       // Upstream `populateUnits()` throws on a FMTU for a type with no FMT, and its catch abandons
-      // every later FMTU record.
-      if (this.scan.formats[type] === undefined) break
+      // every later FMTU record. Proven upstream bug, fixed: only that record is skipped (see
+      // docs/bug-proofs/js-dataflash-parser.md).
+      if (this.scan.formats[type] === undefined) continue
       out.set(type, { unitIds: unitIds[i]!, multIds: multIds[i]! })
     }
     return out

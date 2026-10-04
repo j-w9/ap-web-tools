@@ -14,9 +14,9 @@ export interface EmbeddedFile {
 }
 
 /**
- * Embedded files in first-seen order, as upstream `processFiles()` builds them
- * (`DataflashLog.files()`): every chunk's text appended in log order, so a file written twice
- * holds both copies and chunks lose their trailing zero bytes (upstream bugs, reproduced).
+ * Embedded files in first-seen order (`DataflashLog.files()`): chunks placed at their `Offset`,
+ * `Length` bytes each, the last copy of a file written twice. Upstream `processFiles()` appends
+ * every chunk's text instead (proven upstream bug, fixed: docs/bug-proofs/js-dataflash-parser.md).
  */
 export function readEmbeddedFiles(log: DataflashLog): EmbeddedFile[] {
   if (!log.has('FILE')) return []

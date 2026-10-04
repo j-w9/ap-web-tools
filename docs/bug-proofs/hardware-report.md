@@ -60,6 +60,8 @@ calibration when the offsets are exactly 1": offsets 1,1,1 with scales 1.05/0.98
 **Smallest port change.** Read the scale array from `names.accel.scale` instead of
 `names.accel.offset` (one identifier).
 
+**Status.** FIXED (commit pending). Port: `apps/hardware-report/src/analysis/ins.ts` `readInstance` (scale check reads `names.accel.scale`). Tests: `oracle-sensors.test.ts` › "fixes the proven IMU calibration and temperature-calibration name bugs"; `sensors.test.ts` › "derives calibration state".
+
 ## 2. Gyro temperature-cal names reuse `ACC1..3`; max temperature named `TMAN`
 
 **Row.** Gyro temperature-cal names reuse `ACC1..3`; max temperature named `TMAN` ·
@@ -94,6 +96,8 @@ set": `ACCn_*` = 0.2, `GYRn_*` = 0 → `Gyro temperature calibration: ✅`.
 **Smallest port change.** Build the gyro coefficient names with `GYR1_`/`GYR2_`/`GYR3_`. Optionally
 rename `TMAN` to `TMAX` (no output changes).
 
+**Status.** FIXED (commit pending) for the gyro names. Port: `apps/hardware-report/src/analysis/ins.ts` `insParamNames` (`GYR1_`..`GYR3_`). `TMAN` is kept: no port change needed (the name is never read). Tests: `oracle-sensors.test.ts` › "fixes the proven IMU calibration and temperature-calibration name bugs"; `sensors.test.ts` › "builds names for every index" and "derives calibration state".
+
 ## 3. Accel and gyro health swapped
 
 **Row.** Accel and gyro health swapped · `HardwareReport.js` `print_ins` · "Accel health" shows the
@@ -121,6 +125,8 @@ every `GH` is 1.
 
 **Smallest port change.** Swap the two flags in the two health lines.
 
+**Status.** FIXED (commit pending). Port: `apps/hardware-report/src/analysis/ins.ts` `readIns` (`accelHealthy` from `AH`, `gyroHealthy` from `GH`). Test: `oracle-sensors.test.ts` › "shows IMU health (unswapped), and compass, baro and airspeed health".
+
 ## 4. Duplicate `case 4` in fault names
 
 **Row.** Duplicate `case 4` in fault names · `HardwareReport.js` `show_watchdog` · Fault types 5/6
@@ -144,6 +150,8 @@ prints `Fault Type: 3 (HardFault)`, `Fault Type: 4 (MemManage)`, and for 5 and 6
 **Minimal correct behaviour.** `FT` 5 → `(BusFault)`, `FT` 6 → `(UsageFault)`.
 
 **Smallest port change.** Use labels 5 and 6 for the last two names.
+
+**Status.** FIXED (commit pending). Port: `apps/hardware-report/src/analysis/watchdog.ts` `FAULT_NAMES` (5 BusFault, 6 UsageFault). Tests: `oracle-faults.test.ts` › "fixes the proven fault-type 5/6 names and the ICSR bit 31 sign"; `log-sections.test.ts` › "drops consecutive duplicates and decodes fields".
 
 ## 5. Signed shift in `decode_ICSR`
 
@@ -169,6 +177,8 @@ alone gives `PENDSVSET: 0x1  (PendSV pending)`.
 prints `0x1`. The decoder text is unchanged (already "NMI pending").
 
 **Smallest port change.** Extract with an unsigned shift (`>>>`) or `(ICSR >>> start) & width_mask`.
+
+**Status.** FIXED (commit pending). Port: `apps/hardware-report/src/analysis/watchdog.ts` `decodeIcsr` (`>>>`). Tests: `oracle-faults.test.ts` › "fixes the proven fault-type 5/6 names and the ICSR bit 31 sign"; `log-sections.test.ts` › "decodes the ICSR register".
 
 ## 6. Internal error names stop at bit 29
 
@@ -226,6 +236,8 @@ with comments loads without a `#` parameter and "Save All Parameters" saves it.
 such as `NAME,` or a leading-whitespace line, is not covered by this proof: the firmware parser
 behaves differently from upstream there too, but it is not a definition of what the report must
 show; keep those reproduced.)
+
+**Status.** FIXED (commit pending) for comment lines only; the other junk lines stay reproduced. Port: `apps/hardware-report/src/analysis/params.ts` `parseParamFile` (skips lines starting with `#`). Tests: `oracle-params.test.ts` › "saves a parameter file with # comment lines, which upstream can not save (proven bug, fixed)" and "parses every line with two fields, junk included (comment lines skipped)"; `params.test.ts`.
 
 ## 8. NaN position offset hides the plot
 
@@ -299,6 +311,8 @@ ignored and the rest of the report is built.
 
 **Smallest port change.** Skip the message when `gps[gps_num]` is absent, instead of stopping with
 an error.
+
+**Status.** FIXED (commit pending). Port: `apps/hardware-report/src/analysis/gps.ts` `readGps` (the message is skipped; `UnconfiguredGpsError` removed). Tests: `oracle-sensors.test.ts` › "ignores a boot message naming an unconfigured GPS, where upstream throws"; `log-sections.test.ts` › "ignores a message naming an unconfigured receiver (proven upstream crash, fixed)".
 
 ## 11. Zero-record types in the stats pie
 

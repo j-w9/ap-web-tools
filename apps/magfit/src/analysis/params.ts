@@ -155,6 +155,9 @@ export function buildParamFile(entries: readonly ParamFileEntry[]): ParamFileRes
   let text = ''
   let summary = 'Saved:\n'
   for (const entry of entries) {
+    // Upstream throws in `param_to_string(undefined)` and saves nothing when the orientation
+    // parameter is missing; proven bug, fixed (docs/bug-proofs/magfit.md row 4): stop with a message.
+    if (Number.isNaN(entry.params.orientation)) return { ok: false, error: missingOrientationError(entry.names.orientation) }
     text += compassParamLines(entry.names, entry.params)
     const use = entry.use ?? 'noChange'
     if (use !== 'noChange') text += paramLine(entry.names.use, use === 'use' ? 1 : 0)
@@ -163,6 +166,11 @@ export function buildParamFile(entries: readonly ParamFileEntry[]): ParamFileRes
   if (text === '') return { ok: false, error: 'No parameters to save' }
   text += paramLine('COMPASS_MOTCT', type.type)
   return { ok: true, text, summary }
+}
+
+/** Message when a calibration to save has no orientation because its parameter is not in the log. */
+export function missingOrientationError(name: string): string {
+  return name + ' is not in the log, so the calibration cannot be saved'
 }
 
 /** Upstream's alert when compasses were fitted for different motor compensation types. */

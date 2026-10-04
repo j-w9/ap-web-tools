@@ -7,11 +7,12 @@ import { DateTime, Duration } from 'luxon'
 const SIZE_UNITS = ['B', 'kB', 'MB', 'GB', 'TB'] as const
 
 /**
- * File size with binary units and two decimals, e.g. `"1.50 MB"` (upstream `size_format`). Like
- * upstream, sizes of 1024 TB and more print the unit as `undefined`.
+ * File size with binary units and two decimals, e.g. `"1.50 MB"` (upstream `size_format`). The unit
+ * index is clamped to TB: upstream prints the unit as `undefined` from about 1024 TB (proven upstream
+ * bug, see docs/bug-proofs/log-finder.md).
  */
 export function formatSize(bytes: number): string {
-  const index = bytes === 0 ? 0 : Math.floor(Math.log(bytes) / Math.log(1024))
+  const index = bytes === 0 ? 0 : Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), SIZE_UNITS.length - 1)
   return `${(bytes / Math.pow(1024, index)).toFixed(2)} ${String(SIZE_UNITS[index])}`
 }
 

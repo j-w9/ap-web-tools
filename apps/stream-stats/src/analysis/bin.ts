@@ -3,7 +3,7 @@
  *
  * Port of the data gathering in upstream `plot_log` (`StreamStats/StreamStats.js`).
  */
-import { FMT_DEFINITION, type DataflashLog } from '@apwt/dataflash'
+import type { DataflashLog } from '@apwt/dataflash'
 
 /** One message type of a DataFlash log. */
 export interface BinMessageStream {
@@ -52,9 +52,10 @@ export function binStreams(log: DataflashLog): BinLog {
   const byName = new Map<string, { count: number; recordBytes: number; totalBytes: number }>()
   for (const fmt of log.formats()) {
     const count = stats.get(fmt.name)?.count ?? 0
-    // Upstream bug reproduced: the parser's built-in FMT definition (used when the log never
-    // defines FMT itself) has no Size, so its sizes are NaN (docs/upstream-bugs.md).
-    const recordBytes = fmt === FMT_DEFINITION ? Number.NaN : (stats.get(fmt.name)?.recordSize ?? fmt.size + RECORD_HEADER_BYTES)
+    // Upstream's built-in FMT definition (used when the log never defines FMT itself) has no Size,
+    // so its sizes are NaN; the port uses its stated 89 bytes (proven upstream bug, fixed: see
+    // docs/bug-proofs/stream-stats.md).
+    const recordBytes = stats.get(fmt.name)?.recordSize ?? fmt.size + RECORD_HEADER_BYTES
     byName.set(fmt.name, { count, recordBytes, totalBytes: recordBytes * count })
   }
   const messages: BinMessageStream[] = []

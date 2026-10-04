@@ -80,8 +80,8 @@ export interface FitGroup {
   readonly name: string
   readonly type: MotorCompType
   /**
-   * Interference source resampled at compass 1's sample times (upstream bug reproduced, see
-   * {@link motorSourceAt}), `undefined` for no motor compensation.
+   * Interference source resampled at this compass's sample times (see {@link motorSourceAt}),
+   * `undefined` for no motor compensation.
    */
   readonly motor: Float64Array | undefined
   readonly fits: FitSet
@@ -143,7 +143,7 @@ export function runFits(data: MagFitLog, prepared: PreparedAttitude, options: Ma
     }
     const sources: Omit<FitGroup, 'fits' | 'defaultKind'>[] = [
       { name: 'No motor comp', type: 0, motor: undefined },
-      ...data.motorSources.map((s) => ({ name: s.name, type: s.type, motor: s.atCompass0 }))
+      ...data.motorSources.map((s) => ({ name: s.name, type: s.type, motor: s.atCompass[i] }))
     ]
     const groups = sources.map((g): FitGroup => {
       const fits = fitCompass(input, g.motor === undefined ? undefined : { type: g.type, value: g.motor })

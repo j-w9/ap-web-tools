@@ -84,16 +84,19 @@ function isArrayIndex(key: string): boolean {
 }
 
 /**
- * Parse a `.param`/`.parm` file exactly as upstream `load_param_file`: every line (split on `\n`
- * only) is split on runs of whitespace, `,` and `=`; a line with at least two fields stores
- * `parseFloat(field 2)` under field 1, later lines winning. Nothing is trimmed or skipped, so
- * comments become entries such as `"#"` → `NaN`, an indented line stores under `""`, and `NAME,`
- * stores `NaN` (upstream behaviour, reproduced). Entries keep the order of upstream's `params`
- * object: integer-like names first in ascending order, then first-seen order.
+ * Parse a `.param`/`.parm` file as upstream `load_param_file`: every line (split on `\n` only) is
+ * split on runs of whitespace, `,` and `=`; a line with at least two fields stores
+ * `parseFloat(field 2)` under field 1, later lines winning. A line starting with `#` is skipped, as
+ * ArduPilot's `AP_Param::parse_param_line` does (proven upstream bug fixed: upstream stored comments
+ * as entries such as `"#"` → `NaN`, see docs/bug-proofs/hardware-report.md). Nothing else is trimmed
+ * or skipped: an indented line stores under `""`, and `NAME,` stores `NaN` (upstream behaviour,
+ * reproduced). Entries keep the order of upstream's `params` object: integer-like names first in
+ * ascending order, then first-seen order.
  */
 export function parseParamFile(text: string): ParamData {
   const parsed = new Map<string, number>()
   for (const line of text.split('\n')) {
+    if (line.startsWith('#')) continue
     const v = line.split(/[\s,=\t]+/)
     if (v.length >= 2) parsed.set(v[0]!, parseFloat(v[1]!))
   }

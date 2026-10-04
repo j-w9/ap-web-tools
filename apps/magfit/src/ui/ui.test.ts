@@ -8,6 +8,7 @@ import {
   errorBarsVisible,
   fitId,
   initialSelection,
+  plotData,
   reconcileSelection,
   savedCalibration,
   toggleCalibration,
@@ -54,17 +55,17 @@ describe('calibration selection', () => {
     let sel: CompassSelection = initialSelection(c1)
     sel = toggleCalibration(sel, fitId(1, 'iron'), true)
     expect(savedCalibration(sel, cals)?.label).toBe('Offsets and iron, Battery 1 current')
-    // Like upstream, recalculating rebuilds the priority order: the first ticked fit in upstream
-    // order is saved again, not the last one picked.
+    // Recalculating keeps the priority order: the last one picked is still saved (upstream
+    // rebuilt it in fit order and saved 'Offsets, No motor comp': proven bug, fixed).
     const after = reconcileSelection(sel, c1)
-    expect(savedCalibration(after, cals)?.label).toBe('Offsets, No motor comp')
+    expect(savedCalibration(after, cals)?.label).toBe('Offsets and iron, Battery 1 current')
     sel = toggleCalibration(sel, fitId(1, 'iron'), false)
     expect(savedCalibration(sel, cals)?.label).toBe('Offsets, No motor comp')
     sel = toggleCalibration(sel, fitId(0, 'offsets'), false)
     expect(savedCalibration(sel, cals)).toBeUndefined()
   })
 
-  it('keeps ticks on fits that become invalid, with their stale plot data, and can save them', () => {
+  it('keeps ticks on fits that become invalid, without plot data, and can save them', () => {
     const c0 = result.compasses[0]
     if (!c0) throw new Error('compass 1 missing')
     const cals0 = compassCalibrations(c0)
@@ -74,20 +75,14 @@ describe('calibration selection', () => {
     sel = toggleCalibration(sel, fitId(0, 'iron'), true)
     const after = reconcileSelection(sel, c0)
     expect(after.shown.has(fitId(0, 'iron'))).toBe(true)
-    // Upstream order puts offsets first again, re-ticked by default.
-    expect(savedCalibration(after, cals0)?.id).toBe(fitId(0, 'offsets'))
+    // Offsets is re-ticked by default, but the iron fit was picked last and keeps priority.
+    expect(after.shown.has(fitId(0, 'offsets'))).toBe(true)
+    expect(savedCalibration(after, cals0)?.id).toBe(fitId(0, 'iron'))
     const onlyIron = toggleCalibration(after, fitId(0, 'offsets'), false)
     expect(savedCalibration(onlyIron, cals0)?.id).toBe(fitId(0, 'iron'))
-    // An invalid fit keeps the plot data it had when it was last valid (here: borrowed from a
-    // calculation where the same fit id was valid).
-    const previous = compassCalibrations(c1)
-    const before = previous.find((c) => c.id === fitId(0, 'iron'))
-    if (!before?.valid) throw new Error('expected a valid iron fit on compass 2')
-    const now = compassCalibrations(c0, previous).find((c) => c.id === fitId(0, 'iron'))
-    expect(now?.valid === false ? now.stale?.field : undefined).toBe(before.field)
-    expect(now?.valid === false ? compassCalibrations(c0).find((c) => c.id === now.id) : undefined).toMatchObject({
-      stale: undefined
-    })
+    // An invalid fit has no plot data (upstream drew the previous calculation's: proven bug, fixed).
+    expect(iron === undefined ? 'missing' : plotData(iron)).toBeUndefined()
+    expect(iron).not.toHaveProperty('field')
   })
 
   it('hides a compass bar group only once every tick has been removed', () => {

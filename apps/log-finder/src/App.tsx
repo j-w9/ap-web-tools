@@ -5,7 +5,6 @@ import { ALL_PARAM_IGNORE_KEYS, type ParamIgnoreKey } from './analysis/param-dif
 import { scanLogs, type SkipReason, type SkippedFile } from './analysis/scan.js'
 import {
   INITIAL_SORT,
-  afterIgnoreChange,
   buildTables,
   groupByBoard,
   nextSort,
@@ -124,14 +123,9 @@ export function App() {
     setSorts((current) => new Map(current).set(board, nextSort(current.get(board) ?? INITIAL_SORT, key, displayed)))
   }
 
-  /** Upstream recomputes every table's diffs when an ignore option changes (see `BoardSort.diffOrder`). */
+  /** The diffs are recomputed in display order from `ignored` (see `buildTables`). */
   const changeIgnored = (next: ReadonlySet<ParamIgnoreKey>) => {
     setIgnored(next)
-    setSorts((current) => {
-      const out = new Map(current)
-      for (const { board } of groupByBoard(logs)) out.set(board, afterIgnoreChange(current.get(board) ?? INITIAL_SORT))
-      return out
-    })
   }
 
   const facts: LogFact[] | null = source

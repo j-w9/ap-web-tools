@@ -8,9 +8,10 @@ import { buildSyntheticMagLog } from '../test-utils/synthetic-mag-log.js'
 import { createUpstreamMagfit, readFixture, upstreamLoad, type UpstreamMagfit } from '../test-utils/upstream.js'
 import { FIT_KIND_NAMES, FIT_KINDS, type FitResult } from './fit.js'
 import { loadMagFitLog, type MagFitLog } from './load.js'
+import { motorSourceAt } from './motor.js'
 import { runMagFit, type MagFitResult } from './magfit.js'
 import type { OrientationOption } from './orientation.js'
-import { buildParamFile, checkParams, type ParamFileEntry } from './params.js'
+import { buildParamFile, checkParams, missingOrientationError, type ParamFileEntry } from './params.js'
 import {
   compassCalibrations,
   initialSelection,
@@ -160,8 +161,11 @@ function compareParamFile(up: UpstreamMagfit, result: MagFitResult): void {
     upstreamThrew = true
   }
   if (upstreamThrew) {
-    // e.g. a missing orientation parameter: param_to_string(undefined) throws upstream.
-    expect(() => buildParamFile(entries)).toThrow()
+    // A missing orientation parameter: param_to_string(undefined) throws upstream. Proven bug,
+    // fixed (docs/bug-proofs/magfit.md row 4): the port returns a message instead.
+    const missing = entries.find((e) => Number.isNaN(e.params.orientation))
+    expect(missing, 'upstream threw without a missing orientation').toBeDefined()
+    expect(buildParamFile(entries)).toEqual({ ok: false, error: missingOrientationError(missing!.names.orientation) })
     return
   }
   const built = buildParamFile(entries)
@@ -180,11 +184,44 @@ function compareParamFile(up: UpstreamMagfit, result: MagFitResult): void {
   expect(warnings).toEqual(up.confirms)
 }
 
+/**
+ * Proven upstream bug fixed (docs/bug-proofs/magfit.md row 1, proofs/magfit/battery-time-base.test.ts):
+ * upstream resamples the battery current at compass 1's times for every compass. Assert upstream's
+ * value, then hand upstream each compass's own resample and recalculate, so the rest of the oracle
+ * checks the port's corrected motor fits against upstream's own maths. Returns how many motor
+ * sources differed (0 when every compass shares compass 1's time base: nothing changes).
+ */
+function correctUpstreamMotorTimeBase(up: UpstreamMagfit): number {
+  let patched = 0
+  for (let i = 0; i < 3; i++) {
+    if (up.evaluate(`MAG_Data[${i}] == null`)) continue
+    const groups = up.evaluate<number>(`MAG_Data[${i}].fits.length`)
+    for (let j = 1; j < groups; j++) {
+      const source = `motor_comp.data[${j - 1}]`
+      const value = up.evaluate<number[]>(`MAG_Data[${i}].fits[${j}].value`)
+      expect(value, `upstream MAG ${i} motor source ${j}`).toEqual(
+        up.evaluate<number[]>(`linear_interp(${source}.y, ${source}.x, MAG_Data[0].time)`)
+      )
+      const own = up.evaluate<number[]>(`linear_interp(${source}.y, ${source}.x, MAG_Data[${i}].time)`)
+      if (JSON.stringify(own) === JSON.stringify(value)) continue
+      ;(up.context as Record<string, unknown>)['__own'] = own
+      up.evaluate(`MAG_Data[${i}].fits[${j}].value = __own`)
+      patched++
+    }
+  }
+  if (patched > 0) {
+    up.alerts.length = 0
+    up.evaluate('calculate()')
+  }
+  return patched
+}
+
 describe.each([
   ['copter-sitl.bin', () => readFixture('copter-sitl.bin')],
   ['synthetic log', () => buildSyntheticMagLog()],
   // Compasses sampled at different times and rates: upstream resamples the battery current at
-  // compass 1's times for every compass (reproduced bug), and compass 3 has half the samples.
+  // compass 1's times for every compass (proven bug, fixed: see correctUpstreamMotorTimeBase), and
+  // compass 3 has half the samples.
   [
     'synthetic log, compasses on different time bases',
     () => buildSyntheticMagLog({ duration: 60, magOffsetUs: [0, 37_000, 61_000], magEvery: [1, 1, 2] })
@@ -206,6 +243,8 @@ describe.each([
     const buffer = getBuffer()
     up = await createUpstreamMagfit()
     await upstreamLoad(up, buffer)
+    const patched = correctUpstreamMotorTimeBase(up)
+    expect(patched > 0).toBe(name === 'synthetic log, compasses on different time bases')
     data = loadMagFitLog(buffer)
   })
 
@@ -307,11 +346,49 @@ describe('oracle: load failures', () => {
     expect(() => loadMagFitLog(buffer)).toThrow('Input data contains non-numeric values')
   })
 
-  it('stops like upstream when a battery current exists without compass 1', async () => {
+  it('loads a compass with no iron parameters (upstream crashes: proven bug, fixed)', async () => {
+    // docs/bug-proofs/magfit.md row 4, proofs/magfit/crashes.test.ts.
+    const names = ['X', 'Y', 'Z'].flatMap((a) => [`COMPASS_DIA_${a}`, `COMPASS_ODI_${a}`])
+    const buffer = buildSyntheticMagLog({ duration: 30, omitParams: names })
+    const upFails = await createUpstreamMagfit()
+    await expect(upstreamLoad(upFails, buffer)).rejects.toThrow('Input data contains non-numeric values')
+    // Corrected: the iron step is skipped, as upstream does for all-zero diagonals. Compare with
+    // upstream on the same log with those parameters set to 0.
+    const zeros = buildSyntheticMagLog({ duration: 30, paramValues: Object.fromEntries(names.map((n) => [n, 0])) })
+    const up = await createUpstreamMagfit()
+    await upstreamLoad(up, zeros)
+    const data = loadMagFitLog(buffer)
+    expect(data.compasses[0]!.params.diagonals.every(Number.isNaN)).toBe(true)
+    compareAll(
+      up,
+      data,
+      runMagFit(data, { timeStart: data.startTime, timeEnd: data.endTime, attitudeSource: data.defaultAttitudeSource! })
+    )
+  })
+
+  it('still stops like upstream when only part of an iron matrix is missing', async () => {
+    const buffer = buildSyntheticMagLog({ duration: 20, omitParams: ['COMPASS_DIA2_X'] })
+    const up = await createUpstreamMagfit()
+    await expect(upstreamLoad(up, buffer)).rejects.toThrow('Input data contains non-numeric values')
+    expect(() => loadMagFitLog(buffer)).toThrow('Input data contains non-numeric values')
+  })
+
+  it('loads a battery current without compass 1 (upstream crashes: proven bug, fixed)', async () => {
     const buffer = buildSyntheticMagLog({ duration: 20, compasses: [1, 2] })
     const up = await createUpstreamMagfit()
-    await expect(upstreamLoad(up, buffer)).rejects.toThrow()
-    expect(() => loadMagFitLog(buffer)).toThrow('without compass 1')
+    await expect(upstreamLoad(up, buffer)).rejects.toThrow("Cannot read properties of undefined (reading 'time')")
+    const data = loadMagFitLog(buffer)
+    const source = data.motorSources[0]!
+    expect(source.atCompass[0]).toBeUndefined()
+    expect(Array.from(source.atCompass[1]!)).toEqual(Array.from(motorSourceAt(source, data.compasses[1]!.time)))
+    expect(Array.from(source.atCompass[2]!)).toEqual(Array.from(motorSourceAt(source, data.compasses[2]!.time)))
+    const result = runMagFit(data, {
+      timeStart: data.startTime,
+      timeEnd: data.endTime,
+      attitudeSource: data.defaultAttitudeSource!
+    })
+    expect(result.compasses[1]!.groups.map((g) => g.name)).toEqual(['No motor comp', 'Battery 1 current'])
+    expect(result.compasses[1]!.groups[1]!.fits.offsets.valid).toBe(true)
   })
 
   it('reports a missing location with the upstream text', async () => {
@@ -363,7 +440,7 @@ describe('oracle: analysis window edge cases', () => {
 })
 
 describe('oracle: calibration selection across a recalculation', () => {
-  it('saves the same fit as upstream after ticking and recalculating', async () => {
+  it('keeps the last pick after recalculating (upstream resets it), then matches upstream', async () => {
     const buffer = buildSyntheticMagLog({ duration: 60 })
     const up = await createUpstreamMagfit()
     await upstreamLoad(up, buffer)
@@ -389,11 +466,14 @@ describe('oracle: calibration selection across a recalculation', () => {
     let sel = toggleCalibration(initialSelection(c1), fitId(1, 'iron'), true)
     expect(savedCalibration(sel, compassCalibrations(c1))?.label).toBe(upSaved())
 
-    // Recalculating: upstream rebuilds param_selection in fit order.
+    // Recalculating: upstream rebuilds param_selection in fit order and saves the first ticked fit
+    // in that order, contrary to its tooltip; the port keeps the pick order (proven bug, fixed:
+    // docs/bug-proofs/magfit.md row 3, proofs/magfit/selection.test.ts).
     up.evaluate('calculate()')
     const again = runMagFit(data, options).compasses[1]!
     sel = reconcileSelection(sel, again)
-    expect(savedCalibration(sel, compassCalibrations(again))?.label).toBe(upSaved())
+    expect(upSaved()).toBe('Offsets, No motor comp')
+    expect(savedCalibration(sel, compassCalibrations(again))?.label).toBe('Offsets and iron, Battery 1 current')
 
     // Unticking the first shown fit falls back to the next ticked one in priority order.
     tick(0, 'offsets', false)

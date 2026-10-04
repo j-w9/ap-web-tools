@@ -75,9 +75,6 @@ export function groupByBoard<F>(logs: readonly ScannedLog<F>[]): BoardGroup<F>[]
  */
 export type SortKey = 'date' | 'name' | 'size' | 'firmware' | 'flightTime' | 'distance'
 
-/** Which order the per-row parameter diffs were last computed in (see {@link BoardSort}). */
-export type DiffOrder = 'sorted' | 'data'
-
 /**
  * Sort state of one board's table. Upstream gives every board its own Tabulator table, so each
  * is sorted on its own.
@@ -87,17 +84,10 @@ export interface BoardSort {
   readonly direction: SortDirection
   /** Sorters Tabulator guessed for columns without one, fixed the first time each was sorted. */
   readonly sorters: Readonly<Partial<Record<SortKey, SorterName>>>
-  /**
-   * `sorted` after a sort: each row is diffed against the row above it. `data` after an ignore
-   * option changes: upstream recomputes the diffs over `table.getRows()`, which is data (scan)
-   * order, so each row is diffed against the log scanned before it until the table is sorted
-   * again (upstream bug, reproduced).
-   */
-  readonly diffOrder: DiffOrder
 }
 
 /** Upstream's initial sort: `info.time_stamp` ascending with the `datetime` sorter. */
-export const INITIAL_SORT: BoardSort = { key: 'date', direction: 'asc', sorters: {}, diffOrder: 'sorted' }
+export const INITIAL_SORT: BoardSort = { key: 'date', direction: 'asc', sorters: {} }
 
 /** Column values as upstream's Tabulator rows hold them. */
 const SORT_VALUES: Readonly<Record<SortKey, (s: ScannedLog<unknown>) => SortValue>> = {
@@ -110,8 +100,12 @@ const SORT_VALUES: Readonly<Record<SortKey, (s: ScannedLog<unknown>) => SortValu
   distance: (l) => l.summary.distanceM ?? null
 }
 
-/** Columns with an explicit sorter; the others are guessed. */
-const EXPLICIT_SORTERS: Readonly<Partial<Record<SortKey, SorterName>>> = { date: 'datetime' }
+/**
+ * Columns with an explicit sorter; the others are guessed. Flight Time always sorts as numbers:
+ * upstream lets Tabulator guess, which picks `string` when the first displayed log has no flight
+ * time ("300" before "60"); proven upstream bug, see docs/bug-proofs/log-finder.md.
+ */
+const EXPLICIT_SORTERS: Readonly<Partial<Record<SortKey, SorterName>>> = { date: 'datetime', flightTime: 'number' }
 
 /** Sort a board's logs, given in data (scan) order, as its Tabulator table does. */
 export function sortLogs<F>(logs: readonly ScannedLog<F>[], sort: BoardSort): ScannedLog<F>[] {
@@ -132,12 +126,7 @@ export function nextSort(current: BoardSort, key: SortKey, displayed: readonly S
     const first = displayed[0]
     sorters = { ...sorters, [key]: guessSorter(first && SORT_VALUES[key](first)) }
   }
-  return { key, direction, sorters, diffOrder: 'sorted' }
-}
-
-/** Sort state after an ignore option changes (see {@link BoardSort.diffOrder}). */
-export function afterIgnoreChange(current: BoardSort): BoardSort {
-  return { ...current, diffOrder: 'data' }
+  return { key, direction, sorters }
 }
 
 // ----------------------------------------------------------------- filtering
@@ -289,7 +278,9 @@ export function buildTables<F>(
   for (const group of groupByBoard(logs)) {
     const sort = options.sorts.get(group.board) ?? INITIAL_SORT
     const sorted = sortLogs(group.logs, sort)
-    const diffs = paramDiffsInOrder(sort.diffOrder === 'sorted' ? sorted : group.logs, options.ignored)
+    // Always diffed in display order. Upstream's ignore-checkbox handler re-diffs over
+    // `table.getRows()` (data order) instead; proven upstream bug, see docs/bug-proofs/log-finder.md.
+    const diffs = paramDiffsInOrder(sorted, options.ignored)
     const rows = sorted.filter((l) => matchesFilter(l, options.filter)).map((log) => ({ log, paramDiff: diffs.get(log) ?? null }))
     if (rows.length === 0) continue
     out.push({

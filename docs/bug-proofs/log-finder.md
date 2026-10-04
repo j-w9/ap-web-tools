@@ -71,6 +71,12 @@ the `dataSorted` handler computes for the current sort and the new ignore state.
 switching to data order: drop the data-order mode the port keeps for this case (the `afterIgnoreChange` path) and
 reuse the current sort's row order.
 
+**Status.** FIXED (commit pending). `apps/log-finder/src/analysis/table.ts:283` (`buildTables` always diffs `sorted`;
+the `diffOrder` / `afterIgnoreChange` data-order mode is removed, `App.tsx` `changeIgnored` only sets the ignore
+state). Tests: `table-oracle.test.ts` › "ignore option change: upstream re-diffs in data order (proven bug), the port
+in display order" (asserts upstream's data-order result, and that the port equals upstream's `dataSorted` result);
+`table.test.ts` › "diffs in display order whatever the ignore options (upstream re-diffs in data order: proven bug)".
+
 ## 2. Tabulator sorter guessed from first row
 
 **Row.** Tabulator sorter guessed from first row — Tabulator `findSorter` (Flight Time column) — If the first
@@ -111,6 +117,12 @@ empty values (Tabulator's `number` sorter, the one used when the first row has a
 **Smallest port change.** Always use numeric comparison for the Flight Time column (the port's equivalent of
 upstream setting `sorter:"number"` on that column), removing the first-row guess for it.
 
+**Status.** FIXED (commit pending). `apps/log-finder/src/analysis/table.ts:108` (`EXPLICIT_SORTERS` gives `flightTime`
+the `number` sorter). Tests: `table-oracle.test.ts` › "Flight Time with an unknown first flight time: upstream guesses
+string (proven bug), the port sorts numbers" (upstream order `x, y, z`; port `x, z, y`, equal to upstream's Tabulator
+with the `number` sorter in both directions); `table.test.ts` › "guesses sorters from the first displayed row and keeps
+them".
+
 ## 3. No natural name sort
 
 **Row.** No natural name sort — Tabulator `string` sorter on Name — `10.BIN` sorts before `9.BIN`. Reproduced.
@@ -149,6 +161,11 @@ output contradicts the function's stated intent.
 from 1024 TB (and for the one-byte-short floating-point case) it reads in TB, e.g. `1024**5` → `"1024.00 TB"`.
 
 **Smallest port change.** Clamp the unit index to the last unit (`Math.min(index, 4)`) before scaling.
+
+**Status.** FIXED (commit pending). `apps/log-finder/src/analysis/format.ts:15` (unit index clamped to
+`SIZE_UNITS.length - 1`). Tests: `table-oracle.test.ts` › "size_format from 1024 TB: upstream prints undefined (proven
+bug), the port clamps to TB" (`1024**5 - 1` and `1024**5` → `1024.00 TB`, `2 * 1024**5` → `2048.00 TB`; upstream
+`… undefined`); `format.test.ts` › "sizes with binary units". All smaller sizes stay identical (`size_format` oracle).
 
 ## 5. Integer-like board lines reorder groups
 

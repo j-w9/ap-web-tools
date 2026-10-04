@@ -9,7 +9,6 @@ import { ALL_PARAM_IGNORE_KEYS, type ParamDiff } from './param-diff.js'
 import { formatDistance, formatFlightTime, formatSize } from './format.js'
 import {
   INITIAL_SORT,
-  afterIgnoreChange,
   buildTables,
   commonPath,
   nextSort,
@@ -157,16 +156,59 @@ describe('table sort and diffs oracle (Tabulator 6.2.1 + update_param_diff)', ()
     await compareClicks(['size', 'flightTime', 'name', 'flightTime'], [...LOGS].reverse())
   })
 
-  it('diffs in data order after an ignore option changes, as upstream redraws over getRows()', async () => {
+  it('ignore option change: upstream re-diffs in data order (proven bug), the port in display order', async () => {
     const table = await UpstreamTable.create(LOGS.map(toUpstream))
-    table.sort(FIELDS.size, 'asc')
-    // Upstream's ignore checkbox handler: update_param_diff(table, table.getRows()), data order.
-    up.update_param_diff({ redraw: () => undefined }, table.rows)
-    const sort = afterIgnoreChange(nextSort(INITIAL_SORT, 'size', LOGS))
+    const sorted = table.sort(FIELDS.size, 'asc')
+    const sort = nextSort(INITIAL_SORT, 'size', LOGS)
     const [mine] = buildTables(LOGS, { filter: NO_FILTER, sorts: new Map([[BOARD, sort]]), ignored })
-    const byPath = new Map(table.rows.map((r) => [r.getData().fileHandle.relativePath, r.getData().param_diff]))
-    for (const row of mine?.rows ?? [])
-      expect(asRecord(row.paramDiff), row.log.relativePath).toEqual(byPath.get(row.log.relativePath))
+    const minePaths = mine?.rows.map((r) => r.log.relativePath)
+    const mineDiffs = mine?.rows.map((r) => asRecord(r.paramDiff))
+    const diffsOf = (rows: typeof sorted) => {
+      const byPath = new Map(rows.map((r) => [r.getData().fileHandle.relativePath, r.getData().param_diff]))
+      return minePaths?.map((p) => byPath.get(p))
+    }
+    // Upstream's checkbox handler: update_param_diff(table, table.getRows()), data order (bug).
+    up.update_param_diff({ redraw: () => undefined }, table.rows)
+    const upstreamAfterToggle = diffsOf(table.rows)
+    expect(upstreamAfterToggle?.[0]).not.toBeNull()
+    expect(mineDiffs).not.toEqual(upstreamAfterToggle)
+    // The port keeps upstream's display-order result (its dataSorted handler) for the same state.
+    up.update_param_diff({ redraw: () => undefined }, sorted)
+    expect(mineDiffs).toEqual(diffsOf(sorted))
+    expect(mineDiffs?.[0]).toBeNull()
+  })
+
+  it('Flight Time with an unknown first flight time: upstream guesses string (proven bug), the port sorts numbers', async () => {
+    // Scan order puts the log without a flight time first; sorting by size asc keeps it first.
+    const logs = [
+      makeLog('x.bin', { startTime: day(1), sizeBytes: 1, flightTimeS: undefined }),
+      makeLog('y.bin', { startTime: day(2), sizeBytes: 2, flightTimeS: 300 }),
+      makeLog('z.bin', { startTime: day(3), sizeBytes: 3, flightTimeS: 60 })
+    ]
+    const guessed = await UpstreamTable.create(logs.map(toUpstream))
+    guessed.sort(FIELDS.size, 'asc')
+    const upstreamOrder = guessed.sort(FIELDS.flightTime, 'asc').map((r) => r.getData().fileHandle.relativePath)
+    expect(upstreamOrder).toEqual(['x.bin', 'y.bin', 'z.bin'])
+
+    let sort = nextSort(INITIAL_SORT, 'size', logs)
+    sort = nextSort(
+      sort,
+      'flightTime',
+      buildTables(logs, { filter: NO_FILTER, sorts: new Map([[BOARD, sort]]), ignored })[0]?.sorted ?? []
+    )
+    for (const dir of ['asc', 'desc'] as const) {
+      const numeric = await UpstreamTable.create(logs.map(toUpstream))
+      numeric.useSorter(FIELDS.flightTime, 'number')
+      const expected = numeric.sort(FIELDS.flightTime, dir).map((r) => r.getData().fileHandle.relativePath)
+      const [mine] = buildTables(logs, { filter: NO_FILTER, sorts: new Map([[BOARD, { ...sort, direction: dir }]]), ignored })
+      expect(
+        mine?.rows.map((r) => r.log.relativePath),
+        dir
+      ).toEqual(expected)
+    }
+    expect(
+      buildTables(logs, { filter: NO_FILTER, sorts: new Map([[BOARD, sort]]), ignored })[0]?.rows.map((r) => r.log.name)
+    ).toEqual(['x.bin', 'z.bin', 'y.bin'])
   })
 })
 
@@ -176,8 +218,19 @@ describe('formatters oracle (lifted from setup_table)', () => {
   })
 
   it('size_format', () => {
-    for (const size of [0, 1, 1023, 1024, 1536, 1048575, 1048576, 5 * 1024 ** 3, 3 * 1024 ** 4, 2 * 1024 ** 5, 123456789]) {
+    for (const size of [0, 1, 1023, 1024, 1536, 1048575, 1048576, 5 * 1024 ** 3, 3 * 1024 ** 4, 1023 * 1024 ** 4, 123456789]) {
       expect(formatSize(size), String(size)).toBe(up.formatters.size_format(cell({ size })))
+    }
+  })
+
+  it('size_format from 1024 TB: upstream prints undefined (proven bug), the port clamps to TB', () => {
+    for (const [size, port] of [
+      [1024 ** 5 - 1, '1024.00 TB'],
+      [1024 ** 5, '1024.00 TB'],
+      [2 * 1024 ** 5, '2048.00 TB']
+    ] as const) {
+      expect(up.formatters.size_format(cell({ size })), String(size)).toMatch(/ undefined$/)
+      expect(formatSize(size), String(size)).toBe(port)
     }
   })
 

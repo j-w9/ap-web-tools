@@ -58,9 +58,12 @@ export function loadMagFitLog(source: ArrayBuffer | Uint8Array | DataflashLog): 
   const attitude = loadAttitudeSources(log)
   if (attitude.sources.length === 0) throw new Error('Unknown attitude source')
 
-  // Upstream resamples every source at compass 1's times while loading (and crashes without it).
-  const compass0Time = compasses[0]?.time
-  const motorSources = loadMotorSources(log).map((s) => ({ ...s, atCompass0: motorSourceAt(s, compass0Time) }))
+  // Each compass's fits use the source resampled at that compass's own times (upstream used compass
+  // 1's times for every compass and crashed without it: proven bug, docs/bug-proofs/magfit.md row 1).
+  const motorSources: FitMotorSource[] = loadMotorSources(log).map((s) => ({
+    ...s,
+    atCompass: compasses.map((c) => (c === undefined ? undefined : motorSourceAt(s, c.time)))
+  }))
 
   return {
     compasses,

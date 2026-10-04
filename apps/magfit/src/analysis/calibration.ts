@@ -129,10 +129,14 @@ export function removeCalibration(
 
   // Remove iron correction. Upstream tests `array_all_equal(diagonals, 0.0)`, which is false
   // for missing (undefined) diagonals; building the matrix from `undefined` then throws in
-  // ml-matrix ("Input data contains non-numeric values") and the load stops. Missing values are
-  // NaN here, which ml-matrix would accept, so throw the same error explicitly.
-  if (!allZero(params.diagonals)) {
-    if ([...params.diagonals, ...params.offDiagonals].some(Number.isNaN)) {
+  // ml-matrix ("Input data contains non-numeric values") and the load stops. When every
+  // COMPASS_DIA*/ODI* parameter is absent (ArduPilot built without them applies no soft-iron
+  // correction) the step is skipped: proven bug, fixed (docs/bug-proofs/magfit.md row 4). A
+  // partial set still stops the load with upstream's error (missing values are NaN here, which
+  // ml-matrix would accept, so it is thrown explicitly).
+  const iron = [...params.diagonals, ...params.offDiagonals]
+  if (!allZero(params.diagonals) && !iron.every(Number.isNaN)) {
+    if (iron.some(Number.isNaN)) {
       throw new TypeError('Input data contains non-numeric values')
     }
     const inv = inverse(ironMatrix(params.diagonals, params.offDiagonals))
