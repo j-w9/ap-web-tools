@@ -107,7 +107,8 @@ describe('copter simulation matches upstream', () => {
     const run = await page.run({ axis: c.axis, mode: c.mode }, upstreamValues(demand, params))
     const up = run.plots
     // Upstream throws when Ruckig fails (in update_ruckig, or at the jerk plot after drawing the
-    // others); the port reports the failure instead. Every other outcome must be identical.
+    // others); the port reports the failure and draws the other methods instead (proven bugs, see
+    // docs/bug-proofs/kinematic-tool.md rows 1-2). Every other outcome must be identical.
     expect(result.minimumTime.ok).toBe(run.error === undefined)
     if (run.redrawn.includes('ang_pos')) {
       expectMethod(up, 0, result.sqrt, false)
@@ -124,7 +125,8 @@ describe('copter simulation matches upstream', () => {
     }
   })
 
-  // Upstream throws on this Ruckig result and stops updating the plots, so there is no oracle.
+  // Upstream throws on this Ruckig result and stops updating the plots (proven bug, see
+  // docs/bug-proofs/kinematic-tool.md row 1 and proofs/kinematic-tool), so there is no oracle.
   it('reports a Ruckig failure but still simulates the ArduPilot shapers', () => {
     const settings: CopterSettings = {
       vehicle: 'copter',

@@ -240,17 +240,26 @@ describe('connect', () => {
     expectSameView(p)
   })
 
-  it('refuses a DFU interface that cannot download (upstream crashes with a ReferenceError)', async () => {
+  // Proven upstream bug (docs/bug-proofs/dfu-loader.md row 55): upstream means to disable Flash
+  // Bootloader for CanDnload=false but names an undefined button and stops with a ReferenceError.
+  it('connects a DFU interface that cannot download with Flash Bootloader disabled (upstream throws)', async () => {
     const p = setup(dfuse({ bmAttributes: 0x02 }))
     await connect(p)
     expect(p.portFake.calls).toEqual(p.upFake.calls)
+    // Upstream: the ReferenceError is shown, the page stays disconnected, Flash stays disabled.
     expect(String(p.page.el.status.textContent)).toBe('ReferenceError: dnloadButton is not defined')
-    expect(p.state().status?.text).toBe(
-      'The DFU interface reports that it cannot download (CanDnload=false), so it cannot be flashed.'
+    expect(p.page.el.connect.textContent).toBe('Connect')
+    expect(p.page.el.download.disabled).toBe(true)
+    // Port: connected, Flash Bootloader disabled, the DfuSe fields shown as for any DfuSe device.
+    expect(p.state().status).toBeNull()
+    expect(p.state().connectLabel).toBe('Disconnect')
+    expect(p.state().flashEnabled).toBe(false)
+    expect(p.state().fileEnabled).toBe(true)
+    expect(p.state().connected?.properties).toBe(
+      'WillDetach=false, ManifestationTolerant=false, CanUpload=true, CanDnload=false, TransferSize=1024, DetachTimeOut=255, Version=011a'
     )
-    expect(p.state().connectLabel).toBe(p.page.el.connect.textContent)
-    expect(p.state().flashEnabled).toBe(!p.page.el.download.disabled)
-    expect(p.state().strandedDfuInfo).toBe(String(p.page.el.dfuInfo.textContent))
+    expect(p.state().dfuse.hidden).toBe(false)
+    expect(p.state().dfuse.startAddress.value).toBe('0x8000000')
   })
 
   it('disconnects with the Connect button', async () => {
@@ -338,10 +347,16 @@ describe('start address field', () => {
     p.session.commitStartAddress()
     expectSameView(p)
     expect(p.state().dfuse.startAddress.customValidity).toBe('Address outside of memory map')
-    // Connecting again sets the value by script, which neither fires change nor clears the verdict.
+    // Connecting again sets the value by script, which does not fire change. Upstream keeps the old
+    // verdict for the valid first segment address and Flash Bootloader refuses; the port clears it
+    // (proven upstream bug, docs/bug-proofs/dfu-loader.md row 144). Everything else is the same.
     await connect(p)
     p.session.commitStartAddress()
-    expectSameView(p)
+    const { upstream, port } = view(p)
+    expect(upstream.startValidity).toBe('Address outside of memory map')
+    expect(port.startValidity).toBe('')
+    expect({ ...port, startValidity: null }).toEqual({ ...upstream, startValidity: null })
+    expect(validateDfuseFields(p.state().dfuse)).toBeNull()
   })
 
   it('validates without a device', () => {
@@ -397,8 +412,20 @@ describe('flash', () => {
     const bytes = Array.from({ length: 3000 }, (_, i) => (i * 5) & 0xff)
     await chooseFile(p, 'MatekH743_bl.hex', new TextEncoder().encode(intelHex(0x08000000, bytes)).buffer)
     expect(p.state().firmware?.convertedFromHex).toBe(true)
+    // Proven upstream bug (docs/bug-proofs/dfu-loader.md row 53): upstream's logInfo drops
+    // "Converted Hex to bin" because no flash is running; the port shows it.
+    expect(p.page.log()).toEqual([])
+    expect(p.state().log).toEqual([{ kind: 'info', text: 'Converted Hex to bin' }])
     await flash(p)
     expectSameRun(p)
+  })
+
+  it('logs nothing when a .bin file is chosen, as upstream', async () => {
+    const p = setup(dfuse())
+    await connect(p)
+    await chooseFile(p, 'bl.bin', firmware(100))
+    expect(p.state().log).toEqual(p.page.log())
+    expect(p.state().log).toEqual([])
   })
 
   it('refuses to flash after a start address change leaves the upload size above its new maximum', async () => {

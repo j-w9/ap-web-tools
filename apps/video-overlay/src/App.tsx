@@ -16,6 +16,7 @@ import {
   DEFAULT_FRAME_RATE,
   EXPORT_UNSUPPORTED_MESSAGE,
   initialSelection,
+  inputCodecText,
   matchSelectionToInput,
   probeOutputFormats,
   selectFormat,
@@ -56,7 +57,6 @@ interface VideoFacts {
   fps: string
   codec: string
 }
-const NO_VIDEO_FACTS: VideoFacts = { resolution: '', duration: '', fps: '', codec: '' }
 
 interface LogFacts {
   date: string
@@ -227,15 +227,11 @@ export function App() {
     })
     void describeVideo(file).then(
       (info) => {
-        if (info.audioCodec === undefined) {
-          // Upstream fills in the frame rate, then fails reading the missing audio track's codec.
-          setVideoFacts((old) => ({ ...(old ?? NO_VIDEO_FACTS), fps: info.fps }))
-          setVideoError("Cannot read properties of null (reading 'codec')")
-          return
-        }
+        // A video without an audio track is described like any other, without the audio codec
+        // (proven upstream bug #120: upstream stopped after the frame rate).
         setVideoFacts({
           fps: info.fps,
-          codec: `${String(info.videoCodec)} + ${String(info.audioCodec)}`,
+          codec: inputCodecText(info.videoCodec, info.audioCodec),
           resolution: `${info.displayWidth}x${info.displayHeight}px`,
           duration: formatPlayerTime(info.duration)
         })
@@ -244,7 +240,7 @@ export function App() {
         setExportWidth(info.displayWidth)
         setExportHeight(info.displayHeight)
         const formats = support.status === 'ready' ? support.formats : []
-        const matched = matchSelectionToInput(formats, { selection, frameRate }, { ...info, audioCodec: info.audioCodec })
+        const matched = matchSelectionToInput(formats, { selection, frameRate }, info)
         setSelection(matched.selection)
         setFrameRate(matched.frameRate)
         if (matched.error !== undefined) setVideoError(matched.error)

@@ -69,6 +69,11 @@ describe('Kinematic Tool help text', () => {
     expect(plane).not.toContain('value="Y"')
   })
 
+  it('new row: the copter page Parameters tooltip names ATC_SLEW_YAW', () => {
+    expect(copter).toContain(parametersTip)
+    expect(copter).not.toContain('ATC_RATE_WPY_MAX')
+  })
+
   it('row 12: the Mode tooltip is the Axis tooltip, on both pages', () => {
     const tip = "data-tippy-content='Change the parameters used to the selected axis'"
     for (const html of [copter, plane]) {

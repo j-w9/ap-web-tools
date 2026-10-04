@@ -5,15 +5,15 @@ Reproductions: `proofs/thrust-expo/thrust-expo.test.ts` (original `ThrustExpo/Th
 `proofs/thrust-expo/_harness.ts`). Paths below are relative to `upstream/`; firmware paths are
 relative to `upstream/modules/ardupilot/` (f3836cf).
 
-| #   | Row                                                      | Verdict                                       |
-| --- | -------------------------------------------------------- | --------------------------------------------- |
-| 1   | Manual expo of 0 is refitted                             | PROVEN (for 0; the emptied box is NOT PROVEN) |
-| 2   | Numeric 0 cell drops the row, typed "0" keeps it         | NOT PROVEN                                    |
-| 3   | MOT_SPIN_MIN from a parameter file shown but not used    | PROVEN                                        |
-| 4   | MOT_SPIN_MIN >= MOT_SPIN_ARM compared as strings         | PROVEN (string comparison; per keystroke NOT) |
-| 5   | Stale MOT_THST_HOVER saved                               | NOT PROVEN                                    |
-| 6   | Saving with an empty input throws                        | PROVEN (port already meets the fix)           |
-| A1  | `loadParamFile` on `paramFile` (audit only, no bugs row) | NOT PROVEN                                    |
+| #   | Row                                                      | Verdict                                              |
+| --- | -------------------------------------------------------- | ---------------------------------------------------- |
+| 1   | Manual expo of 0 is refitted                             | PROVEN, FIXED (for 0; the emptied box is NOT PROVEN) |
+| 2   | Numeric 0 cell drops the row, typed "0" keeps it         | NOT PROVEN                                           |
+| 3   | MOT_SPIN_MIN from a parameter file shown but not used    | PROVEN, FIXED                                        |
+| 4   | MOT_SPIN_MIN >= MOT_SPIN_ARM compared as strings         | PROVEN, FIXED (string comparison; per keystroke NOT) |
+| 5   | Stale MOT_THST_HOVER saved                               | NOT PROVEN                                           |
+| 6   | Saving with an empty input throws                        | PROVEN, FIXED (message now names the input)          |
+| A1  | `loadParamFile` on `paramFile` (audit only, no bugs row) | NOT PROVEN                                           |
 
 ## 1. Manual expo of 0 is refitted
 
@@ -46,6 +46,13 @@ refitted; an empty box (NaN) still runs the fit as upstream does.
 
 Smallest port change: test `thrustExpo !== null && !Number.isNaN(thrustExpo)` instead of
 truthiness where the manual expo is chosen over the fit.
+
+Status: FIXED. Port: `apps/thrust-expo/src/analysis/linearisation.ts` `keepsExpo`
+(`setting.kind === 'fixed' && !Number.isNaN(setting.expo)`). Tests:
+`apps/thrust-expo/src/analysis/linearisation.test.ts` › `keeps a manual expo of 0, which upstream
+refits (proven upstream bug fixed)` and `session.test.ts` › `keeps a manual expo, refits an empty
+input, and keeps an entered 0 (proven upstream bug fixed)`: upstream `0.38500000000000106` (box
+`0.385`), port `0` (box `0.000`); the empty box still refits identically.
 
 ## 2. Numeric 0 cell drops the row, typed "0" keeps it
 
@@ -96,6 +103,12 @@ Smallest port change: when a parameter file sets MOT_SPIN_MIN, assign the parame
 loaded value (as every other parameter's `change` path does). Whether a loaded value below
 MOT_SPIN_ARM is raised is not part of this fix (upstream does not raise it on load).
 
+Status: FIXED. Port: `apps/thrust-expo/src/analysis/session.ts` `loadParamFile`
+(a `MOT_SPIN_MIN` line also sets the parameter from the loaded value). Test:
+`apps/thrust-expo/src/analysis/session.test.ts` › `reads parameter files as upstream: commas only,
+untrimmed names; a loaded MOT_SPIN_MIN is used (proven upstream bug fixed)`: upstream value
+`0.15`, port `0.13` (saved as `MOT_SPIN_MIN,0.13`); every other field matches upstream.
+
 ## 4. MOT_SPIN_MIN >= MOT_SPIN_ARM compared as strings, per keystroke
 
 Row: MOT_SPIN_MIN `input` handler (`this.value < spin_arm`): typing `0.15` with arm `0.1` jumps to
@@ -127,6 +140,13 @@ only when numerically below it), still on each `input` event. Empty boxes keep u
 
 Smallest port change: compare `parseFloat` of both values in the MOT_SPIN_MIN rule, keeping the
 upstream outcome when either box is empty.
+
+Status: FIXED for the string comparison. Port:
+`apps/thrust-expo/src/analysis/session.ts` `spinMinInput` (numbers when both boxes have text,
+upstream's string comparison when either is empty; still run on every `input` event). Test:
+`apps/thrust-expo/src/analysis/session.test.ts` › `applies the MOT_SPIN_MIN rule per keystroke,
+comparing numbers (proven upstream bug fixed)`: arm `10`, min typed `2`: upstream keeps `2`, port
+raises to `10`; all other steps (including the per-keystroke and empty-box steps) match upstream.
 
 ## 5. Stale MOT_THST_HOVER saved
 
@@ -168,6 +188,14 @@ which input is empty, instead of an unexpected exception. No computed value chan
 
 Smallest port change: none needed if the port's message names the empty input (the row says the
 port shows the error); otherwise make that message name the field.
+
+Status: FIXED. The port already wrote no file and showed the error; the message
+now names the empty inputs. Port: `apps/thrust-expo/src/analysis/session.ts` `paramFileText`
+(throws `<NAMES> is/are empty. Could not convert NaN to float string`, keeping upstream's text).
+Tests: `apps/thrust-expo/src/analysis/session.test.ts` › `names a single empty input when saving
+fails (proven upstream bug fixed)` (empty MOT_PWM_MAX: upstream `Could not convert NaN to float
+string`, port `MOT_PWM_MAX is empty. Could not convert NaN to float string`) and `handles missing
+and unreadable values in a parameter file, and fails to save NaN as upstream`.
 
 ## A1. `loadParamFile` on `paramFile` (audit only)
 

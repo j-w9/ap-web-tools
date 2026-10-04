@@ -100,19 +100,40 @@ describe('fixInterfaceNames', () => {
 
 describe('parseIntelHex', () => {
   const bytes = (n: number, seed: number) => Array.from({ length: n }, (_, i) => (i * 13 + seed) & 0xff)
+  const convert = (text: string, parse: (b: ArrayBuffer) => ArrayLike<number>) =>
+    Array.from(parse(new TextEncoder().encode(text).buffer))
+  // Files inside one 64 KiB segment: identical to upstream.
   const cases: [string, string][] = [
     ['bootloader at 0x08000000', intelHex(0x08000000, bytes(15000, 1))],
     ['CRLF line endings', intelHex(0x08000000, bytes(700, 2), '\r\n')],
     ['data not at offset 0', intelHex(0x08004010, bytes(100, 3))],
-    ['crossing a 64 KiB boundary (upstream overlays the segments)', intelHex(0x0800f000, bytes(0x2000, 4))],
-    ['beyond 512 KiB of 16-bit addresses', intelHex(0x0807fff0, bytes(64, 5))],
     ['with junk lines', `garbage\n${intelHex(0x08000000, bytes(40, 6))}\n\n  \n`],
     ['empty', '']
   ]
   for (const [name, text] of cases) {
     it(`converts ${name} as upstream`, () => {
-      const buffer = new TextEncoder().encode(text).buffer
-      expect(Array.from(parseIntelHex(buffer))).toEqual(Array.from(up.parseIntelHex(buffer)))
+      expect(convert(text, parseIntelHex)).toEqual(convert(text, (b) => up.parseIntelHex(b)))
+    })
+  }
+
+  // Proven upstream bug (docs/bug-proofs/dfu-loader.md row 51): extended linear address records are
+  // ignored, so a file crossing a 64 KiB boundary has its segments overlaid. The port applies them.
+  const crossing: [string, number, number[]][] = [
+    ['8 KiB at 0x0800F000', 0x0800f000, bytes(0x2000, 4)],
+    ['64 bytes at 0x0807FFF0', 0x0807fff0, bytes(64, 5)]
+  ]
+  for (const [name, base, data] of crossing) {
+    it(`places ${name} contiguously across the 64 KiB boundary (upstream overlays it)`, () => {
+      const text = intelHex(base, data)
+      const offset = base & 0xffff
+      const upper = 0x10000 - offset
+      // Upstream: the part above the boundary lands at offset 0, the part below at its 16-bit offset.
+      const expectedUp = new Array<number>(0x10000).fill(0)
+      data.slice(upper).forEach((b, i) => (expectedUp[i] = b))
+      data.slice(0, upper).forEach((b, i) => (expectedUp[offset + i] = b))
+      expect(convert(text, (b) => up.parseIntelHex(b))).toEqual(expectedUp)
+      // Port: every byte at its absolute address minus the lowest base (0x08000000 or 0x08070000).
+      expect(convert(text, parseIntelHex)).toEqual([...new Array<number>(offset).fill(0), ...data])
     })
   }
 })

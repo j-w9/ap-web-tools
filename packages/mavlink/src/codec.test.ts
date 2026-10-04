@@ -56,11 +56,8 @@ describe('round trip', () => {
         }
       }
       const fields = decodePayload(descriptor, payload)
-      if (descriptor.name === 'TEST_TYPES') {
-        // Its scalar `char` field cannot be packed by upstream's jspack, so the encoder refuses too.
-        expect(() => encodeFrame(descriptor, fields as never, address)).toThrow(/cannot encode/)
-        continue
-      }
+      // TEST_TYPES included: upstream's jspack cannot pack its scalar `char` field, the port can
+      // (proven upstream bug #154, see docs/bug-proofs/mavlink.md).
       const frame = encodeFrame(descriptor, fields as never, address)
       const [message] = new MavlinkParser({ messages: ALL_MESSAGES }).push(frame)
       expect(message?.name).toBe(descriptor.name)

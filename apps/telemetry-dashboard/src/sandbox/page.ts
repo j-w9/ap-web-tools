@@ -67,10 +67,12 @@ export function createSandboxPage<N, E extends PageElement<N> & N, T extends Pag
     const text = doc.createTextNode('')
     div.append(text)
 
-    // Throws for a thrown null or undefined, after the area was replaced (upstream `err.stack`).
+    // Upstream's `err.stack` threw for a thrown null or undefined, and `extra + err` for a Symbol, so
+    // the report stopped here and the script stayed loaded (proven bug #160). Both now get a text.
     const location = errorLocation(error)
     console.log(error)
-    text.nodeValue = (location === null ? '' : `${location.line}:${location.column} `) + concatString(error)
+    const message = typeof error === 'symbol' ? String(error) : concatString(error)
+    text.nodeValue = (location === null ? '' : `${location.line}:${location.column} `) + message
 
     const lines = script.split('\n')
     const lineOk = (i: number): boolean => lines[i] !== undefined

@@ -19,6 +19,8 @@ import {
   HOME_POSITION,
   SET_ATTITUDE_TARGET,
   STATUSTEXT,
+  TEST_TYPES,
+  WHEEL_DISTANCE,
   type MessageName
 } from './generated/messages.js'
 import { MESSAGE_TABLE } from './generated/table.js'
@@ -202,12 +204,10 @@ describe('upstream mavlink.js payload oracle', () => {
         const sequence = round * 31
         const frame = payloadFrame(descriptor, payload, sequence)
 
-        // Our encoder reproduces the random payload (modulo truncation), except for the one message
-        // upstream cannot encode either.
+        // Our encoder reproduces the random payload (modulo truncation), TEST_TYPES included, which
+        // upstream cannot encode (proven upstream bug #154, asserted below).
         const address = { systemId: 42, componentId: 1, sequence }
-        if (descriptor.name === 'TEST_TYPES')
-          expect(() => encodeFrame(descriptor, fields as never, address)).toThrow(/cannot encode/)
-        else expect(hex(encodeFrame(descriptor, fields as never, address)), descriptor.name).toBe(hex(frame))
+        expect(hex(encodeFrame(descriptor, fields as never, address)), descriptor.name).toBe(hex(frame))
         const [message] = new MavlinkParser({ messages: [descriptor] }).push(frame)
         expect(message?.name).toBe(descriptor.name)
 
@@ -230,7 +230,8 @@ describe('upstream mavlink.js payload oracle', () => {
         try {
           packed = repackable(theirs).pack(processor)
         } catch {
-          // Upstream's jspack has no encoder for a scalar `char` (its _EnChar is commented out).
+          // Upstream's jspack has no encoder for a scalar `char` (its _EnChar is commented out):
+          // proven upstream bug #154, fixed in the port (see docs/bug-proofs/mavlink.md).
           unpackable.add(descriptor.name)
           continue
         }
@@ -258,16 +259,106 @@ describe('upstream jspack value packing', () => {
   /** Exactly halfway between two float32 values: jspack rounds away from zero, DataView to even. */
   const tie = (lower + bits.getFloat32(0)) / 2
 
-  it('clamps and truncates integers, rounds float32 ties away from zero, packs NaN and -0 its way', () => {
+  it('clamps and truncates integers, rounds float32 ties away from zero, packs NaN its way and -0 with its sign', () => {
     const args = [300, -5, 2.7, 70000, Number.NaN, Infinity, tie, -0, Number.NaN, -tie, 2 ** 31, -2.5, 1e39]
     const fields = Object.fromEntries(COMMAND_INT.fields.map((f, i) => [f.name, args[i]]))
-    expect(ours(COMMAND_INT, fields)).toBe(theirs('command_int', args))
+    // Proven upstream bug #153 (see docs/bug-proofs/mavlink.md): jspack packs -0 as +0. The port keeps
+    // the sign: the bytes upstream gives a negative value that rounds to zero (-1e-50).
+    const withZero = (zero: number): unknown[] => args.map((a) => (Object.is(a, -0) ? zero : a))
+    expect(theirs('command_int', args)).toBe(theirs('command_int', withZero(0)))
+    expect(theirs('command_int', args)).not.toBe(theirs('command_int', withZero(-1e-50)))
+    expect(ours(COMMAND_INT, fields)).toBe(theirs('command_int', withZero(-1e-50)))
+    expect(ours(COMMAND_INT, Object.fromEntries(COMMAND_INT.fields.map((f, i) => [f.name, withZero(0)[i]])))).toBe(
+      theirs('command_int', withZero(0))
+    )
     for (const value of [0.1, 1 / 3, -1e-45, 3e-46, 1e-40, 3.4028235677973366e38, -Infinity]) {
       const more = [1, 1, 0, 16, 0, 0, value, value, value, value, 0, 0, value]
       expect(ours(COMMAND_INT, Object.fromEntries(COMMAND_INT.fields.map((f, i) => [f.name, more[i]]))), String(value)).toBe(
         theirs('command_int', more)
       )
     }
+  })
+
+  /** Upstream's decoding of a frame the port packed. */
+  function theirDecoding(frame: string): UpstreamMessage {
+    return new upstream.MAVLink20Processor(null, 1, 1).decode(Uint8Array.from(Buffer.from(frame, 'hex')))
+  }
+
+  it('packs -0 with its sign in floats and doubles, where upstream packs +0 (proven bug #153)', () => {
+    const distance = (first: number): number[] => [first, ...new Array<number>(15).fill(0)]
+    // Upstream: -0 gives exactly the bytes of +0.
+    expect(theirs('wheel_distance', [[0, 0], 1, distance(-0)])).toBe(theirs('wheel_distance', [[0, 0], 1, distance(0)]))
+    const wheel = (first: number): string => ours(WHEEL_DISTANCE, { timeUsec: 0n, count: 1, distance: distance(first) })
+    expect(wheel(0)).toBe(theirs('wheel_distance', [[0, 0], 1, distance(0)]))
+    // Port: the sign bit is set, and upstream's own decoder reads the value back as -0.
+    const frame = wheel(-0)
+    expect(frame.slice(2 * (10 + 15), 2 * (10 + 16))).toBe('80')
+    expect(Object.is((theirDecoding(frame)['distance'] as number[])[0], -0)).toBe(true)
+    const args = [1, 1, 0, 16, 0, 0, -0, 0, 0, 0, 0, 0, 0]
+    const attitude = theirDecoding(ours(COMMAND_INT, Object.fromEntries(COMMAND_INT.fields.map((f, i) => [f.name, args[i]]))))
+    expect(Object.is(attitude['param1'], -0)).toBe(true)
+  })
+
+  it('packs a scalar char as its character code, where upstream cannot pack TEST_TYPES at all (proven bug #154)', () => {
+    // Upstream's arguments in XML order; 64-bit values as [lowBits, highBits] (jspack README note 6).
+    const big = (n: number): number[] => [n, 0]
+    const args = [
+      'A',
+      'hello',
+      1,
+      2,
+      3,
+      big(4),
+      5,
+      6,
+      7,
+      big(8),
+      1.5,
+      2.5,
+      [1, 2, 3],
+      [1, 2, 3],
+      [1, 2, 3],
+      [big(1), big(2), big(3)],
+      [1, 2, 3],
+      [1, 2, 3],
+      [1, 2, 3],
+      [big(1), big(2), big(3)],
+      [1, 2, 3],
+      [1, 2, 3]
+    ]
+    expect(() => theirs('test_types', args)).toThrow(/fxn is not a function/)
+    const fields = {
+      c: 'A',
+      s: 'hello',
+      u8: 1,
+      u16: 2,
+      u32: 3,
+      u64: 4n,
+      s8: 5,
+      s16: 6,
+      s32: 7,
+      s64: 8n,
+      f: 1.5,
+      d: 2.5,
+      u8Array: [1, 2, 3],
+      u16Array: [1, 2, 3],
+      u32Array: [1, 2, 3],
+      u64Array: [1n, 2n, 3n],
+      s8Array: [1, 2, 3],
+      s16Array: [1, 2, 3],
+      s32Array: [1, 2, 3],
+      s64Array: [1n, 2n, 3n],
+      fArray: [1, 2, 3],
+      dArray: [1, 2, 3]
+    }
+    const frame = ours(TEST_TYPES, fields)
+    // Byte 160 of the payload holds 'A'; upstream's decoder reads the frame back as given.
+    expect(frame.slice(2 * (10 + 160), 2 * (10 + 161))).toBe('41')
+    const decoded = theirDecoding(frame)
+    // (Upstream keeps a string's NUL padding.)
+    expect([decoded['c'], decoded['s'], decoded['u8'], decoded['f'], decoded['d']]).toEqual(['A', 'hello\0\0\0\0\0', 1, 1.5, 2.5])
+    // An empty string packs 0, as an empty string array element does.
+    expect(ours(TEST_TYPES, { ...fields, c: '' }).slice(2 * (10 + 160), 2 * (10 + 161))).toBe('00')
   })
 
   it('cuts strings to the field and keeps the low byte of each character code', () => {
@@ -294,7 +385,8 @@ describe('upstream jspack value packing', () => {
       expect(frame, JSON.stringify(extensions)).toBe(theirs('battery_status', args))
     }
     const broken = Uint8Array.from(Buffer.from(ours(BATTERY_STATUS, named([...base, undefined, 5, 6])), 'hex'))
-    expect(new MavlinkParser({ messages: [BATTERY_STATUS] }).parse(broken).map((e) => e.kind)).toEqual(['garbage'])
+    // The bad checksum drops the start marker, then the rest is noise (proven upstream bug #150 fixed).
+    expect(new MavlinkParser({ messages: [BATTERY_STATUS] }).parse(broken).map((e) => e.kind)).toEqual(['garbage', 'garbage'])
   })
 
   it('packs missing float array elements and omitted float extensions as NaN, omitted arrays as zeros', () => {

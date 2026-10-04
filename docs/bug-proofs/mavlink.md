@@ -18,7 +18,8 @@ Paths below are relative to `upstream/modules/MAVLink/` unless they start with `
 | 156 | SHA-256 length block holds only 32 bits                                        | PROVEN                                               | Mathematics: digest differs from the reference SHA-256 (Node `crypto`)                        |
 | 157 | Keys that are not 32 bytes are padded or cut                                   | NOT PROVEN                                           | Keys are defined as 32 bytes; nothing defines the result for other lengths                    |
 
-PROVEN: 5 (counting #154 once). NOT PROVEN: 3. No row is mis-described: every effect the rows state
+PROVEN: 5 (counting #154 once). NOT PROVEN: 3. Fixed in `packages/mavlink`: #150,
+#153, #154 (TEST_TYPES), #156. No row is mis-described: every effect the rows state
 was reproduced exactly (byte values, the 280-byte bound, the `RangeError`/`TypeError` cases).
 
 ---
@@ -63,6 +64,29 @@ keep upstream's behaviour.
 **Smallest port change:** `packages/mavlink/src/parser.ts` `next()` (line 191): when `decode` returns a
 `garbage` event with reason `crc` or `incompat-flags`, report and drop only the first byte
 (advance the read position by one byte from the frame start) instead of the whole `take(frameLength)`.
+
+**Status: FIXED** for the cases the minimal behaviour above covers (checksum and
+incompatibility-flag failures). `packages/mavlink/src/parser.ts` `next()` takes a copy of the claimed
+frame without consuming it; when `decode` refuses it for its checksum or its incompatibility flags (the
+only `garbage` events `decode` returns, now carrying just the marker byte), the read position advances
+by one byte, otherwise by the whole frame. Before/after, input `FD 28 00 00 00 01 01 00 00 00` + a
+HEARTBEAT + 30 zero bytes + an ATTITUDE (`parser.oracle.test.ts`): upstream gives `BAD_DATA` (invalid
+CRC), `BAD_DATA` (bad prefix), `ATTITUDE`; the port gives `garbage:crc` (1 byte), `garbage:noise`,
+`HEARTBEAT`, `garbage:noise`, `ATTITUDE`.
+
+**Not changed: the reproduction input above.** Its 17 claimed bytes are refused as an unknown message
+id (65792), which this entry leaves with upstream's behaviour. On `FD 05 00` + two HEARTBEATs the port
+still gives `unknown`, `garbage:noise` (7 bytes), `HEARTBEAT` seq 1, losing seq 0 as upstream does.
+
+Tests: in `packages/mavlink/src/parser.oracle.test.ts` every comparison now runs upstream with its TODO
+applied (`applyResyncTodo` in `test-utils/upstream.ts`) and, where no frame fails on its checksum or
+flags, asserts unpatched upstream gives exactly the same result. `a false start marker in noise no
+longer swallows the frames inside its claimed length (proven bug #150)`, `a corrupted length byte no
+longer discards the frames inside the bytes it claims (proven bug #150)`, `a bad checksum drops the
+start marker, ...`, `truncated frames wait for the claimed length, then fail` and `refuses
+incompatibility flags other than SIGNED, dropping only the start marker` pin unpatched upstream's output
+and the port's. `random streams` checks every mode and chunking against upstream with the TODO applied.
+The `framing` tests in `fixtures.test.ts` are updated to the corrected events.
 
 ---
 
@@ -158,6 +182,16 @@ to a zero magnitude in binary32) it packs `00 00 00 80`. ECMAScript's `DataView.
 **Smallest port change:** `packages/mavlink/src/encode.ts:94` and `:96`: drop the `value === 0 ? 0 :`
 substitution (write `float32TiesAway(value)` / `value`), and update the comment at line 88.
 
+**Status: FIXED.** `packages/mavlink/src/encode.ts` `writeFloat` writes
+`float32TiesAway(value)` / `value` (the `value === 0 ? 0 :` substitution removed). A float -0 (the
+reproduction's ATTITUDE `roll`, COMMAND_INT `param1` in the tests) was `00 00 00 00` (upstream and the
+old port) and is now `00 00 00 80`, the bytes upstream gives -1e-50;
+a double -0 in WHEEL_DISTANCE now ends `80`. Tests (`packages/mavlink/src/oracle.test.ts`): `clamps and
+truncates integers, rounds float32 ties away from zero, packs NaN its way and -0 with its sign` asserts
+upstream packs -0 as +0, the port packs exactly what upstream packs for -1e-50, and +0 is identical;
+`packs -0 with its sign in floats and doubles, where upstream packs +0 (proven bug #153)` checks
+upstream's own decoder reads the port's frames back as -0.
+
 ---
 
 ## #154 Some messages cannot be packed
@@ -201,6 +235,16 @@ packs and round-trips.
 (`field.arrayLength === undefined`), write `value.charCodeAt(0)` (or 0 when the string is empty) into
 the field's byte, sharing the existing string path with a count of 1.
 
+**Status: FIXED** for TEST_TYPES only. `packages/mavlink/src/encode.ts` `packPayload`
+no longer refuses a scalar `char`: it shares the string path with a count of 1 (the first character's
+code, 0 for an empty string). Omitted strings, byte arrays and 64-bit values still throw, as upstream.
+TEST_TYPES with `c: 'A'` threw `fxn is not a function` (upstream) / `RangeError` (old port); the port now
+packs byte 160 as `41`. Tests: `oracle.test.ts` `packs a scalar char as its character code, where
+upstream cannot pack TEST_TYPES at all (proven bug #154)` (upstream still throws; upstream's decoder
+reads the port's frame back); `decodes random frames of every message identically and re-encodes them
+to the same bytes` now re-encodes TEST_TYPES too and still asserts upstream cannot; `codec.test.ts`
+`round trip` includes TEST_TYPES.
+
 ---
 
 ## #155 Frame checksum overwrites a field called `crc`
@@ -232,6 +276,16 @@ under `crc`; the frame checksum must not replace it.
 **Smallest port change:** `apps/telemetry-dashboard/src/mavlink/legacy-message.ts:192`: set the
 frame-info `crc` only when the message has no field called `crc` (and adjust the comment at line 61).
 `@apwt/mavlink` already keeps the field and the checksum apart.
+
+**Status:** FIXED. `toLegacyMessage`
+(`apps/telemetry-dashboard/src/mavlink/legacy-message.ts`) sets the frame-info `crc` to the message's own
+`crc` field when it has one, else to the frame checksum (key order unchanged). Tests in
+`apps/telemetry-dashboard/src/mavlink/legacy-message.test.ts`: "proven bug #155:
+CUBEPILOT_FIRMWARE_UPDATE_START keeps its crc field instead of the frame checksum" (the frame above:
+upstream `crc` 0x3fca, port 0x12345678, everything else identical), and "matches upstream for random
+frames of every shared message, …", which stays strictly identical for every other message and, for
+CUBEPILOT_FIRMWARE_UPDATE_START, asserts upstream's checksum, the port's field value, and identity of
+all other keys.
 
 ---
 
@@ -273,6 +327,14 @@ from `Math.floor(bitLen / 2 ** 32)`, the low four as now. Digests below 512 MiB 
 **Smallest port change:** `packages/mavlink/src/sha256.ts:46`: replace the four leading zeros with the
 bytes of `Math.floor(bitLength / 2 ** 32)` and update the comment at lines 6-7. (No caller hashes that
 much; signing hashes at most 306 bytes, so no output changes.)
+
+**Status: FIXED.** `packages/mavlink/src/sha256.ts` writes the bit length's high 32
+bits (`Math.floor(bitLength / 2 ** 32)`) and low 32 bits big-endian into the last 8 bytes. For 2^29
+zero bytes the port gave upstream's `754b83b4…151c`, now `9acca8e8…d767` (Node `crypto`). Tests:
+`packages/mavlink/src/sha256.test.ts` (`matches the reference around the block and length-field
+boundaries`, and, with `APWT_SLOW_PROOFS=1`, `writes the full 64-bit bit length: 2^29 bytes hash
+correctly (proven bug #156)`, about 18 s and 1.1 GB); `parser.oracle.test.ts` `computes SHA-256 and
+signatures as upstream` still checks byte identity with upstream below 512 MiB.
 
 ---
 

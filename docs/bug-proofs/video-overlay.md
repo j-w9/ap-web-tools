@@ -6,14 +6,14 @@ Verdicts for the Video Overlay rows of [`../upstream-bugs.md`](../upstream-bugs.
 `upstream/VideoOverlay/VideoOverlay.js` and runs them in `node:vm`, loads both original `SandBox.js`
 files into one context, and imports the original `JsDataflashParser`).
 
-| #   | Bug                                                                    | Verdict    |
-| --- | ---------------------------------------------------------------------- | ---------- |
-| 118 | Overlay file with neither `widgets` nor `widget` shows `[object File]` | NOT PROVEN |
-| 119 | Widget scripts reading an instanced message without an instance throw  | PROVEN     |
-| 120 | A video without an audio track stops the video panel part way          | PROVEN     |
-| 121 | Log duration and default offset from first/last records by position    | NOT PROVEN |
-| 165 | Sandbox widgets run their script twice when the frame loads            | NOT PROVEN |
-| 166 | A log that fails to parse is still sent to widgets later               | NOT PROVEN |
+| #   | Bug                                                                    | Verdict       |
+| --- | ---------------------------------------------------------------------- | ------------- |
+| 118 | Overlay file with neither `widgets` nor `widget` shows `[object File]` | NOT PROVEN    |
+| 119 | Widget scripts reading an instanced message without an instance throw  | PROVEN, FIXED |
+| 120 | A video without an audio track stops the video panel part way          | PROVEN, FIXED |
+| 121 | Log duration and default offset from first/last records by position    | NOT PROVEN    |
+| 165 | Sandbox widgets run their script twice when the frame loads            | NOT PROVEN    |
+| 166 | A log that fails to parse is still sent to widgets later               | NOT PROVEN    |
 
 PROVEN: 2. NOT PROVEN: 4.
 
@@ -79,6 +79,14 @@ so a script's `== null` check reports `Unknown log message: IMU.GyrX`.
 `undefined` instead of throwing when `instance` is `null`/`undefined` and the message is instanced
 (and drop the matching "throws like upstream" expectation in `parser-facade.test.ts`).
 
+**Status: FIXED.** `apps/video-overlay/src/widgets/parser-facade.ts` `get_instance`
+returns `undefined` for an instanced message read without an instance (`get('IMU', 'GyrX')`,
+`get('IMU')`, `get_instance('IMU', undefined, 'GyrX')`): before, a thrown
+`TypeError: Cannot read properties of undefined (reading 'length')`; after, `undefined`. Test:
+`apps/video-overlay/src/widgets/parser-facade.test.ts` "returns undefined where upstream throws for an
+instanced message read without an instance (proven bug #119)", which asserts upstream's throw and the
+port's `undefined` side by side for all three logs; every other comparison with upstream is unchanged.
+
 ## 120. A video without an audio track stops the video panel part way
 
 Row: `VideoOverlay/VideoOverlay.js`, `vid-upload` change handler (`audioTrack.codec`). "FPS is shown;
@@ -114,6 +122,18 @@ for a video with audio; only the audio part (audio codec text and audio codec ma
 **Smallest port change:** in `apps/video-overlay/src/App.tsx` `openVideo`, remove the early return for
 `info.audioCodec === undefined` (and its synthetic error); build the codec text from the video codec
 alone when there is no audio track, and skip the audio codec in `matchSelectionToInput` in that case.
+
+**Status: FIXED.** `apps/video-overlay/src/App.tsx` `openVideo` no longer stops for a
+video without an audio track; `apps/video-overlay/src/analysis/export-formats.ts` adds
+`inputCodecText` (the video codec alone when there is no audio track, upstream's `video + audio`
+otherwise) and `matchSelectionToInput` skips the audio codec when `audioCodec` is `undefined`. For the
+reproduction input (avc 1920x1080, 29.97 fps, 75 s, MP4, no audio): before, FPS `29.97` and the error
+`Cannot read properties of null (reading 'codec')`, nothing else; after, FPS `29.97`, codec `avc`,
+resolution `1920x1080px`, duration `1:15`, start 0, end 75, export 1920x1080, and format, video codec
+and frame rate matched as for a video with audio. Tests: `apps/video-overlay/src/analysis/export-formats.test.ts`
+"matches a video without an audio track except for the audio codec (proven upstream bug #120)" and
+"writes the codec info as upstream, and the video codec alone without an audio track (proven bug
+#120)"; upstream's result is asserted by the proofs test above.
 
 ## 121. Log duration and default offset come from the first and last records by file position
 

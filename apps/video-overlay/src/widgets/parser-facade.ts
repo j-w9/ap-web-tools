@@ -9,9 +9,11 @@
  * - numeric columns as `Float64Array`, text as arrays of strings, `int16[32]` as arrays of plain
  *   arrays, a fresh copy on every call (scripts may modify what they get);
  * - `messageTypes` with upstream's `expressions`, `units`, `multipliers` and `complexFields`
- *   (unit labels built with upstream's tables and formula), instances in order of appearance;
+ *   (unit labels built with upstream's tables and formula, with the parser's proven fixes: `µ` for
+ *   1e-6, and an FMTU for an undefined type skipped), instances in order of appearance;
  * - instance numbers matched as property keys (`instance in InstancesOffsetArray`);
- * - upstream's bug for instanced messages read without an instance (it throws);
+ * - an instanced message read without an instance returns `undefined` (upstream threw a TypeError
+ *   there, a proven bug: see docs/bug-proofs/video-overlay.md #119);
  * - every array, object and date created in the calling document's realm, as a module imported by
  *   that document would create them (`forRealm`).
  *
@@ -58,8 +60,11 @@ export interface Realm {
   readonly Date: DateConstructor
 }
 
-/** Upstream `multipliersTable`: unit prefixes for three multipliers (`n` for 1e-6 is upstream's). */
-const MULTIPLIER_PREFIX: Readonly<Record<string, string>> = { '0.000001': 'n', '1000': 'M', '0.001': 'm' }
+/**
+ * Upstream `multipliersTable`: unit prefixes for three multipliers, except that 1e-6 is the SI
+ * prefix micro (`µ`) where upstream has `n` (proven upstream bug, docs/bug-proofs/js-dataflash-parser.md #2).
+ */
+const MULTIPLIER_PREFIX: Readonly<Record<string, string>> = { '0.000001': '\u00b5', '1000': 'M', '0.001': 'm' }
 
 function isTextColumn(column: string[] | Int16Array[]): column is string[] {
   return column.length === 0 || typeof column[0] === 'string'
@@ -76,8 +81,9 @@ function own<T>(table: Readonly<Record<string, T>>, key: string | undefined): T 
 
 /**
  * Upstream `populateUnits()`: per message id, the unit label and multiplier of every character of
- * its FMTU `UnitIds` and `MultIds` (last record wins). A record for an undefined message type threw
- * and abandoned the rest; without FMTU there are none.
+ * its FMTU `UnitIds` and `MultIds` (last record wins). A record for an undefined message type is
+ * skipped, as `@apwt/dataflash` does (upstream threw and abandoned every later record: proven bug,
+ * docs/bug-proofs/js-dataflash-parser.md #3); without FMTU there are none.
  */
 function fmtuUnits(log: DataflashLog): Map<number, { units: (string | undefined)[]; multipliers: (number | undefined)[] }> {
   const out = new Map<number, { units: (string | undefined)[]; multipliers: (number | undefined)[] }>()
@@ -90,7 +96,7 @@ function fmtuUnits(log: DataflashLog): Map<number, { units: (string | undefined)
   const defined = new Set(log.formats().map((f) => f.id))
   for (let i = 0; i < types.length; i++) {
     const type = Number(types[i])
-    if (!defined.has(type)) break
+    if (!defined.has(type)) continue
     const units = unitIds[i]
     const mults = multIds[i]
     out.set(type, {
@@ -207,9 +213,10 @@ export class DataflashParserFacade {
       inst = [...(info.instances?.keys() ?? [])].find((k) => String(k) === key)
       if (inst === undefined) return undefined
     } else if (info.instances !== undefined) {
-      // Upstream bug, reproduced: splitting a message into instances deletes its `OffsetArray`, so
-      // reading an instanced message without an instance number throws.
-      throw new TypeError("Cannot read properties of undefined (reading 'length')")
+      // Proven upstream bug #119, fixed: upstream deleted the message's `OffsetArray` when splitting
+      // it into instances, so reading it without an instance threw. Like upstream's other no-data
+      // paths, this returns `undefined`, which the widget scripts report as an unknown log message.
+      return undefined
     }
     if (field) {
       if (typeof field !== 'string') return undefined

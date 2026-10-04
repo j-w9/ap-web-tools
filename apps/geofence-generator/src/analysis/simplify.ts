@@ -50,20 +50,27 @@ export function triangleArea(vertex: Point, prev: Point, next: Point): number {
 }
 
 /**
- * Upstream `line_intersects`, which is meant to say whether two segments cross. Its bounding-box
- * early outs work, but it then builds its direction vectors with the comma operator
- * (`(a, b)` evaluates to `b`, a number), so `r1[0]` is `undefined`, every cross product is `NaN`
- * and every remaining comparison is false: it never reports a crossing. The port reproduces that
- * result (see docs/upstream-bugs.md), so simplification can create self-intersecting fences just
- * as upstream does.
+ * Upstream `line_intersects`: whether two segments cross (bounding-box early outs, then the
+ * standard cross-product test). Upstream builds its direction vectors with the comma operator
+ * (`(a, b)` evaluates to `b`, a number), so its cross products are `NaN` and it never reports a
+ * crossing. That is a proven bug (docs/bug-proofs/geofence-generator.md): here the vectors are
+ * `[dx, dy]` as the algorithm needs, with upstream's operand order and tolerances otherwise kept.
  */
 export function lineIntersects(seg1Start: Point, seg1End: Point, seg2Start: Point, seg2End: Point): boolean {
   if (Math.min(seg1Start[1], seg1End[1]) > Math.max(seg2Start[1], seg2End[1])) return false
   if (Math.max(seg1Start[1], seg1End[1]) < Math.min(seg2Start[1], seg2End[1])) return false
   if (Math.min(seg1Start[0], seg1End[0]) > Math.max(seg2Start[0], seg2End[0])) return false
   if (Math.max(seg1Start[0], seg1End[0]) < Math.min(seg2Start[0], seg2End[0])) return false
-  // Upstream's cross-product test runs on NaN here and always falls through to `return false`.
-  return false
+  const r1: Point = [seg1End[0] - seg1Start[0], seg1End[1] - seg1Start[1]]
+  const r2: Point = [seg2End[0] - seg2Start[0], seg2End[1] - seg2Start[1]]
+  const r1xr2 = r1[0] * r2[1] - r1[1] * r2[0]
+  // Collinear, or parallel and non-intersecting.
+  if (Math.abs(r1xr2) < 1e-9) return false
+  const ss2ss1: Point = [seg2Start[0] - seg1Start[0], seg2Start[1] - seg1Start[1]]
+  const qPxr = ss2ss1[0] * r1[1] - ss2ss1[1] * r1[0]
+  const t = (ss2ss1[0] * r2[1] - ss2ss1[1] * r2[0]) / r1xr2
+  const u = qPxr / r1xr2
+  return u >= 0 && u <= 1 && t >= 0 && t <= 1
 }
 
 interface WorkRing {
@@ -173,9 +180,9 @@ export function simplifyRings(input: readonly XYRing[]): SimplifiedShape[] {
       break
     }
     if (target === null) {
-      // Unreachable: a ring that is not at its minimum has finite areas, and nothing is ever
-      // marked infinite because `lineIntersects` never fires. Upstream would throw here too.
-      throw new Error('simplifyRings: no point left to remove')
+      // Every remaining candidate is blocked by the crossing guard. Upstream never gets here
+      // (its guard never fires); with the guard fixed, keep what is left.
+      break
     }
 
     const len = target.x.length

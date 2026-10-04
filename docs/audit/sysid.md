@@ -43,7 +43,7 @@ result), **browser-forced**, **crash handling**.
 | `micropip.install("control", keep_going=true, deps=false)` (positional `true, false`), latest from PyPI                  | same positional call, unpinned                                                                                                                                | identical                                                                       |
 | `micropip.install("../modules/build/pyAircraftIden-1.0-py3-none-any.whl", {keep_going, upgrade})`, failure only reported | wheel imported with `?url`, written to `/tmp/<wheel name>` in Pyodide's file system, installed from `emfs:` with the same options; same success/failure lines | browser-forced (the bundler's hashed asset name is not a valid wheel file name) |
 | `sys.stdout`/`sys.stderr` written to the `output` text area                                                              | `capture_output.py` verbatim; `ui/ConsolePanel.tsx` keeps a text area with id `output`                                                                        | identical                                                                       |
-| `main()` clears the output after init has started                                                                        | `App.tsx` `startPython`                                                                                                                                       | identical (see bugs)                                                            |
+| `main()` clears the output after init has started                                                                        | `App.tsx` `startPython`                                                                                                                                       | proven bug fixed: not cleared                                                   |
 
 ### Log and flight data (`load`, `setup_flight_data_plot`, `populate_log_message_select`)
 
@@ -59,35 +59,35 @@ result), **browser-forced**, **crash handling**.
 
 ### Model forms (`index.html` `main()`)
 
-| Upstream item                                                                                                                                                                                                                                                                                        | Port location                                                   | Status                                                              |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Neither model type selected at start                                                                                                                                                                                                                                                                 | `INITIAL_SETUP.model = null`                                    | identical                                                           |
-| Transfer function radio recreates Input 1 / Output 1 (multiplier, gravity compensation Roll/Pitch)                                                                                                                                                                                                   | `selectModel`, `TransferFunctionSetup.tsx`                      | identical; chips instead of checkboxes (presentation)               |
-| Numerator, Denominator, Symbolic params text                                                                                                                                                                                                                                                         | `TransferFunctionSetup.tsx`                                     | identical (placeholders added: presentation)                        |
-| State space radio recreates the preset dropdown (Manual entry)                                                                                                                                                                                                                                       | `selectModel`                                                   | identical                                                           |
-| Preset choice, Outputs, Matrix A order, Number of params, Number of constraints, Generate fields                                                                                                                                                                                                     | `StateSpaceSetup.tsx`, `generateFields`                         | identical; chips for the preset (presentation)                      |
-| Generate: preset writes sizes; alert `Please enter valid numbers for inputs and outputs.` on `manual && isNaN(outputs) \|\| outputs <= 0`; fields recreated; preset fills params, constraints, input, outputs; order checked afterwards (same alert, matrix tables kept); matrices and bounds filled | `generateFields`                                                | identical (oracle); alert shown in the page                         |
-| Preset setters (`setinputValues` ... `setH1`)                                                                                                                                                                                                                                                        | `analysis/presets.ts` tables                                    | identical (oracle against the upstream functions)                   |
-| `select.value = x` for a message the log lacks leaves the picker empty                                                                                                                                                                                                                               | `generateFields` `choose`                                       | identical                                                           |
-| Preset without a loaded log: upstream throws part way (`input.onchange` is null)                                                                                                                                                                                                                     | `generateFields` returns the partial setup and an error message | crash handling                                                      |
-| Shared ids between the two forms                                                                                                                                                                                                                                                                     | `setup.ts` `slotOwner/readSlot/writeSlot`                       | identical (see bugs); a note in the page says the fields are shared |
+| Upstream item                                                                                                                                                                                                                                                                                        | Port location                                                   | Status                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| Neither model type selected at start                                                                                                                                                                                                                                                                 | `INITIAL_SETUP.model = null`                                    | identical                                             |
+| Transfer function radio recreates Input 1 / Output 1 (multiplier, gravity compensation Roll/Pitch)                                                                                                                                                                                                   | `selectModel`, `TransferFunctionSetup.tsx`                      | identical; chips instead of checkboxes (presentation) |
+| Numerator, Denominator, Symbolic params text                                                                                                                                                                                                                                                         | `TransferFunctionSetup.tsx`                                     | identical (placeholders added: presentation)          |
+| State space radio recreates the preset dropdown (Manual entry)                                                                                                                                                                                                                                       | `selectModel`                                                   | identical                                             |
+| Preset choice, Outputs, Matrix A order, Number of params, Number of constraints, Generate fields                                                                                                                                                                                                     | `StateSpaceSetup.tsx`, `generateFields`                         | identical; chips for the preset (presentation)        |
+| Generate: preset writes sizes; alert `Please enter valid numbers for inputs and outputs.` on `manual && isNaN(outputs) \|\| outputs <= 0`; fields recreated; preset fills params, constraints, input, outputs; order checked afterwards (same alert, matrix tables kept); matrices and bounds filled | `generateFields`                                                | identical (oracle); alert shown in the page           |
+| Preset setters (`setinputValues` ... `setH1`)                                                                                                                                                                                                                                                        | `analysis/presets.ts` tables                                    | identical (oracle against the upstream functions)     |
+| `select.value = x` for a message the log lacks leaves the picker empty                                                                                                                                                                                                                               | `generateFields` `choose`                                       | identical                                             |
+| Preset without a loaded log: upstream throws part way (`input.onchange` is null)                                                                                                                                                                                                                     | `generateFields` returns the partial setup and an error message | crash handling                                        |
+| Shared ids between the two forms                                                                                                                                                                                                                                                                     | `setup.ts` `readSlot`/`writeSlot`                               | proven bug fixed: each form uses its own fields       |
 
 ### Submit (`run_transfer_function_ID`, `run_SS_ID`)
 
-| Upstream item                                                                                              | Port location                                                       | Status                                      |
-| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------- |
-| `File Submitted successfully. Please wait!!!!!!` (transfer function only)                                  | `App.tsx` `submit`                                                  | identical                                   |
-| Input sliced `[nearestIndex(t, start*1e6), nearestIndex(t, end*1e6))` on its own TimeUS; outputs on theirs | `analysis/prepare.ts` `prepareSignals`, `columns.ts` `nearestIndex` | identical (oracle)                          |
-| Times: transfer function uses the trimmed text (`Number`), state space `parseFloat`                        | `analysis/request.ts`                                               | identical (oracle)                          |
-| Multiplier applied when its text is truthy (`parseFloat`)                                                  | `prepare.ts` `multiplierValue`                                      | identical                                   |
-| Gravity compensation `± (pi/180) * mult * 9.81 * ATT[att_ind1 + j]`                                        | `prepare.ts` `compensate`                                           | identical, NaN past the end of ATT (oracle) |
-| State space alert for bad output count                                                                     | `request.ts` `stateSpaceInputs`                                     | identical text, in the page                 |
-| Matrix cells: numeric text to number, other text kept, empty or missing to null                            | `request.ts` `matrixValues`                                         | identical (oracle)                          |
-| Bounds `parseFloat` per param field; constraints `[[A, B], ...]` or `[[]]`                                 | `stateSpaceInputs`                                                  | identical (oracle)                          |
-| Globals set and Python run                                                                                 | `runtime.ts` `runTransferFunction/runStateSpace`                    | identical names and values                  |
-| Missing message/field/instanced message: upstream throws in `parser.get(...)`/`Array.from`                 | `columns.ts` `requireColumn` throws `MissingDataError`              | crash handling (error banner)               |
-| Fields missing because sizes were raised after generating: upstream throws                                 | `request.ts` `missing`                                              | crash handling                              |
-| Python exceptions: upstream leaves an unhandled rejection; traceback in the output                         | traceback in the output (Python's stderr), error banner             | crash handling                              |
+| Upstream item                                                                                                                      | Port location                                                       | Status                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `File Submitted successfully. Please wait!!!!!!` (transfer function only)                                                          | `App.tsx` `submit`                                                  | identical                                                                                                                  |
+| Input sliced `[nearestIndex(t, start*1e6), nearestIndex(t, end*1e6))` on its own TimeUS; outputs on theirs                         | `analysis/prepare.ts` `prepareSignals`, `columns.ts` `nearestIndex` | identical (oracle)                                                                                                         |
+| Times: transfer function uses the trimmed text (`Number`), state space `parseFloat`                                                | `analysis/request.ts`                                               | identical (oracle)                                                                                                         |
+| Multiplier applied when its text is truthy (`parseFloat`)                                                                          | `prepare.ts` `multiplierValue`                                      | identical                                                                                                                  |
+| Gravity compensation `± (pi/180) * mult * 9.81 * ATT[att_ind1 + j]`                                                                | `prepare.ts` `compensate`                                           | proven bug fixed: ATT sample nearest in time (identical where ATT is logged with the output; NaN past the end of ATT kept) |
+| State space alert for bad output count                                                                                             | `request.ts` `stateSpaceInputs`                                     | identical text, in the page                                                                                                |
+| Matrix cells: numeric text to number, other text kept, empty or missing to null                                                    | `request.ts` `matrixValues`                                         | identical (oracle)                                                                                                         |
+| Bounds `parseFloat` per param field; constraints `[[A, B], ...]` or `[[]]`                                                         | `stateSpaceInputs`                                                  | identical (oracle)                                                                                                         |
+| Globals set and Python run                                                                                                         | `runtime.ts` `runTransferFunction/runStateSpace`                    | identical names and values                                                                                                 |
+| Missing message/field: upstream throws in `parser.get(...)`/`Array.from` (instanced `NAME[n]`: proven bug fixed, reads instance n) | `columns.ts` `requireColumn` throws `MissingDataError`              | crash handling (error banner)                                                                                              |
+| Fields missing because sizes were raised after generating: upstream throws                                                         | `request.ts` `missing`                                              | crash handling                                                                                                             |
+| Python exceptions: upstream leaves an unhandled rejection; traceback in the output                                                 | traceback in the output (Python's stderr), error banner             | crash handling                                                                                                             |
 
 ### Results
 
@@ -112,20 +112,39 @@ result), **browser-forced**, **crash handling**.
 
 ## Upstream bugs reproduced
 
-Listed in `docs/upstream-bugs.md`:
+Listed in `docs/upstream-bugs.md`; not proven to the standard in
+[`../bug-proofs/sysid.md`](../bug-proofs/sysid.md), so the port reproduces them:
+
+1. Repeated Generate fields handlers after toggling model types: one click runs the generator, and
+   raises its alert, once per State space selection (`setup.ts` `generateClick`; the fields end as one
+   run leaves them).
+2. Ticked but empty multiplier ignored.
+3. Every model selection or Generate click appends another option set to surviving selects (new row).
+   Presentation only (selected values unchanged); the port's pickers list each message once.
+
+## Proven upstream bugs fixed
+
+Proven in [`../bug-proofs/sysid.md`](../bug-proofs/sysid.md) (reproductions in `proofs/sysid`); each fix
+changes only the proven case, and the oracle tests assert upstream's result, the port's, and identity
+elsewhere.
 
 1. Multirotor yaw preset bounds misaligned. `setBounds` writes Nr, Nped, Npedp, wlag, wlg; pyAircraftIden
-   creates unknowns per matrix cell, A before B, so the order is Nr, Nped, wlag, Npedp, wlg. wlag gets
-   (-10, 10) and Npedp (-50, 0). `constrain_func` then sets A_1_1 = -B_1_0 in place in x0, which leaves
-   the bounds, and scipy's SLSQP raises ``ValueError: `x0` violates bound constraints`` on most random
-   starts. Reproduced natively with the same wheel and in the browser. Entering bounds in cell order works.
-2. Shared field ids between the forms (state space uses the transfer function's Input 1 / Output 1).
-3. Gravity compensation indexed by output sample number into ATT, NaN past its end; discarded `slice`.
-4. Repeated Generate fields handlers after toggling model types.
-5. Output cleared after init starts, losing "Initializing Pyodide...".
-6. Cutoff converted with `2 * 3.14`.
-7. Ticked but empty multiplier ignored.
-8. Instanced messages listed but unreadable.
+   creates unknowns per matrix cell, A before B, so the order is Nr, Nped, wlag, Npedp, wlg, and wlag got
+   (-10, 10), Npedp (-50, 0). Port: the MR_Yaw preset lists parameters and bounds in cell order
+   (`presets.ts`; `presets.test.ts`). The audit's earlier native and browser runs found SLSQP then raises
+   ``ValueError: `x0` violates bound constraints`` on most random starts; that consequence is not part of
+   the proof.
+2. Shared field ids between the forms (State Space Submit and presets used the hidden transfer function
+   form's Input 1 / Output 1). Port: each form reads and writes its own fields (`setup.ts` `readSlot` /
+   `writeSlot`; `request.test.ts`, `setup.test.ts`).
+3. Gravity compensation indexed by output sample number into ATT (attitude from the wrong time, NaN past
+   ATT's end although ATT covers the window). Port: each output sample uses the ATT sample nearest in time
+   within ATT's span (`prepare.ts` `compensate`; `request.test.ts`).
+4. Output cleared after init starts, losing "Initializing Pyodide...". Port: not cleared (`App.tsx`
+   `startPython`).
+5. Cutoff converted with `2 * 3.14`. Port: `2*math.pi` in both scripts (`scripts.test.ts`).
+6. Instanced messages listed but unreadable. Port: `NAME[n]` reads instance n (`columns.ts`
+   `upstreamColumn`; `request.test.ts`).
 
 ## UI audit
 

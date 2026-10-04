@@ -60,7 +60,7 @@ export interface VideoFileInfo {
   readonly formatName: string
   readonly fps: string
   readonly videoCodec: string | null
-  /** `undefined` when the file has no audio track (upstream then throws reading its codec). */
+  /** `undefined` when the file has no audio track (upstream threw reading its codec; proven bug #120, fixed). */
   readonly audioCodec: string | null | undefined
   readonly displayWidth: number
   readonly displayHeight: number

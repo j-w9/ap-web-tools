@@ -302,3 +302,34 @@ describe('SysID: each State space selection adds another Generate fields handler
     expect(twice.allById('input_name_1')[0]!.value).toBe(once.allById('input_name_1')[0]!.value)
   })
 })
+
+describe('SysID: populate_log_message_select appends another option set to existing selects', () => {
+  it('selecting Transfer function after generating doubles the State Space message lists', async () => {
+    const page = await freshPage()
+    page.choose('ss')
+    page.byId('populate_dropdown').value = 'MR_Roll'
+    page.byId('createFieldsButton').dispatch('click')
+    const ssInput = () => containerSelect(page, 'inputFieldsContainer', 'input_name_1')
+    const before = page.options(ssInput())
+    const value = ssInput().value
+    expect(before[0]).toBe('None')
+    expect(new Set(before).size).toBe(before.length)
+    page.choose('tf')
+    page.choose('ss')
+    const after = page.options(ssInput())
+    expect(after).toEqual([...before, ...before])
+    expect(ssInput().value).toBe(value)
+  })
+
+  it('every Generate fields click appends a set to the transfer function selects, once that form exists', async () => {
+    const page = await freshPage()
+    page.choose('tf')
+    const tfInput = () => containerSelect(page, 'tf_inputFieldsContainer', 'input_name_1')
+    const one = page.options(tfInput())
+    page.choose('ss')
+    page.byId('populate_dropdown').value = 'MR_Roll'
+    page.byId('createFieldsButton').dispatch('click')
+    page.byId('createFieldsButton').dispatch('click')
+    expect(page.options(tfInput())).toEqual([...one, ...one, ...one])
+  })
+})

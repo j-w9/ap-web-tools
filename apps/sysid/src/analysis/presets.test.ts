@@ -58,9 +58,44 @@ function upstreamPreset(id: PresetId, initial: string): Map<string, Field> {
   return page
 }
 
+/**
+ * Proven upstream bug (docs/bug-proofs/sysid.md row 1): upstream's MR_Yaw lists Npedp before wlag in
+ * the parameter and bound fields, but pyAircraftIden applies bounds by position in matrix-cell order
+ * (A, then B, H0, H1, each row by row), so the bounds landed on the wrong parameters. The port lists
+ * MR_Yaw in cell order; this maps the port's field index to upstream's for that preset.
+ */
+const UPSTREAM_FIELD_ORDER: Partial<Record<PresetId, readonly number[]>> = { MR_Yaw: [0, 1, 3, 2, 4] }
+
+/** The preset's unknowns in pyAircraftIden's order: non-numeric cells of A, B, H0, H1, row by row. */
+function cellOrder(id: PresetId): string[] {
+  const p = PRESETS[id]
+  return [p.a, p.b, p.h0, p.h1].flatMap((m) => m.flatMap((row) => row.filter((cell) => Number.isNaN(Number(cell)))))
+}
+
+describe('MR_Yaw parameter order (proven upstream bug fixed)', () => {
+  it('upstream lists Npedp before wlag with their bounds; the port lists them in cell order', () => {
+    const page = upstreamPreset('MR_Yaw', '?')
+    const value = (key: string) => page.get(key)?.value ?? '?'
+    expect([1, 2, 3, 4, 5].map((i) => value(`param_name_${i}`))).toEqual(['Nr', 'Nped', 'Npedp', 'wlag', 'wlg'])
+    expect([3, 4].map((i) => [value(`Bound_min_${i}`), value(`Bound_max_${i}`)])).toEqual([
+      ['-10', '10'],
+      ['-50', '0']
+    ])
+    expect(PRESETS.MR_Yaw.params).toEqual(['Nr', 'Nped', 'wlag', 'Npedp', 'wlg'])
+    expect(PRESETS.MR_Yaw.bounds[2]).toEqual(['-50', '0'])
+    expect(PRESETS.MR_Yaw.bounds[3]).toEqual(['-10', '10'])
+  })
+
+  it.each(PRESET_IDS)('%s: parameter fields are in pyAircraftIden cell order', (id) => {
+    expect(PRESETS[id].params).toEqual(cellOrder(id))
+  })
+})
+
 describe('presets match upstream index.html setters', () => {
   it.each(PRESET_IDS)('%s', (id) => {
-    const p = PRESETS[id]
+    const order = UPSTREAM_FIELD_ORDER[id]
+    const reorder = <T>(list: readonly T[]): T[] => (order ? order.map((k) => list[k]!) : [...list])
+    const p = { ...PRESETS[id], params: reorder(PRESETS[id].params), bounds: reorder(PRESETS[id].bounds) }
     const page = upstreamPreset(id, '?')
     const value = (key: string) => page.get(key)?.value ?? '?'
     expect([value('num_Outputs'), value('num_params'), value('A_order'), value('num_cons')]).toEqual([

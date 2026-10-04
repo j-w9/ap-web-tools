@@ -112,12 +112,19 @@ values, 1D curves of every leg, axis ranges and spheres for two missions.
 | ----------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SCurveTool.js` `replot`, 1000 s limit          | Set `WP_SPD`, `WP_SPD_UP`, `WP_SPD_DN` to 0.1 | The mission silently stops after 1000 s; the path ends before position 4 with no message. The port computes the same truncated path (it adds a note).            |
 | `SCurveTool.js` `replot`, field parsing         | Empty any number field                        | `NaN` is passed to `AC_WPNav`; the path and S-curves become `NaN` or degenerate. Reproduced.                                                                     |
-| `SCurveTool.js` `reset_wp_plot_data`            | Hover the Target line                         | Labels swapped: `N = %{y}`, `E = %{x}` (x is north). Label text only; the port labels correctly (presentation).                                                  |
 | `SCurveTool.js` `reset_wp_plot_data`            | Hover a waypoint                              | `%{meta}` with `meta: [1,2,3,4]` prints the whole array for every point. Label text only (presentation).                                                         |
 | `SCurveTool.js` `reset_wp_plot_data` / `replot` | Colour by velocity                            | `line.showscale` is never set and defaults to false for `scatter3d` lines, so the configured colorbar and its title never appear. No computed value is affected. |
 
 None of these changes a number the port computes differently, so no maths bug needed a deliberate
 divergence.
+
+## Proven upstream bugs fixed
+
+Proven to the standard in [`../bug-proofs/scurve-tool.md`](../bug-proofs/scurve-tool.md) (reproduction in `proofs/scurve-tool`). No code change was needed: the port already labels x as N and y as E (`traces.ts` `targetTrace`; test `target hover labels` in `traces.test.ts`).
+
+| Location                             | Reproduction          | Effect                                                                                                          |
+| ------------------------------------ | --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `SCurveTool.js` `reset_wp_plot_data` | Hover the Target line | Labels swapped: `N = %{y}`, `E = %{x}` (x is north). Label text only; the port labels correctly (presentation). |
 
 ## UI audit
 

@@ -135,12 +135,19 @@ describe('linearise matches upstream updateThrustExpoPlot', () => {
     expect(linearise(toData([]), DEFAULT_RANGE, { kind: 'fit' })).toBeNull()
   })
 
-  it('refits for a manual expo of 0 or NaN, as upstream `if (thrustExpo)` does', () => {
-    for (const expo of [0, Number.NaN]) {
-      const lin = expectSame({ rows: exampleRows, range: DEFAULT_RANGE, spinArm: 0.1, expo, auw: 2.5, motors: 4 })
-      expect(lin.setting).toBe('fit')
-      expect(lin.result.expo).not.toBe(0)
-    }
+  it('refits for a manual expo of NaN (an empty input), as upstream `if (thrustExpo)` does', () => {
+    const lin = expectSame({ rows: exampleRows, range: DEFAULT_RANGE, spinArm: 0.1, expo: Number.NaN, auw: 2.5, motors: 4 })
+    expect(lin.setting).toBe('fit')
+    expect(lin.result.expo).not.toBe(0)
+  })
+
+  it('keeps a manual expo of 0, which upstream refits (proven upstream bug fixed)', () => {
+    const { page, lin } = runBoth({ rows: exampleRows, range: DEFAULT_RANGE, spinArm: 0.1, expo: 0, auw: 2.5, motors: 4 })
+    // Upstream: `if (thrustExpo)` is false for 0, so it fits instead.
+    expect(page.api.params.MOT_THST_EXPO!.value).toBe(0.38500000000000106)
+    // Port: 0 (linear) is used as given.
+    expect(lin?.setting).toBe('fixed')
+    expect(lin?.result.expo).toBe(0)
   })
 })
 

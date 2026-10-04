@@ -3,9 +3,10 @@
  * `crypto.subtle.digest` cannot be used.
  *
  * Port of `mavlink20.sha256` in upstream `modules/MAVLink/mavlink.js` (pymavlink's JavaScript
- * generator, "with thanks to https://geraintluff.github.io/sha256/"). Like upstream, the length
- * block holds only the low 32 bits of the message's bit length, so inputs of 512 MiB or more hash
- * incorrectly; MAVLink signing hashes at most 306 bytes (see `docs/upstream-bugs.md`).
+ * generator, "with thanks to https://geraintluff.github.io/sha256/"). Upstream's length block holds
+ * only the low 32 bits of the message's bit length, so it hashes inputs of 512 MiB or more incorrectly;
+ * the port writes the full 64-bit length (proven upstream bug #156, see `docs/bug-proofs/mavlink.md`).
+ * MAVLink signing hashes at most 306 bytes, where both agree.
  */
 
 const K = new Uint32Array([
@@ -37,15 +38,14 @@ export function sha256(input: Uint8Array): Uint8Array {
   const length = input.length
   const bitLength = length * 8
 
-  // Message, 0x80, zero padding to a multiple of 64 bytes, then the bit length in the last 8 bytes,
-  // of which upstream fills only the low 4 (big-endian, truncated to 32 bits).
+  // Message, 0x80, zero padding to a multiple of 64 bytes, then the bit length, big-endian, in the
+  // last 8 bytes (upstream fills only the low 4).
   const padded = new Uint8Array(((length + 9 + 63) >> 6) << 6)
   padded.set(input)
   padded[length] = 0x80
-  padded.set(
-    [0, 0, 0, 0, (bitLength >>> 24) & 0xff, (bitLength >>> 16) & 0xff, (bitLength >>> 8) & 0xff, bitLength & 0xff],
-    padded.length - 8
-  )
+  const lengthBlock = new DataView(padded.buffer, padded.length - 8)
+  lengthBlock.setUint32(0, Math.floor(bitLength / 2 ** 32))
+  lengthBlock.setUint32(4, bitLength >>> 0)
 
   const w = new Uint32Array(64)
   for (let block = 0; block < padded.length; block += 64) {

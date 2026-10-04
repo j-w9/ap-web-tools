@@ -54,15 +54,26 @@ saved file (or the error saving throws).
 
 ## Upstream bugs reproduced
 
-| Location                                         | Reproduction                                                  | Effect                                                    |
-| ------------------------------------------------ | ------------------------------------------------------------- | --------------------------------------------------------- |
-| `updateThrustExpoPlot` `if (thrustExpo)`         | Example, enter expo 0                                         | Fit runs and overwrites 0                                 |
-| Row filter truthiness                            | Paste `0` as a thrust, or type `0`                            | Pasted 0 drops the row, typed "0" keeps it                |
-| MOT_SPIN_MIN listens to `input` for its value    | Load a file with `MOT_SPIN_MIN,0.13`                          | Box shows 0.13, plots and saved file keep 0.15            |
-| MOT_SPIN_MIN rule compares strings per keystroke | Type `0.15` in MOT_SPIN_MIN with arm `0.1`; arm `10`, min `2` | First keystroke snaps to `0.1`; `2` is not raised to `10` |
-| `MOT_THST_HOVER.save` never cleared              | Example, then AUW 100                                         | Hover box empty, file still writes the old estimate       |
-| `param_to_string(NaN)`                           | Empty MOT_PWM_MAX, Save                                       | Error, no file                                            |
-| `loadParamFile` on `paramFile`                   | File line `paramFile,1`                                       | Throws, later lines not applied                           |
+| Location                                 | Reproduction                               | Effect                                              |
+| ---------------------------------------- | ------------------------------------------ | --------------------------------------------------- |
+| Row filter truthiness                    | Paste `0` as a thrust, or type `0`         | Pasted 0 drops the row, typed "0" keeps it          |
+| `MOT_THST_HOVER.save` never cleared      | Example, then AUW 100                      | Hover box empty, file still writes the old estimate |
+| `loadParamFile` on `paramFile`           | File line `paramFile,1`                    | Throws, later lines not applied                     |
+| `updateThrustExpoPlot` `if (thrustExpo)` | Example, empty the expo box                | Fit runs (an entered 0 is fixed, see below)         |
+| MOT_SPIN_MIN rule runs per keystroke     | Type `0.15` in MOT_SPIN_MIN with arm `0.1` | First keystroke `0` snaps to `0.1`                  |
+
+## Proven upstream bugs fixed
+
+Proven to the standard in `docs/bug-proofs/README.md`; verdicts and reproductions in
+`docs/bug-proofs/thrust-expo.md` and `proofs/thrust-expo/`. The oracle tests assert upstream's
+result and the port's for each, and identical results everywhere else.
+
+| Location                                      | Reproduction                         | Upstream                                             | Port                                                     |
+| --------------------------------------------- | ------------------------------------ | ---------------------------------------------------- | -------------------------------------------------------- |
+| `updateThrustExpoPlot` `if (thrustExpo)`      | Example, enter expo 0                | Fit runs and overwrites 0 (box `0.385`)              | 0 is kept (box `0.000`)                                  |
+| MOT_SPIN_MIN listens to `input` for its value | Load a file with `MOT_SPIN_MIN,0.13` | Box shows 0.13, plots and saved file keep 0.15       | 0.13 is used and saved                                   |
+| MOT_SPIN_MIN rule compares strings            | Arm `10`, type min `2`               | `2` is not raised (`"2" < "10"` is false as strings) | Raised to `10` (numbers); empty boxes behave as upstream |
+| `param_to_string(NaN)`                        | Empty MOT_PWM_MAX, Save              | "Could not convert NaN to float string", no file     | "MOT_PWM_MAX is empty. Could not convert ...", no file   |
 
 ## UI audit
 

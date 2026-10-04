@@ -7,14 +7,15 @@ Ruckig build (`KinematicTool/Ruckig/ruckig.js`, `ruckig.wasm`) in `node:vm`, wit
 Plotly. Paths below are relative to `upstream/`; firmware paths are relative to
 `upstream/modules/ardupilot/` (f3836cf).
 
-| #   | Row                                                              | Verdict                             |
-| --- | ---------------------------------------------------------------- | ----------------------------------- |
-| 1   | Ruckig result not registered by embind is dereferenced           | PROVEN (port already meets the fix) |
-| 2   | Jerk plot reads a missing Ruckig jerk array after a Ruckig error | PROVEN (port already meets the fix) |
-| 3   | Empty inputs are simulated as NaN                                | NOT PROVEN                          |
-| 4   | Plane page shows the copter Parameters tooltip                   | PROVEN (help text)                  |
-| 5   | Mode tooltip repeats the Axis tooltip                            | NOT PROVEN                          |
-| A1  | `ATC_RATE_P_MAX`/`ATC_RATE_Y_MAX` named `ATC_RATE_R_MAX` (audit) | NOT PROVEN (no effect)              |
+| #   | Row                                                              | Verdict                        |
+| --- | ---------------------------------------------------------------- | ------------------------------ |
+| 1   | Ruckig result not registered by embind is dereferenced           | PROVEN, FIXED (no code change) |
+| 2   | Jerk plot reads a missing Ruckig jerk array after a Ruckig error | PROVEN, FIXED (no code change) |
+| 3   | Empty inputs are simulated as NaN                                | NOT PROVEN                     |
+| 4   | Plane page shows the copter Parameters tooltip                   | PROVEN, FIXED                  |
+| 5   | Mode tooltip repeats the Axis tooltip                            | NOT PROVEN                     |
+| 6   | Copter Parameters tooltip names `ATC_SLEW_YAW` (new row)         | PROVEN, FIXED                  |
+| A1  | `ATC_RATE_P_MAX`/`ATC_RATE_Y_MAX` named `ATC_RATE_R_MAX` (audit) | NOT PROVEN (no effect)         |
 
 ## 1. Ruckig result not registered by embind is dereferenced
 
@@ -55,6 +56,12 @@ unregistered result into `{ ok: false }`, the copter model keeps the other two m
 page shows a banner. Only the classification changes: this is a proven fix, not just the crash
 clause.
 
+Status: FIXED. Port: `apps/kinematic-tool/src/wasm/ruckig-planner.ts` (unregistered
+result becomes `{ ok: false }`), `apps/kinematic-tool/src/analysis/copter.ts` (`minimumTime`). Tests:
+`copter simulation matches upstream` › `R angle {} { ATC_ACC_R_MAX: 0 }` (upstream throws, port
+`minimumTime.ok` false) and `reports a Ruckig failure but still simulates the ArduPilot shapers`
+(`apps/kinematic-tool/src/analysis/simulate.test.ts`). No code change was needed.
+
 ## 2. Jerk plot reads a missing Ruckig jerk array after a Ruckig error
 
 Row: `run_attitude` (`array_scale(ruckigState.jerk, ...)`): copter with `ATC_ACC_R_MAX` = -100 or
@@ -84,6 +91,11 @@ the Sqrt and SCurve traces, and the minimum-time trace is left out (the error is
 
 Smallest port change: none; the port already omits the minimum-time trace when Ruckig fails
 (`apps/kinematic-tool/src/analysis/copter.ts`, `minimumTime: { ok: false }`) and draws the rest.
+
+Status: FIXED. Port: as row 1. Tests: `copter simulation matches upstream` ›
+`R angle {} { ATC_ACC_R_MAX: -100 }` and the empty-input cases in
+`apps/kinematic-tool/src/analysis/simulate.test.ts`, which assert the Sqrt and SCurve traces equal
+upstream's (drawn before it throws) and `minimumTime.ok` false. No code change was needed.
 
 ## 3. Empty inputs are simulated as NaN
 
@@ -133,9 +145,9 @@ Minimal correct behaviour: the plane page's Parameters help does not mention `AT
 Smallest port change: drop the sentence "Note that in some flight modes ATC_SLEW_YAW provides
 secondary yaw rate limit." from the plane page's Parameters help; keep the rest.
 
-Note (not a row): the copter tooltip (`KinematicTool/index.html:143`) names `ATC_SLEW_YAW` too, and
-the same firmware line shows it was replaced by `ATC_RATE_WPY_MAX` at f3836cf. That is a separate
-finding for `docs/upstream-bugs.md`, not proven here as a row.
+Status: FIXED. Port: `apps/kinematic-tool/src/ui/Rail.tsx` plane Parameters help.
+Test: `Parameters help: ATC_SLEW_YAW` › `plane help keeps the rest of the tooltip but drops the
+ATC_SLEW_YAW sentence` (`apps/kinematic-tool/src/ui/Rail.test.tsx`).
 
 ## 5. Mode tooltip repeats the Axis tooltip
 
@@ -159,3 +171,31 @@ Audit row: `index.html` `ATC_RATE_P_MAX`, `ATC_RATE_Y_MAX` inputs have `name="AT
 **Verdict: NOT PROVEN** (no observable behaviour). No test: `run_attitude` reads inputs by `id`
 (`KinematicTool/KinematicTool.js:486`), and the audit records that the name has no effect. With no
 output to be wrong there is nothing to fix.
+
+## 6. Copter Parameters tooltip names `ATC_SLEW_YAW` (new row)
+
+Row: `KinematicTool/index.html` Parameters tooltip names `ATC_SLEW_YAW`, which the pinned firmware
+moved to `ATC_RATE_WPY_MAX`.
+
+**Verdict: PROVEN** (help text names a parameter that does not exist at the pinned firmware).
+
+Test: `Kinematic Tool help text` › `new row: the copter page Parameters tooltip names ATC_SLEW_YAW`.
+
+Evidence:
+
+- `KinematicTool/index.html:143`: `... Note that in some flight modes ATC_SLEW_YAW provides secondary yaw rate limit. ...`
+- Firmware `libraries/AC_AttitudeControl/AC_AttitudeControl.cpp:36`:
+  `// 2 was SLEW_YAW (in cdeg/s) - moved to RATE_WPY_MAX in deg/s`
+- Firmware `libraries/AC_AttitudeControl/AC_AttitudeControl.cpp:166-173`: `// @Param: RATE_WPY_MAX` /
+  `// @DisplayName: Yaw target slew rate` / `// @Description: Maximum rate the yaw target can be updated in Auto, Guided, Circle, Follow, RTL, SmartRTL, Throw and ZigZag flight modes`
+  (the "some flight modes" secondary yaw limit the tooltip describes); copter's group prefix is `ATC_`
+  (`ArduCopter/Parameters.cpp:383`).
+
+Minimal correct behaviour: the copter help names the parameter that exists, `ATC_RATE_WPY_MAX`.
+
+Smallest port change: name `ATC_RATE_WPY_MAX` in the copter Parameters help (keeping "formerly
+`ATC_SLEW_YAW`" for users of older firmware).
+
+Status: FIXED. Port: `apps/kinematic-tool/src/ui/Rail.tsx` copter Parameters help.
+Test: `Parameters help: ATC_SLEW_YAW` › `copter help names ATC_RATE_WPY_MAX as the current parameter`
+(`apps/kinematic-tool/src/ui/Rail.test.tsx`).

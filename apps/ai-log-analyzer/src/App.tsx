@@ -18,6 +18,7 @@ import { summarizeLog } from './analysis/log-summary.js'
 import type { AssistantBackend } from './assistant/backend.js'
 import { OpenAiAssistantBackend, openAiAssistantsApi } from './assistant/openai-backend.js'
 import { INVALID_KEY_TEXT, LOG_UPLOADED_TEXT, processingText } from './assistant/upstream-text.js'
+import { logNotReadText, readsLogFile } from './analysis/log-file.js'
 import { connectAssistant, updateAssistant as runUpdate } from './chat/session.js'
 import { EMPTY_TRANSCRIPT, isThinking, transcriptReducer } from './chat/transcript.js'
 import { runTurn, type Notice, type TurnEvent } from './chat/turn.js'
@@ -71,23 +72,26 @@ export function App() {
 
   const { file, openFile } = useLogFile(async (buffer, name) => {
     dispatch({ type: 'notice', notice: { tone: 'info', text: processingText(name ?? 'log'), detail: null } })
-    // Upstream offered .bin and .log files but only parsed .bin; a .log file leaves the log as it was.
-    if (name === null || name.toLowerCase().endsWith('.bin')) {
-      dispatch({ type: 'notice', notice: { tone: 'info', text: LOG_UPLOADED_TEXT, detail: null } })
-      await run(() => {
-        try {
-          setLoaded({ log: DataflashLog.parse(buffer), fileName: name })
-          setLogError(null)
-          document.title = name ? `AI Log Analyzer: ${name}` : 'AI Log Analyzer'
-        } catch (e) {
-          // Upstream threw here and kept a half-parsed log; no log is used instead.
-          const message = `Could not read this log: ${e instanceof Error ? e.message : String(e)}. Check that it is an ArduPilot .bin file.`
-          setLoaded(null)
-          setLogError(message)
-          dispatch({ type: 'notice', notice: { tone: 'error', text: message, detail: null } })
-        }
-      }, 'Reading log')
+    // Upstream offered .bin and .log files but only parsed .bin, and still reported any file ready
+    // (proven bug #137). A file that is not read leaves the log as it was and is reported as not read.
+    if (!readsLogFile(name)) {
+      dispatch({ type: 'notice', notice: { tone: 'error', text: logNotReadText(name ?? 'log'), detail: null } })
+      return
     }
+    dispatch({ type: 'notice', notice: { tone: 'info', text: LOG_UPLOADED_TEXT, detail: null } })
+    await run(() => {
+      try {
+        setLoaded({ log: DataflashLog.parse(buffer), fileName: name })
+        setLogError(null)
+        document.title = name ? `AI Log Analyzer: ${name}` : 'AI Log Analyzer'
+      } catch (e) {
+        // Upstream threw here and kept a half-parsed log; no log is used instead.
+        const message = `Could not read this log: ${e instanceof Error ? e.message : String(e)}. Check that it is an ArduPilot .bin file.`
+        setLoaded(null)
+        setLogError(message)
+        dispatch({ type: 'notice', notice: { tone: 'error', text: message, detail: null } })
+      }
+    }, 'Reading log')
     setChartsAtLogReady(images.length)
   })
 

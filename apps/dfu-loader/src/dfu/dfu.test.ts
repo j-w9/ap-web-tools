@@ -235,12 +235,15 @@ describe('device requests', () => {
     expect(port.error).toBeNull()
   })
 
-  it('fails abort-to-idle when the device stays in error, with upstream\'s "state undefined" text', async () => {
+  // Proven upstream bug (docs/bug-proofs/dfu-loader.md row 147): upstream prints `state.state` of a
+  // number; the port prints the state. Transfers and logs are the same.
+  it('fails abort-to-idle when the device stays in error, naming the state (upstream: "state undefined")', async () => {
     const options: FakeOptions = { alternates: [{ alternateSetting: 0, interfaceName: F4 }], abortState: 10, clearState: 10 }
     const up = await runUpstream(options, 'dfu', (d) => d.abortToIdle())
     const port = await runPort(options, plain, (d) => d.abortToIdle())
-    expectSame(port, up)
-    expect(port.error).toBe('Failed to return to idle state after abort: state undefined')
+    expectSame(port, { ...up, error: port.error })
+    expect(up.error).toBe('Failed to return to idle state after abort: state undefined')
+    expect(port.error).toBe('Failed to return to idle state after abort: state 10')
   })
 
   it('waits for the disconnect event', async () => {
@@ -257,7 +260,9 @@ describe('device requests', () => {
     expect(portDevice.disconnected).toBe(true)
   })
 
-  it('times out like upstream: no rejection reason, and the listener stays until the device disconnects', async () => {
+  // Proven upstream bug (docs/bug-proofs/dfu-loader.md row 148): upstream schedules a bare `reject`
+  // instead of its own timeout handler. The port removes the listener and gives the reason.
+  it('times out with "Disconnect timeout expired" and removes its listener (upstream: no reason, listener stays)', async () => {
     const fake = new FakeUsbDevice({ alternates: [{ alternateSetting: 0, interfaceName: F4 }] })
     const upUsb = new FakeUsb([fake])
     const portUsb = new FakeUsb([fake])
@@ -290,12 +295,13 @@ describe('device requests', () => {
         (reason: unknown) => reason
       )
     ])
-    expect(reasons).toEqual([undefined, undefined])
-    expect([upListeners(), portListeners()]).toEqual([1, 1])
+    expect(reasons[0]).toBeUndefined()
+    expect(String(reasons[1])).toBe('Disconnect timeout expired')
+    expect([upListeners(), portListeners()]).toEqual([1, 0])
     upUsb.disconnect(fake)
     portUsb.disconnect(fake)
     expect([upListeners(), portListeners()]).toEqual([0, 0])
-    expect(portDevice.disconnected).toBe(true)
+    expect(portDevice.disconnected).toBe(false)
   })
 })
 

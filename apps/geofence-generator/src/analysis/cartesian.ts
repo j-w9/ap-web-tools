@@ -10,11 +10,15 @@ import type { LatLon, Position } from './geo.js'
 export const LATLON_TO_M = 6378100 * (Math.PI / 180.0)
 
 /**
- * Upstream `wrap_180`. JavaScript's `%` keeps the sign of the dividend, so angles below -180
- * are not wrapped; kept as upstream because inputs are differences of nearby longitudes.
+ * Upstream `wrap_180`, `((angle + 180) % 360) - 180`, leaves angles below -180 unwrapped because
+ * `%` keeps the dividend's sign; ArduPilot's `wrap_180` constrains to -180..180 (a proven bug, see
+ * docs/bug-proofs/geofence-generator.md). Only negative remainders are corrected, so every angle
+ * at or above -180 gives upstream's value bit for bit.
  */
 export function wrap180(angle: number): number {
-  return ((angle + 180) % 360) - 180
+  let r = (angle + 180) % 360
+  if (r < 0) r += 360
+  return r - 180
 }
 
 /** Upstream `longitude_scale`: metres per degree of longitude relative to latitude, floored at 0.01. */

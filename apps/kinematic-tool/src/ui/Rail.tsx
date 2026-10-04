@@ -205,7 +205,8 @@ export function Rail(p: RailProps) {
           <>
             <p className="kt-help">
               Only valid with input shaping enabled by <code>ATC_RATE_FF_ENAB</code>. In some flight modes{' '}
-              <code>ATC_SLEW_YAW</code> is a second yaw rate limit, and acro uses its own rate time constant.
+              <code>ATC_RATE_WPY_MAX</code> (formerly <code>ATC_SLEW_YAW</code>) is a second yaw rate limit, and acro uses its own
+              rate time constant.
             </p>
             <ParamFields<CopterParamName>
               fields={copterParamFields(p.copter.axis, p.copter.mode)}
@@ -216,10 +217,10 @@ export function Rail(p: RailProps) {
           </>
         ) : (
           <>
-            {/* Upstream's plane page repeats the copter page's parameter tooltip word for word. */}
+            {/* Upstream's plane page repeats the copter tooltip, whose ATC_SLEW_YAW sentence does not apply to
+                Plane (no ATC_ group; see docs/bug-proofs/kinematic-tool.md row 4). The rest is kept. */}
             <p className="kt-help">
-              The ArduPilot parameters that define the input shaping vehicle model. Note that in some flight modes{' '}
-              <code>ATC_SLEW_YAW</code> provides secondary yaw rate limit. Rate time constant also changes for acro mode.
+              The ArduPilot parameters that define the input shaping vehicle model. Rate time constant also changes for acro mode.
             </p>
             <ParamFields<PlaneParamName>
               fields={PLANE_AXIS_PARAMS[p.plane.axis].map((name) => ({ name, enabled: true }))}

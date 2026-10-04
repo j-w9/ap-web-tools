@@ -79,7 +79,14 @@ describe('legacy message adapter', () => {
         const fixed = rawFrame(descriptor, payload, 1 + round, round * 17)
         const expected = theirs(fixed, 1234)
         const actual = ours(fixed, 1234)
-        expect(actual, descriptor.name).toStrictEqual(expected)
+        if (descriptor.fields.some((field) => field.name === 'crc')) {
+          // Proven bug #155: upstream's `crc` is the frame checksum; the port keeps the field.
+          expect(expected.crc, descriptor.name).toBe(frameChecksum(fixed))
+          expect(actual.crc, descriptor.name).toBe(crcFieldValue(descriptor, fixed))
+          expect({ ...actual, crc: 0 }, descriptor.name).toStrictEqual({ ...expected, crc: 0 })
+        } else {
+          expect(actual, descriptor.name).toStrictEqual(expected)
+        }
         expect(Object.keys(actual), descriptor.name).toEqual(Object.keys(expected))
       }
     }
@@ -106,6 +113,21 @@ describe('legacy message adapter', () => {
     expect(actual._link_id).toBe(3)
   })
 
+  it('proven bug #155: CUBEPILOT_FIRMWARE_UPDATE_START keeps its crc field instead of the frame checksum', () => {
+    // The frame from proofs/mavlink: target 1/1, size 1000, crc 0x12345678, checksum 0x3fca.
+    const frame = Uint8Array.from([
+      0xfd, 0x0a, 0x00, 0x00, 0x00, 0x01, 0x01, 0x54, 0xc3, 0x00, 0xe8, 0x03, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12, 0x01, 0x01,
+      0xca, 0x3f
+    ])
+    const expected = theirs(frame, 1)
+    const actual = ours(frame, 1)
+    expect(expected.crc).toBe(0x3fca)
+    expect(actual.crc).toBe(0x12345678)
+    expect(actual.size).toBe(1000)
+    expect({ ...actual, crc: 0 }).toStrictEqual({ ...expected, crc: 0 })
+    expect(Object.keys(actual)).toEqual(Object.keys(expected))
+  })
+
   it('names fields as upstream does, including irregular XML names', () => {
     for (const descriptor of sharedDescriptors()) {
       const Type = upstream.mavlink20.map[descriptor.id]!.type
@@ -126,6 +148,20 @@ describe('legacy message adapter', () => {
 /** The package uses upstream's definitions, so every message must be identical. */
 function expectSameAsUpstream(actual: Record<string, unknown>, expected: Record<string, unknown>): void {
   expect(actual).toStrictEqual(expected)
+}
+
+/** The checksum at the end of an unsigned MAVLink 2 frame. */
+function frameChecksum(frame: Uint8Array): number {
+  return frame[frame.length - 2]! | (frame[frame.length - 1]! << 8)
+}
+
+/** The uint32 `crc` field of `frame`'s payload (zero-extended as MAVLink 2 requires). */
+function crcFieldValue(descriptor: MessageDescriptor, frame: Uint8Array): number {
+  const field = descriptor.fields.find((f) => f.name === 'crc')
+  if (field === undefined) throw new Error(`${descriptor.name} has no crc field`)
+  const payload = new Uint8Array(descriptor.length)
+  payload.set(frame.subarray(10, frame.length - 2))
+  return new DataView(payload.buffer).getUint32(field.offset, true)
 }
 
 /** A MAVLink 2 frame carrying `payload`'s exact bytes (truncated as MAVLink 2 requires). */

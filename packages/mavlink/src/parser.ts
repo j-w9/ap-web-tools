@@ -4,18 +4,19 @@
  *
  * Port of upstream `MAVLink20Processor.parseBuffer` / `parseChar` / `parsePrefix` / `parseLength` /
  * `parsePayload` / `decode` (`modules/MAVLink/mavlink.js` with `runtime-fixes.patch`), with the same
- * results for every input:
+ * results for every input except one proven upstream bug:
  *
  * - Bytes before a start marker (0xFD or 0xFE, whichever comes first) are discarded as one run.
  * - At a marker, the frame length is taken from the first three bytes: payload length + header
  *   (6 for MAVLink 1, 10 for MAVLink 2) + 2, plus 13 when a MAVLink 2 frame's SIGNED flag is set.
- *   The parser waits for that many bytes, then always consumes all of them, whatever follows.
+ *   The parser waits for that many bytes.
  * - The frame is then refused, in this order, for unknown incompatibility flags, an unknown message
  *   id, a checksum mismatch or a signature refusal; otherwise it is decoded.
- *
- * Consuming the claimed length before checking anything is upstream's behaviour, bugs included: a
- * false start marker in noise, or a corrupted length byte, makes the parser wait for and then
- * discard up to 280 bytes, losing any good frames inside them (see `docs/upstream-bugs.md`).
+ * - A frame refused for its incompatibility flags or its checksum is not well formed: only its start
+ *   marker is dropped, and the search for a marker resumes at the next byte. Upstream consumes the
+ *   whole claimed length, so a false start marker in noise or a corrupted length byte loses up to
+ *   280 bytes and any good frames inside them; its own TODO says to cut off one byte (proven upstream
+ *   bug #150, see `docs/bug-proofs/mavlink.md`). Every other frame consumes its claimed length.
  */
 import { crcAccumulate, crcX25 } from './crc.js'
 import type { MessageDescriptor } from './descriptor.js'
@@ -35,9 +36,12 @@ import {
 export type GarbageReason =
   /** Bytes before a start marker (upstream "Bad prefix"). */
   | 'noise'
-  /** A whole frame, as long as its length byte claimed, whose checksum did not match. */
+  /**
+   * A start marker whose frame, as long as its length byte claimed, has a checksum that did not
+   * match. Only the marker byte is dropped (see `next`).
+   */
   | 'crc'
-  /** A whole MAVLink 2 frame with incompatibility flags other than SIGNED. */
+  /** A MAVLink 2 start marker whose frame has incompatibility flags other than SIGNED; only the marker is dropped. */
   | 'incompat-flags'
 
 /**
@@ -188,11 +192,18 @@ export class MavlinkParser<N extends MessageName = MessageName> {
     const signed = v2 && (buffer[this.start + 2]! & INCOMPAT_FLAG_SIGNED) !== 0
     const frameLength = payloadLength + headerLength + 2 + (signed ? SIGNATURE_BLOCK_LENGTH : 0)
     if (available < frameLength) return null
-    const frame = this.take(frameLength)
-    return this.decode(frame, v2, headerLength, payloadLength, signed)
+    // Upstream drops the whole claimed length before decoding, so a false start marker in noise (or
+    // a corrupted length byte) loses good frames inside it. Its own TODO says a frame that is not well
+    // formed should cut off one byte only: the port does that when the checksum or the incompatibility
+    // flags fail (proven upstream bug #150, see `docs/bug-proofs/mavlink.md`). Unknown ids and
+    // signature failures still consume the whole frame, as upstream.
+    const frame = this.buffer.slice(this.start, this.start + frameLength)
+    const event = this.decode(frame, v2, headerLength, payloadLength, signed)
+    this.start += event.kind === 'garbage' ? 1 : frameLength
+    return event
   }
 
-  /** Upstream `decode`, on a frame already taken off the buffer. */
+  /** Upstream `decode`, on a copy of the frame at the front of the buffer. */
   private decode(frame: Uint8Array, v2: boolean, headerLength: number, payloadLength: number, signed: boolean): ParseEvent<N> {
     const header: FrameHeader = v2
       ? {
@@ -216,7 +227,7 @@ export class MavlinkParser<N extends MessageName = MessageName> {
           messageId: frame[5]!
         }
 
-    if ((header.incompatFlags & ~INCOMPAT_FLAG_SIGNED) !== 0) return this.garbage('incompat-flags', frame)
+    if ((header.incompatFlags & ~INCOMPAT_FLAG_SIGNED) !== 0) return this.garbage('incompat-flags', frame.slice(0, 1))
 
     const descriptor = this.byId.get(header.messageId)
     if (descriptor === undefined) {
@@ -226,7 +237,7 @@ export class MavlinkParser<N extends MessageName = MessageName> {
 
     const crcEnd = headerLength + payloadLength
     const crc = crcAccumulate(descriptor.crcExtra, crcX25(frame.subarray(1, crcEnd)))
-    if (crc !== (frame[crcEnd]! | (frame[crcEnd + 1]! << 8))) return this.garbage('crc', frame)
+    if (crc !== (frame[crcEnd]! | (frame[crcEnd + 1]! << 8))) return this.garbage('crc', frame.slice(0, 1))
 
     const verdict = this.signing?.check(frame, header, signed)
     if (verdict !== undefined && verdict !== 'verified' && verdict !== 'allowed') {

@@ -3,6 +3,7 @@ import {
   codecLocked,
   EXPORT_UNSUPPORTED_MESSAGE,
   initialSelection,
+  inputCodecText,
   matchSelectionToInput,
   probeOutputFormats,
   selectFormat,
@@ -81,6 +82,32 @@ describe('selection', () => {
     expect(result.selection).toEqual({ format: 'webm', videoCodec: 'vp8', audioCodec: 'opus' })
     expect(result.frameRate).toBe('30')
     expect(result.error).toMatch(/toLowerCase/)
+  })
+
+  it('matches a video without an audio track except for the audio codec (proven upstream bug #120)', () => {
+    // Upstream threw reading the missing track's codec before matching anything (reproduced in
+    // proofs/video-overlay). Corrected: container, video codec and frame rate are matched as for a
+    // video with audio; the audio codec keeps the container's default.
+    const withAudio = matchSelectionToInput(FORMATS, start, {
+      formatName: 'WebM',
+      videoCodec: 'VP9',
+      audioCodec: 'opus',
+      fps: '59.94'
+    })
+    const withoutAudio = matchSelectionToInput(FORMATS, start, {
+      formatName: 'MP4',
+      videoCodec: 'hevc',
+      audioCodec: undefined,
+      fps: '29.97'
+    })
+    expect(withAudio).toEqual({ selection: { format: 'webm', videoCodec: 'vp9', audioCodec: 'opus' }, frameRate: '60' })
+    expect(withoutAudio).toEqual({ selection: { format: 'mp4', videoCodec: 'hevc', audioCodec: 'aac' }, frameRate: '30' })
+  })
+
+  it('writes the codec info as upstream, and the video codec alone without an audio track (proven bug #120)', () => {
+    expect(inputCodecText('avc', 'aac')).toBe('avc + aac')
+    expect(inputCodecText(null, null)).toBe('null + null')
+    expect(inputCodecText('avc', undefined)).toBe('avc')
   })
 
   it('still matches the frame rate when no formats could be probed', () => {

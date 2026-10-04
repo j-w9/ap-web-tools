@@ -36,7 +36,7 @@ export interface Preset {
   readonly input: { readonly message: string; readonly field: string }
   readonly outputs: readonly PresetOutput[]
   readonly params: readonly string[]
-  /** `[min, max]` text per parameter field, in parameter-field order (upstream `setBounds`). */
+  /** `[min, max]` text per parameter field, in parameter-field order (upstream `setBounds`; MR_Yaw reordered, see there). */
   readonly bounds: readonly (readonly [string, string])[]
   readonly constraints: readonly (readonly [string, string])[]
   readonly a: readonly (readonly string[])[]
@@ -113,12 +113,15 @@ export const PRESETS: Readonly<Record<PresetId, Preset>> = {
     sizes: { outputs: '1', params: '5', order: '2', constraints: '1' },
     input: { message: 'RATE', field: 'YOut' },
     outputs: [{ message: 'SIDD', field: 'Gz', multiplier: DEG_TO_RAD }],
-    params: ['Nr', 'Nped', 'Npedp', 'wlag', 'wlg'],
+    // Proven upstream bug fixed (docs/bug-proofs/sysid.md, row 1): upstream lists Npedp before
+    // wlag, but pyAircraftIden applies bounds by position in matrix-cell order (A then B), so
+    // Npedp's (-10, 10) landed on wlag and wlag's (-50, 0) on Npedp. Listed in cell order here.
+    params: ['Nr', 'Nped', 'wlag', 'Npedp', 'wlg'],
     bounds: [
       ['-1', '0'],
       ['0', '80'],
-      ['-10', '10'],
       ['-50', '0'],
+      ['-10', '10'],
       ['0', '50']
     ],
     constraints: AXIAL_CONSTRAINT,

@@ -5,9 +5,9 @@
 import { GridStack } from 'gridstack'
 import tippy, { followCursor, type Instance } from 'tippy.js'
 import { domString, hasKey, jsString, prop } from '../layout/json.js'
-import type { WidgetPlacement } from '../layout/loader.js'
 import { widgetOf, type Widget } from '../widgets/base.js'
 import type { Dashboard } from './dashboard.js'
+import { importPaletteFiles, type PaletteFile } from './palette-imports.js'
 import attitudeUrl from '../assets/SandBoxWidgets/Attitude.json?url'
 import graphUrl from '../assets/SandBoxWidgets/Graph.json?url'
 import mapUrl from '../assets/SandBoxWidgets/Map.json?url'
@@ -17,7 +17,7 @@ import statsUrl from '../assets/SandBoxWidgets/Stats.json?url'
 import valueUrl from '../assets/SandBoxWidgets/Value.json?url'
 
 /** The example widget files and where each goes on the palette. */
-export const PALETTE_FILES: readonly { readonly url: string; readonly pos: WidgetPlacement }[] = [
+export const PALETTE_FILES: readonly PaletteFile[] = [
   { url: attitudeUrl, pos: { x: 1, y: 0, w: 2, h: 2 } },
   { url: graphUrl, pos: { x: 3, y: 0, w: 3, h: 2 } },
   { url: mapUrl, pos: { x: 0, y: 2, w: 2, h: 2 } },
@@ -63,24 +63,9 @@ export function installPalette(dashboard: Dashboard): void {
     dashboard.addWidget(grid, { type: 'WidgetSandBox', x: 0, y: 1, w: 1, h: 1 })
     dashboard.addWidget(grid, { type: 'WidgetCustomHTML', x: 1, y: 5, w: 1, h: 1 })
 
-    // Upstream bug reproduced: a file that fails to load (or parse) never settles, so the
-    // palette is never initialised (see docs/upstream-bugs.md).
-    const imports = PALETTE_FILES.map(
-      (file) =>
-        new Promise<void>((resolve) => {
-          void fetch(file.url)
-            .then((res) => res.json() as Promise<unknown>)
-            .then((obj) => {
-              // `Object.assign(obj.widget, file.pos)`, which throws for a missing widget.
-              const widget = prop(obj, 'widget')
-              if (widget === null || widget === undefined) throw new TypeError('Cannot convert undefined or null to object')
-              dashboard.addWidget(grid, Object.assign(widget, file.pos))
-              resolve()
-            })
-        })
-    )
-
-    void Promise.allSettled(imports).then(() => {
+    // A file that fails to load (or parse) is left out; the rest are initialised (proven bug #71).
+    const fetchJson = (url: string): Promise<unknown> => fetch(url).then((res) => res.json() as Promise<unknown>)
+    void importPaletteFiles(PALETTE_FILES, fetchJson, (widget) => dashboard.addWidget(grid, widget)).then(() => {
       grid.batchUpdate(false)
       const widgets = grid.getGridItems().flatMap((el) => {
         const widget = widgetOf(el)

@@ -33,28 +33,31 @@ GETSTATUS, stalls, thrown transfers, and ABORT/CLRSTATUS states.
   gaps, SRAM), the rejection of non-DfuSe names, configuration-descriptor parsing and interface
   discovery. They check identical transfers and logs for: open, the descriptor and string reads,
   `readInterfaceNames`, detach and close; `getStatus`/`getState` failures; abort-to-idle with and
-  without an error state (same "state undefined" text); `waitDisconnected`, and its timeout (no
-  rejection reason, listener left attached until the device disconnects); ten erase ranges, including errors and a gap; a DfuSe
+  without an error state (upstream's "state undefined" against the port's state number, a proven fix);
+  `waitDisconnected`, and its timeout (upstream: no rejection reason, listener left attached; port:
+  "Disconnect timeout expired", listener removed, a proven fix); ten erase ranges, including errors and a gap; a DfuSe
   `.bin` download at a start address with a non-zero poll timeout; an inferred start address; a start
   address outside the map; the bytes of a converted `.hex`; plain DFU download; error status, stall and
   thrown-transfer failures in each phase; errors after manifestation starts; no memory map; and plain
   and DfuSe uploads (short final block, a size limit with abort-to-idle, a non-idle start state, a start
   address that is inferred or outside the map).
-- `dfu/util.test.ts` (16 tests). These cover `hex4`, `hexAddr8`, `niceSize`, `formatDFUSummary`,
+- `dfu/util.test.ts` (15 tests). These cover `hex4`, `hexAddr8`, `niceSize`, `formatDFUSummary`,
   `formatDFUInterfaceAlternate`, `getDFUDescriptorProperties` (four descriptor cases, with the same
   transfers), `fixInterfaceNames` (same transfers and names), and `parseIntelHex` on seven inputs.
-  The inputs include CRLF, an offset start, a 64 KiB boundary, data beyond 512 KiB, and junk lines.
-- `dfu/session.test.ts` (37 tests). These run the upstream page and `LoaderSession` side by side. They
+  The inputs include CRLF, an offset start and junk lines (identical), and two files crossing a 64 KiB
+  boundary (upstream's overlay against the port's contiguous image, a proven fix).
+- `dfu/session.test.ts` (38 tests). These run the upstream page and `LoaderSession` side by side. They
   check the same status, USB info, DFU info, button and field states, DfuSe field values, custom
   validity, transfers and download log for the following cases:
   - connect: DfuSe, a first writable segment that is not first, plain DFU, runtime interfaces, missing
     interface names, no DFU interfaces, a cancelled chooser, a failed open, a non-DfuSe name (the
-    properties line left in the DFU info, accumulating over attempts), a device that cannot download,
+    properties line left in the DFU info, accumulating over attempts), a device that cannot download (upstream throws; the port connects with Flash disabled, a proven fix),
     disconnecting with the button, and an unplugged device;
   - auto-connect from `?serial=`: found, not found, several interfaces, and the serial chooser filter;
   - start address edits, with and without a device, and the change event firing only when the text
-    changed (a stale "Address outside of memory map" survives a disconnect and a reconnect);
-  - flashing: `.bin` with a manifestation reset, `.hex` on a tolerant device, a changed start address,
+    changed (a stale "Address outside of memory map" survives a disconnect; upstream keeps it after a reconnect,
+    the port clears it, a proven fix);
+  - flashing: `.bin` with a manifestation reset, `.hex` on a tolerant device (the port also shows "Converted Hex to bin", a proven fix), a changed start address,
     plain DFU, an initial error state, a failed GETSTATUS, a failed download, no file, Enter in the start
     address and upload size fields (implicit form submission), and a second press during a flash.
 
@@ -77,8 +80,8 @@ No real hardware was used. These tests and a render check in Chrome are the only
 | `readConfigurationDescriptor` (4 bytes, then wTotalLength)                                                                                                                                                                                                                             | `DfuDevice.readConfigurationDescriptor`                         | identical                                                                                                                                                                                                                            |
 | `requestOut` / `requestIn` and their error texts                                                                                                                                                                                                                                       | `DfuDevice`                                                     | identical                                                                                                                                                                                                                            |
 | `detach` (wValue 1000), `download`/`dnload`, `upload`, `clearStatus`/`clrStatus`, `getStatus`, `getState`, `abort`                                                                                                                                                                     | `DfuDevice`                                                     | identical (aliases dropped)                                                                                                                                                                                                          |
-| `abortToIdle`                                                                                                                                                                                                                                                                          | `DfuDevice.abortToIdle`                                         | identical, including the "state undefined" message (bug below)                                                                                                                                                                       |
-| `waitDisconnected`                                                                                                                                                                                                                                                                     | `DfuDevice.waitDisconnected`                                    | identical, including the timeout bug below (no rejection reason, listener left attached)                                                                                                                                             |
+| `abortToIdle`                                                                                                                                                                                                                                                                          | `DfuDevice.abortToIdle`                                         | identical except the "state undefined" message (proven fix below)                                                                                                                                                                    |
+| `waitDisconnected`                                                                                                                                                                                                                                                                     | `DfuDevice.waitDisconnected`                                    | identical except the timeout (proven fix below)                                                                                                                                                                                      |
 | `do_upload` (progress, short block, abort at max)                                                                                                                                                                                                                                      | `DfuDevice.doUpload`                                            | identical                                                                                                                                                                                                                            |
 | `poll_until` (sleep bwPollTimeout, stop on dfuERROR), `poll_until_idle`                                                                                                                                                                                                                | `DfuDevice.pollUntil`, `pollUntilIdle`                          | identical, including the "Sleeping for" debug                                                                                                                                                                                        |
 | `do_download` (blocks from 0, poll to DNLOAD_IDLE, empty block)                                                                                                                                                                                                                        | `DfuDevice.doDownload`                                          | identical. The unused `manifestationTolerant` parameter is dropped                                                                                                                                                                   |
@@ -104,8 +107,8 @@ No real hardware was used. These tests and a render check in Chrome are the only
 | Start address `change` handler ("Invalid hexadecimal start address", "Address outside of memory map", max read size)                                                                                                                                                                   | `commitStartAddress` (blur or Enter)                            | identical. Runs only when the text differs from the text at the last change event, as the browser's `change` does; a value set on connect is the new baseline and keeps the custom validity (bug below)                              |
 | Enter in a field of `#configForm` (implicit submission clicks the default button, Flash Bootloader)                                                                                                                                                                                    | `pressEnter`                                                    | identical: Enter commits the start address, then flashes unless Flash Bootloader is disabled (bug below)                                                                                                                             |
 | Connect button (close, or request with a serial or vendor filter, "The selected device does not have any USB DFU interfaces.", errors in the status)                                                                                                                                   | `connectClick`                                                  | identical                                                                                                                                                                                                                            |
-| `parseIntelHex`                                                                                                                                                                                                                                                                        | `util.ts`                                                       | identical, including the bug below                                                                                                                                                                                                   |
-| File `change` (`.hex` suffix converted, "Converted Hex to bin")                                                                                                                                                                                                                        | `chooseFile`                                                    | identical                                                                                                                                                                                                                            |
+| `parseIntelHex`                                                                                                                                                                                                                                                                        | `util.ts`                                                       | identical inside one 64 KiB segment; extended linear addresses applied (proven fix below)                                                                                                                                            |
+| File `change` (`.hex` suffix converted, "Converted Hex to bin")                                                                                                                                                                                                                        | `chooseFile`                                                    | identical, except "Converted Hex to bin" is shown (proven fix below)                                                                                                                                                                 |
 | Flash button: form validity, clear dfuERROR, "Failed to clear status", `do_download`, "Done!", error line, wait 5 s for the disconnect when not manifestation tolerant, "Device unexpectedly tolerated manifestation." to console                                                      | `LoaderSession.flash`                                           | identical, except presses during a flash are ignored (deliberate fix, see `docs/porting-policy.md`; upstream starts a second, interleaved download). Form messages: see differences                                                  |
 | "WebUSB not available." with Connect disabled                                                                                                                                                                                                                                          | `LoaderSession` constructor, `App.tsx`                          | identical                                                                                                                                                                                                                            |
 | Instructions, Bootloaders link, webdfu credit                                                                                                                                                                                                                                          | `App.tsx` Instructions section                                  | presentation                                                                                                                                                                                                                         |
@@ -120,11 +123,6 @@ Presentation:
   paragraph, or an `ErrorBanner` for errors. The USB info block becomes a facts list. The DFU info
   shows the summary line and a memory table, which holds the same segment lines as upstream's
   `memorySummary` (its first line is shown above the table).
-- After a successful connect the functional descriptor properties line (`WillDetach=..., Version=...`)
-  is shown under the summary. Upstream appends it to `#dfuInfo` and, when connecting succeeds,
-  overwrites it in the same task, so it is never painted; showing a value the original computed is a
-  presentation convenience. When connecting stops after reading it (a non-DfuSe name, CanDnload=false)
-  upstream leaves it visible, and the port shows the same text (`strandedDfuInfo`).
 - The DFU interface list appears, collapsed, in the Device section when a device has more than one
   interface, with the label text of upstream's interface dialog. Upstream builds that dialog but never
   opens it and always uses the first interface; the port also always uses the first and says so ("the
@@ -139,24 +137,11 @@ Presentation:
   bad input for the upload size. The custom validity texts are upstream's. The pattern and range
   messages are new wording, because the browser's own text is not available.
 
-Crashes upstream, reported in the port (the outcome is the same: nothing is connected or flashed):
+Crashes upstream, reported in the port (crash clause; not proven, see
+[`../bug-proofs/dfu-loader.md`](../bug-proofs/dfu-loader.md) row 149):
 
-- Connecting a DFU-mode interface whose functional descriptor lacks CanDnload makes upstream throw
-  `ReferenceError: dnloadButton is not defined`, which is shown in the status. The port shows "The DFU
-  interface reports that it cannot download (CanDnload=false), so it cannot be flashed."
-- A failed DfuSe special command makes upstream throw `ReferenceError: commandName is not defined`.
-  The message is wrapped as "Error during DfuSe download: ..." when SET_ADDRESS fails in the write loop.
-  The port says `Special DfuSe command <NAME> failed` in the same place.
-- When a DfuSe erase range crosses a gap in the memory map, upstream throws a TypeError. The port
-  reports `Address <addr> outside of memory map`. The transfers before the failure are identical.
-- A zero-length descriptor makes `parseSubDescriptors` loop forever upstream. The port throws.
 - In `open`, upstream calls `error.endsWith` on a WebUSB `DOMException` when a redundant
   SET_INTERFACE fails, which throws a TypeError. The port rethrows the original error.
-- In `autoConnect`, a connect failure other than open or descriptor read (for example a non-DfuSe
-  name) is an unhandled rejection upstream, and "Connecting..." stays. The port shows the error.
-- `autoConnect` writes to the undeclared `vidField` after connecting. That is an unhandled
-  ReferenceError with no visible effect, and the port omits it. The oracle harness defines `vidField`
-  so the upstream run stays quiet.
 - `fixInterfaceNames`, when an interface is missing from the configuration descriptor, makes upstream
   throw a TypeError. The port throws a `DfuError` naming the interface.
 
@@ -170,29 +155,55 @@ Timing with no observable effect:
 
 Each is also listed in [`../upstream-bugs.md`](../upstream-bugs.md).
 
-- `parseIntelHex` ignores extended linear address records (type 4). It places every data record at
-  its 16-bit address in a 512 KiB buffer. A HEX file that crosses a 64 KiB boundary has its segments
-  overlaid, and bytes beyond 512 KiB are dropped. The start address always comes from the DfuSe field.
 - After a start address change, the upload size's `max` is lowered but its value is not. Choosing a
   higher start address (for example 0x08020000 on an F4) then makes the form invalid, and Flash
   Bootloader refuses until the upload size is edited.
-- "Converted Hex to bin" is logged while no log context is set, so it is never shown (unless a flash is
-  running, when it lands in the flash log; the port does the same).
 - When connecting stops after the functional descriptor was read, its properties line stays in the DFU
   info, after a newline, and accumulates over further failed attempts until a disconnect.
-- The start address custom validity is not cleared when connecting sets the field: an "Address outside
-  of memory map" verdict from an earlier device keeps Flash Bootloader refusing until the field is
-  edited.
 - Enter in the start address or upload size field submits the form implicitly, which clicks Flash
   Bootloader: pressing Enter to confirm an address starts flashing.
 - Flash Bootloader stays enabled while a flash runs; a second press clears the log and starts a second
   download whose transfers interleave with the first. **Deliberately fixed** in the port (presses are
   ignored while flashing); the session test pins upstream's double download.
-- `abortToIdle` reports `state.state` of a number: "Failed to return to idle state after abort: state
-  undefined" (not reachable from the page, which never uploads).
+
+## Proven upstream bugs fixed
+
+Proven to the standard in [`../bug-proofs/dfu-loader.md`](../bug-proofs/dfu-loader.md); the oracle
+tests assert upstream's result for the bug input, the port's corrected result, and identical results
+everywhere else.
+
+- `parseIntelHex` ignores extended linear address records (type 4), so a HEX file crossing a 64 KiB
+  boundary has its segments overlaid. The port places each byte at its absolute address minus the
+  lowest base used by a data record; a file inside one 64 KiB segment converts exactly as upstream.
+  The 512 KiB buffer and the DfuSe start address field are unchanged. (`util.test.ts`)
+- "Converted Hex to bin" is logged while no log context is set, so it is never shown. The port always
+  adds it to the log; the next flash clears it as upstream clears every entry. (`session.test.ts`)
+- After a successful connect the functional descriptor properties line (`WillDetach=..., Version=...`)
+  is shown under the summary; upstream appends it to `#dfuInfo` and overwrites it in the same connect.
+  When connecting stops after reading it (a non-DfuSe name) upstream leaves it visible, and the port
+  shows the same text (`strandedDfuInfo`).
+- A DFU-mode interface whose functional descriptor lacks CanDnload makes upstream throw
+  `ReferenceError: dnloadButton is not defined` (it means to disable Flash Bootloader). The port
+  finishes connecting with Flash Bootloader disabled. (`session.test.ts`)
+- A failed DfuSe special command makes upstream throw `ReferenceError: commandName is not defined`
+  (wrapped as "Error during DfuSe download: ..." when SET_ADDRESS fails in the write loop). The port
+  says `Special DfuSe command <NAME> failed` in the same place.
+- The start address custom validity is not cleared when connecting sets the field, so an "Address
+  outside of memory map" verdict keeps Flash Bootloader refusing for the valid first segment address.
+  The port clears it on connect. (`session.test.ts`)
+- `abortToIdle` reports `state.state` of a number ("... state undefined"; not reachable from the page).
+  The port reports the state number. (`dfu.test.ts`)
 - `waitDisconnected` passes `reject` itself to `setTimeout`, so a timeout rejects with no reason and the
-  `disconnect` listener stays attached; the `onTimeout` handler it defines is never used. The page only
-  logs the timeout to the console.
+  `disconnect` listener stays attached. The port uses the `onTimeout` handler upstream wrote: it removes
+  the listener and rejects with "Disconnect timeout expired". The page only logs the timeout to the
+  console, as upstream. (`dfu.test.ts`)
+- When a DfuSe erase range crosses a gap in the memory map, upstream throws a TypeError. The port
+  reports `Address <addr> outside of memory map`. The transfers before the failure are identical.
+- A zero-length descriptor makes `parseSubDescriptors` loop forever upstream. The port throws.
+- In `autoConnect`, a connect failure other than open or descriptor read (for example a non-DfuSe
+  name) is an unhandled rejection upstream, and "Connecting..." stays. The port shows the error.
+- `autoConnect` writes to the undeclared `vidField` after connecting, an unhandled ReferenceError; the
+  port omits it. The oracle harness defines `vidField` so the upstream run stays quiet.
 
 ## UI audit
 

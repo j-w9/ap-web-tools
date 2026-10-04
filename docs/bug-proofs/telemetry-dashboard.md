@@ -8,22 +8,22 @@ original `upstream/modules/MAVLink/mavlink.js` where frames are parsed. The DOM,
 `fetch`, `FileReader` and BroadcastChannel are recording fakes, and nothing touches the network. Line numbers are in
 `upstream/TelemetryDashboard/` unless a path says otherwise.
 
-| Row | Bug                                                                           | Verdict    |
-| --- | ----------------------------------------------------------------------------- | ---------- |
-| 68  | A re-created menu widget opens a second connection and never closes the first | PROVEN     |
-| 69  | A signing passphrase stays active for later connections                       | PROVEN     |
-| 70  | Unrecognised file message shows `[object File]`                               | NOT PROVEN |
-| 71  | Palette never initialises if one example widget fails to load                 | PROVEN     |
-| 158 | Two open connections feed one MAVLink parser                                  | PROVEN     |
-| 159 | A sandbox script that returns a primitive can no longer be edited             | PROVEN     |
-| 160 | A sandbox script that throws null keeps running and keeps failing             | PROVEN     |
-| 161 | The settings popup is updated only while it is shown                          | NOT PROVEN |
-| 162 | Text WebSocket frames are fed to the parser as zero bytes                     | NOT PROVEN |
-| 163 | A widget that won't fit is reported before its type is checked                | NOT PROVEN |
-| 164 | A failed layout leaves earlier widgets created and the grid in batch mode     | NOT PROVEN |
+| Row | Bug                                                                           | Verdict    | Status     |
+| --- | ----------------------------------------------------------------------------- | ---------- | ---------- |
+| 68  | A re-created menu widget opens a second connection and never closes the first | PROVEN     | FIXED      |
+| 69  | A signing passphrase stays active for later connections                       | PROVEN     | FIXED      |
+| 70  | Unrecognised file message shows `[object File]`                               | NOT PROVEN | Reproduced |
+| 71  | Palette never initialises if one example widget fails to load                 | PROVEN     | FIXED      |
+| 158 | Two open connections feed one MAVLink parser                                  | PROVEN     | FIXED      |
+| 159 | A sandbox script that returns a primitive can no longer be edited             | PROVEN     | FIXED      |
+| 160 | A sandbox script that throws null keeps running and keeps failing             | PROVEN     | FIXED      |
+| 161 | The settings popup is updated only while it is shown                          | NOT PROVEN | Reproduced |
+| 162 | Text WebSocket frames are fed to the parser as zero bytes                     | NOT PROVEN | Reproduced |
+| 163 | A widget that won't fit is reported before its type is checked                | NOT PROVEN | Reproduced |
+| 164 | A failed layout leaves earlier widgets created and the grid in batch mode     | NOT PROVEN | Reproduced |
 
-PROVEN 6, NOT PROVEN 5. Rows 158 and 68 have the same cause and need only one fix. Row 161 is partly mis-described (see
-its section).
+PROVEN 6, NOT PROVEN 5. Every PROVEN row is fixed in the port. Rows 158 and 68 have the same cause and one fix. Row
+161 is partly mis-described (see its section).
 
 ## 68. A re-created menu widget opens a second connection and never closes the first
 
@@ -65,6 +65,12 @@ so at most the live menu's socket feeds the page.
 connection that this menu's `createConnectionPanel` opened before `super.destroy()`. Expose a `disconnect`/`dispose`
 from the panel if it has none.
 
+**Status:** FIXED. `ConnectionController.dispose`
+(`apps/telemetry-dashboard/src/connection/connection.ts`) closes the socket and stops the heartbeat;
+`createConnectionPanel` (`src/widgets/menu-panels.ts`) returns it as `dispose`, and `MenuWidget.destroy`
+(`src/widgets/menu.ts`) calls it. Test: `connection.test.ts` "proven bugs #68/#158: a removed menu closes its
+connection, so the new menu Disconnect stops all data". Upstream's behaviour is asserted by the proof tests above.
+
 ## 69. A signing passphrase stays active for later connections
 
 **Row:** `TelemetryDashboard.js` `connect` (one `MAVLink20Processor`; only `sign_outgoing` is reset). After connecting
@@ -97,6 +103,13 @@ unsigned frames, as on a fresh page.
 **Smallest port change:** in `apps/telemetry-dashboard/src/connection/connection.ts`, when connecting without a
 passphrase, clear the key (`keySet = false` and zero the `secretKey`) next to switching outgoing signing off. Today only
 `setSigningKey` (`:116`) touches it.
+
+**Status:** FIXED. `ConnectionController.connect` calls `clearSigningKey` (zeroes `secretKey`,
+`keySet = false`) when there is no passphrase (`apps/telemetry-dashboard/src/connection/connection.ts`). Tests:
+`connection.test.ts` "proven bug #69: reconnecting without a passphrase clears the key, so unsigned frames are accepted
+again" (upstream's processor, given the same steps, refuses the frame; the port accepts it, as a fresh upstream page
+does) and "is shared by every connection: sequence numbers and the signing key carry over to a new menu" (a second
+menu connecting without a passphrase: upstream refuses, the port accepts).
 
 ## 70. Unrecognised file message shows `[object File]`
 
@@ -148,6 +161,12 @@ is `TypeError: Failed to fetch`. Control `… all fetches succeed and all ten wi
 **Smallest port change:** in `apps/telemetry-dashboard/src/dashboard/palette.ts:68-80`, settle each import when it
 fails, by passing the `fetch` chain itself to `allSettled` or by adding `reject` to the chain's `.catch`.
 
+**Status:** FIXED. `importPaletteFiles` (`apps/telemetry-dashboard/src/dashboard/palette-imports.ts`)
+passes each fetch chain to `Promise.allSettled`, so a failed file settles; `installPalette` (`src/dashboard/palette.ts`)
+uses it. Tests: `palette-imports.test.ts` "adds every widget, placed at its palette position, when all files load" and
+"proven bug #71: settles when a file fails to load or has no widget, leaving only that file out". Upstream's behaviour
+is asserted by the proof test above.
+
 ## 158. Two open connections feed one MAVLink parser
 
 **Row:** `TelemetryDashboard.js` `setup_connect` (every menu's socket calls the global `MAVLink.parseChar`). With the
@@ -175,6 +194,11 @@ frames in progress.
 **Minimal correct behaviour:** only one socket feeds the parser at a time.
 
 **Smallest port change:** none beyond row 68's. Closing a destroyed menu's connection leaves one stream per parser.
+
+**Status:** FIXED by row 68's change; same test. Two menus that are both live (a copied menu) still
+share one parser, as upstream; `connection.test.ts` "feeds bytes from two open connections into one parser, so
+interleaved frames corrupt (port resyncs, #150)" keeps that case, where the port now differs from upstream only by the
+MAVLink parser's proven #150 resync (see `mavlink.md`).
 
 ## 159. A sandbox script that returns a primitive can no longer be edited
 
@@ -211,6 +235,11 @@ returns quietly, and the script in the same message is loaded.
 **Smallest port change:** in `apps/telemetry-dashboard/src/sandbox/runtime.ts:93`, `return` (no `handle_options`) in
 place of `throw inOperatorError(...)` when the user object is not an object or function.
 
+**Status:** FIXED. `SandboxRuntime.handleOptions` (`apps/telemetry-dashboard/src/sandbox/runtime.ts`)
+returns for a primitive script result instead of throwing. Test: `sandbox/page.test.ts` "proven bug #159: a script that
+returns a primitive can still be edited" (asserts upstream's throws and stuck widget, the port's loaded edit, and that
+the port's result equals upstream's for the same steps without `return 0`).
+
 ## 160. A sandbox script that throws null keeps running and keeps failing
 
 **Row:** `Widgets/SandBox.html` `user_error` (`err.stack` of null throws before `user_class = null`). The error area is
@@ -241,6 +270,12 @@ drawn, the border is `red`, and the next message does not throw.
 **Smallest port change:** in `apps/telemetry-dashboard/src/sandbox/page.ts` `showError` (`:70-72`), read a stack only
 from an object (`null`/`undefined` → no location) and build the text with `String(error)` in place of the concatenation
 helper.
+
+**Status:** FIXED. `errorLocation` (`apps/telemetry-dashboard/src/sandbox/runtime.ts`) returns no
+location for null/undefined, and `showError` (`src/sandbox/page.ts`) uses `String(error)` for a Symbol (other values
+keep upstream's concatenation). Test: `sandbox/page.test.ts` "proven bug #160: a script that throws null, undefined or a
+Symbol is reported and stopped" (asserts upstream's failing report and grey border, and that the port's result equals
+upstream's for the same text thrown as a string).
 
 ## 161. The settings popup is updated only while it is shown
 

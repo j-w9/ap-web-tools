@@ -172,32 +172,50 @@ export function formatMemorySummary(memoryInfo: MemoryInfo): string {
 }
 
 /**
- * Converts an Intel HEX file to a flat image exactly as upstream does: data records are placed
- * at their 16-bit record address in a 512 KiB buffer, and the result is cut at the highest byte
- * written. Extended linear address records are read but not applied (an upstream bug, see
- * docs/upstream-bugs.md), so the start address always comes from the DfuSe start address field.
+ * Converts an Intel HEX file to a flat image as upstream does (a 512 KiB buffer, cut at the highest
+ * byte written), except that extended linear address (type 4) records are applied: each data byte
+ * lands at its absolute address minus the lowest extended linear base used by any data record.
+ * Upstream reads the base and never uses it, overlaying the 64 KiB segments (a proven upstream bug,
+ * see docs/bug-proofs/dfu-loader.md row 51). A file inside one 64 KiB segment converts exactly as
+ * upstream converts it. The start address still comes from the DfuSe start address field.
  */
 export function parseIntelHex(hexBuffer: ArrayBuffer): Uint8Array<ArrayBuffer> {
   const hexText = new TextDecoder('utf-8').decode(hexBuffer)
-  const lines = hexText.trim().split(/\r?\n/)
-  const data = new Uint8Array(1024 * 512) // Allocate up to 512KB
-  let dataLength = 0
-
-  for (const line of lines) {
+  const records: { len: number; addr: number; type: number; bytes: string }[] = []
+  for (const line of hexText.trim().split(/\r?\n/)) {
     if (!line.startsWith(':')) continue
     // `slice` here matches upstream's `substr(start, length)` for every length parseInt can return.
     const len = parseInt(line.slice(1, 3), 16)
-    const addr = parseInt(line.slice(3, 7), 16)
-    const type = parseInt(line.slice(7, 9), 16)
-    const bytes = line.slice(9, 9 + len * 2)
+    records.push({
+      len,
+      addr: parseInt(line.slice(3, 7), 16),
+      type: parseInt(line.slice(7, 9), 16),
+      bytes: line.slice(9, 9 + len * 2)
+    })
+  }
 
-    if (type === 0) {
+  // First pass: the lowest extended linear base in effect for any data record.
+  let baseAddr = 0
+  let origin = Infinity
+  for (const r of records) {
+    if (r.type === 0) origin = Math.min(origin, baseAddr)
+    else if (r.type === 4) baseAddr = parseInt(r.bytes, 16) * 0x10000
+  }
+  if (origin === Infinity) origin = 0
+
+  const data = new Uint8Array(1024 * 512) // Allocate up to 512KB
+  let dataLength = 0
+  baseAddr = 0
+  for (const r of records) {
+    if (r.type === 0) {
       // data record
-      const absAddr = addr
-      for (let i = 0; i < len; i++) data[absAddr + i] = parseInt(bytes.slice(i * 2, i * 2 + 2), 16)
-      dataLength = Math.max(dataLength, absAddr + len)
+      const offset = baseAddr + r.addr - origin
+      for (let i = 0; i < r.len; i++) data[offset + i] = parseInt(r.bytes.slice(i * 2, i * 2 + 2), 16)
+      dataLength = Math.max(dataLength, offset + r.len)
+    } else if (r.type === 4) {
+      // extended linear address
+      baseAddr = parseInt(r.bytes, 16) * 0x10000
     }
-    // type 4 (extended linear address): upstream computes the base address and never uses it.
   }
   return data.slice(0, dataLength)
 }

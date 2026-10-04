@@ -1,6 +1,6 @@
 import { ATTITUDE, encodeFrame, MavlinkSigning, signingKeyFromPassphrase, signingTimestamp } from '@apwt/mavlink'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { loadUpstreamMavlink, type UpstreamMavlink } from '../test-support/upstream-mavlink.js'
+import { loadUpstreamMavlink, type UpstreamMavlink, type UpstreamProcessor } from '../test-support/upstream-mavlink.js'
 import type { LegacyMessage } from '../mavlink/legacy-message.js'
 import {
   browserSocketFactory,
@@ -99,6 +99,30 @@ let upstream: UpstreamMavlink
 beforeAll(async () => {
   upstream = await loadUpstreamMavlink()
 })
+
+/** Upstream's processor after `connect(target, 'secret')` then `connect(target, '')` (TelemetryDashboard.js:163-169). */
+function upstreamAfterReconnectWithoutPassphrase(): UpstreamProcessor {
+  const processor = new upstream.MAVLink20Processor(null, 255, 0)
+  processor.signing.secret_key = new Uint8Array(upstream.mavlink20.sha256(new TextEncoder().encode('secret')))
+  processor.signing.sign_outgoing = true
+  // Second connect: only outgoing signing is switched off.
+  processor.signing.sign_outgoing = false
+  return processor
+}
+
+/** Names of the messages upstream's processor decodes from `frame`, errors swallowed as `ws.onmessage` did. */
+function upstreamNames(processor: UpstreamProcessor, frame: Uint8Array): string[] {
+  const names: string[] = []
+  for (const c of frame) {
+    try {
+      const m = processor.parseChar(c)
+      if (m !== null && m._id !== -1) names.push(m._name)
+    } catch {
+      // Upstream's parseChar throws for a refused frame.
+    }
+  }
+  return names
+}
 
 describe('connection controller', () => {
   it('auto-connects to Mission Planner and stays black when that fails', () => {
@@ -244,25 +268,29 @@ describe('connection controller', () => {
     expect(Array.from(t.sockets[0]!.sent[0]!)).toEqual(msg.pack(processor))
   })
 
-  it('keeps verifying with the last key after reconnecting without a passphrase (upstream keeps it)', () => {
+  it('proven bug #69: reconnecting without a passphrase clears the key, so unsigned frames are accepted again', () => {
     const t = setup({ passphrase: 'secret' })
     t.controller.connectClicked(() => true)
     t.sockets[0]!.open()
+    expect(t.processor.keySet).toBe(true)
     t.controller.disconnectClicked()
     t.sockets[0]!.closed()
     t.state.settings = { ...t.state.settings, passphrase: '' }
     t.controller.connectClicked(() => true)
     t.sockets[1]!.open()
     const fields = { timeBootMs: 1, roll: 0, pitch: 0, yaw: 0, rollspeed: 0, pitchspeed: 0, yawspeed: 0 }
-    t.sockets[1]!.receive(encodeFrame(ATTITUDE, fields, { systemId: 1, componentId: 1, sequence: 0 }))
-    expect(t.messages).toHaveLength(0)
-    const signing = new MavlinkSigning({
-      secretKey: signingKeyFromPassphrase('secret'),
-      timestamp: signingTimestamp(t.state.now) + 10
-    })
-    t.sockets[1]!.receive(encodeFrame(ATTITUDE, fields, { systemId: 1, componentId: 1, sequence: 1 }, { signing }))
-    expect(t.messages).toHaveLength(1)
-    expect(t.messages[0]!._signed).toBe(true)
+    const unsigned = encodeFrame(ATTITUDE, fields, { systemId: 1, componentId: 1, sequence: 0 })
+
+    // Upstream (the same steps on its one processor): the key stays set and the frame is refused.
+    expect(upstreamNames(upstreamAfterReconnectWithoutPassphrase(), unsigned)).toEqual([])
+
+    // Port: the key is cleared, as on a fresh page, which accepts the frame.
+    expect(t.processor.keySet).toBe(false)
+    expect(Array.from(t.processor.signing.secretKey)).toEqual(new Array<number>(32).fill(0))
+    expect(t.processor.signOutgoing).toBe(false)
+    t.sockets[1]!.receive(unsigned)
+    expect(t.messages.map((m) => m._name)).toEqual(['ATTITUDE'])
+    expect(upstreamNames(new upstream.MAVLink20Processor(null, 255, 0), unsigned)).toEqual(['ATTITUDE'])
   })
 
   it('re-enables only the disconnect button when a socket opens after an earlier one closed late (as upstream)', () => {
@@ -290,10 +318,13 @@ describe('the page-wide MAVLink processor (upstream global MAVLink)', () => {
     second.tick()
     expect(first.processor.sequence).toBe(2)
     expect(second.sockets[0]!.sent[0]![4]).toBe(1)
-    // The key stays set: unsigned frames are refused on the new connection.
+    // Proven bug #69: upstream kept the first menu's key and refused unsigned frames on the new
+    // menu's connection made without a passphrase; the port clears the key and accepts them.
     const fields = { timeBootMs: 1, roll: 0, pitch: 0, yaw: 0, rollspeed: 0, pitchspeed: 0, yawspeed: 0 }
-    second.sockets[0]!.receive(encodeFrame(ATTITUDE, fields, { systemId: 1, componentId: 1, sequence: 0 }))
-    expect(second.messages).toHaveLength(0)
+    const unsigned = encodeFrame(ATTITUDE, fields, { systemId: 1, componentId: 1, sequence: 0 })
+    expect(upstreamNames(upstreamAfterReconnectWithoutPassphrase(), unsigned)).toEqual([])
+    second.sockets[0]!.receive(unsigned)
+    expect(second.messages.map((m) => m._name)).toEqual(['ATTITUDE'])
   })
 
   it('accepts signed frames unchecked until a key is set, as upstream', () => {
@@ -309,7 +340,28 @@ describe('the page-wide MAVLink processor (upstream global MAVLink)', () => {
     expect(t.messages.map((m) => [m._name, m._signed])).toEqual(decoded.map((m) => [m!._name, m!['_signed']]))
   })
 
-  it('feeds bytes from two open connections into one parser, so interleaved frames corrupt as upstream', () => {
+  it('proven bugs #68/#158: a removed menu closes its connection, so the new menu Disconnect stops all data', () => {
+    // Upstream's destroy left the old socket open (proofs/telemetry-dashboard "#68 …"); the port's
+    // menu destroy calls dispose.
+    const old = setup({ heartbeat: true })
+    old.controller.autoConnect(null, null)
+    old.sockets[0]!.open()
+    expect(old.intervals.size).toBe(1)
+    old.controller.dispose()
+    expect(old.sockets[0]!.closeCalls).toBe(1)
+    expect(old.intervals.size).toBe(0)
+    old.sockets[0]!.closed()
+    expect(old.controller.view.color).toBe('black')
+
+    const recreated = setup({}, old.processor)
+    recreated.controller.autoConnect(null, null)
+    recreated.sockets[0]!.open()
+    recreated.controller.disconnectClicked()
+    expect(recreated.sockets[0]!.closeCalls).toBe(1)
+    expect([old.sockets[0]!.state, recreated.sockets[0]!.state]).toEqual(['closed', 'closing'])
+  })
+
+  it('feeds bytes from two open connections into one parser, so interleaved frames corrupt (port resyncs, #150)', () => {
     const a = setup()
     const b = setup({}, a.processor)
     a.controller.connectClicked(() => true)
@@ -340,9 +392,11 @@ describe('the page-wide MAVLink processor (upstream global MAVLink)', () => {
       }
     }
     const ours = [...a.messages, ...b.messages].map((m) => `${m._name}:${m._header.srcSystem}`)
-    expect(ours.sort()).toEqual(expected.sort())
-    // Three complete frames were sent; the interleaving loses some of them.
-    expect(expected.length).toBeLessThan(3)
+    // Three complete frames were sent; the interleaving loses some of them. Upstream drops the whole
+    // length the broken frame claims, losing the second f2 inside it; the port drops only the start
+    // marker after the checksum fails and finds that f2 (proven bug #150, docs/bug-proofs/mavlink.md).
+    expect(expected).toEqual(['ATTITUDE:2'])
+    expect(ours).toEqual(['ATTITUDE:2', 'ATTITUDE:2'])
   })
 })
 

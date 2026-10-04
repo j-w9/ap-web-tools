@@ -149,12 +149,13 @@ export function uncorrectedThrust(data: ThrustData, range: OutputRange, actuator
 }
 
 /**
- * Whether upstream keeps a given expo rather than fitting: it tests `if (thrustExpo)`, so 0 and
- * NaN (an empty input) are refitted. Upstream bug reproduced: a manual expo of exactly 0 (linear)
- * cannot be tried (docs/upstream-bugs.md).
+ * Whether a given expo is kept rather than fitted. NaN (an empty input) is refitted, as upstream's
+ * `if (thrustExpo)` does. Proven upstream bug fixed: upstream also refits an entered 0 (linear), which
+ * its own comment and the firmware define as a valid value; here 0 is kept
+ * (docs/bug-proofs/thrust-expo.md).
  */
 export function keepsExpo(setting: ExpoSetting): setting is { readonly kind: 'fixed'; readonly expo: number } {
-  return setting.kind === 'fixed' && setting.expo !== 0 && !Number.isNaN(setting.expo)
+  return setting.kind === 'fixed' && !Number.isNaN(setting.expo)
 }
 
 /** Run the whole linearisation. Returns null with no samples (upstream clears the plots). */

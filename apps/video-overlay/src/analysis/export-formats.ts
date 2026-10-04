@@ -71,9 +71,19 @@ export interface InputMediaDescription {
   /** Mediabunny input format name, e.g. "MP4". */
   readonly formatName: string
   readonly videoCodec: string | null
-  readonly audioCodec: string | null
+  /** `undefined` when the video has no audio track. */
+  readonly audioCodec: string | null | undefined
   /** Average packet rate formatted with two decimals, e.g. "29.97". */
   readonly fps: string
+}
+
+/**
+ * The Codec info text: `video + audio` as upstream wrote it (a codec Mediabunny cannot name shows as
+ * `null`), or the video codec alone for a video without an audio track (proven bug #120: upstream
+ * threw there).
+ */
+export function inputCodecText(videoCodec: string | null, audioCodec: string | null | undefined): string {
+  return audioCodec === undefined ? String(videoCodec) : `${String(videoCodec)} + ${String(audioCodec)}`
 }
 
 /**
@@ -82,6 +92,8 @@ export interface InputMediaDescription {
  * first), then the same video and audio codec if offered, then the nearest frame rate (first on
  * ties). Anything without a match is left as it was. A codec Mediabunny could not name (null)
  * makes upstream throw part way; the steps done until then stand and `error` carries the message.
+ * Without an audio track (`audioCodec` undefined) the audio codec is left as it was: upstream threw
+ * before matching anything there, a proven bug (docs/bug-proofs/video-overlay.md #120).
  */
 export function matchSelectionToInput(
   formats: readonly OutputFormatOption[],
@@ -103,11 +115,13 @@ export function matchSelectionToInput(
   const videoWanted = input.videoCodec?.toLowerCase()
   const video = videoOptions.find((c) => c.toLowerCase() === videoWanted)
   if (selection && video !== undefined) selection = { ...selection, videoCodec: video }
-  const audioOptions = offered?.audio ?? []
-  if (input.audioCodec === null && audioOptions.length > 0) return { selection, frameRate, error: nullCodecError }
-  const audioWanted = input.audioCodec?.toLowerCase()
-  const audio = audioOptions.find((c) => c.toLowerCase() === audioWanted)
-  if (selection && audio !== undefined) selection = { ...selection, audioCodec: audio }
+  if (input.audioCodec !== undefined) {
+    const audioOptions = offered?.audio ?? []
+    if (input.audioCodec === null && audioOptions.length > 0) return { selection, frameRate, error: nullCodecError }
+    const audioWanted = input.audioCodec?.toLowerCase()
+    const audio = audioOptions.find((c) => c.toLowerCase() === audioWanted)
+    if (selection && audio !== undefined) selection = { ...selection, audioCodec: audio }
+  }
 
   let minDiff = Infinity
   for (const rate of FRAME_RATES) {

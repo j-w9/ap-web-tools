@@ -58,7 +58,11 @@ export interface LegacyFrameInfo {
   _msgbuf: Uint8Array
   /** Payload, zero-extended to the full (untruncated) length. */
   _payload: Uint8Array
-  /** Frame checksum. Overwrites a message field called `crc`, as upstream does. */
+  /**
+   * Frame checksum, except on a message with its own `crc` field (CUBEPILOT_FIRMWARE_UPDATE_START),
+   * where `crc` stays that field's value. Upstream overwrote the field with the checksum; proven bug
+   * #155 (docs/bug-proofs/mavlink.md).
+   */
   crc: number
   _header: LegacyHeader
   /** `Date.now()` when the dashboard decoded the message. */
@@ -184,12 +188,14 @@ export function toLegacyMessage(message: ReceivedMessage, timeStamp: number): Le
     if (value !== undefined) out[info.fieldnames[i]!] = legacyValue(field, value, payload)
   })
   const verified = signature?.verified === true
+  // Proven bug #155: a payload field called `crc` keeps its value instead of the frame checksum.
+  const crcField = out.crc
   const frameInfo: LegacyFrameInfo = {
     _signed: verified,
     ...(verified ? { _link_id: signature.linkId } : {}),
     _msgbuf: frame,
     _payload: payload,
-    crc: frame[crcOffset]! | (frame[crcOffset + 1]! << 8),
+    crc: typeof crcField === 'number' ? crcField : frame[crcOffset]! | (frame[crcOffset + 1]! << 8),
     _header: {
       mlen: header.payloadLength,
       seq: header.sequence,

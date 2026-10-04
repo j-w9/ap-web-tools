@@ -1,14 +1,6 @@
 // The DFU Loader page flow from upstream/DFULoader/dfu-util.js (its DOMContentLoaded handler),
 // as a framework-free state machine. The React UI renders `Snapshot` and calls the event methods.
-import {
-  DfuDevice,
-  DfuError,
-  DfuState,
-  findAllDfuInterfaces,
-  findDeviceDfuInterfaces,
-  type DfuLogEvent,
-  type FirmwareData
-} from './dfu.js'
+import { DfuDevice, DfuState, findAllDfuInterfaces, findDeviceDfuInterfaces, type DfuLogEvent, type FirmwareData } from './dfu.js'
 import { DfuseDevice, type MemoryInfo } from './dfuse.js'
 import {
   fixInterfaceNames,
@@ -298,6 +290,7 @@ export class LoaderSession {
     let connected = device
     let properties: string | null = null
     let memorySummary = ''
+    let cannotDownload = false
     const protocol = device.settings.alternate.interfaceProtocol
     if (desc) {
       properties = formatProperties(desc)
@@ -308,10 +301,10 @@ export class LoaderSession {
 
       if (protocol === 0x02) {
         if (!desc.CanUpload) this.patchDfuse({ uploadSize: { disabled: true } })
-        if (!desc.CanDnload) {
-          // Upstream disables an undefined button here, crashing with a ReferenceError.
-          throw new DfuError('The DFU interface reports that it cannot download (CanDnload=false), so it cannot be flashed.')
-        }
+        // Upstream means to disable Flash Bootloader here but names an undefined button and throws a
+        // ReferenceError (a proven upstream bug, docs/bug-proofs/dfu-loader.md row 55). The port
+        // finishes connecting with Flash Bootloader disabled.
+        if (!desc.CanDnload) cannotDownload = true
       }
 
       if (desc.DFUVersion === 0x011a && protocol === 0x02) {
@@ -338,7 +331,7 @@ export class LoaderSession {
         memorySummary
       },
       // Runtime interfaces cannot be flashed
-      flashEnabled: protocol !== 0x01,
+      flashEnabled: protocol !== 0x01 && !cannotDownload,
       fileEnabled: protocol !== 0x01
     })
 
@@ -351,8 +344,11 @@ export class LoaderSession {
         const value = '0x' + segment.start.toString(16)
         // A value set by script is the new baseline for the field's change event.
         this.startAddressAtLastChange = value
+        // Upstream keeps the field's previous custom validity here, so an earlier "Address outside of
+        // memory map" blocks Flash Bootloader for this valid address (a proven upstream bug,
+        // docs/bug-proofs/dfu-loader.md row 144). The port clears it.
         this.patchDfuse({
-          startAddress: { value },
+          startAddress: { value, customValidity: '' },
           uploadSize: { value: String(maxReadSize), badInput: false, max: maxReadSize }
         })
       }
@@ -488,7 +484,9 @@ export class LoaderSession {
     if (token !== this.fileToken) return
     if (file.name.endsWith('.hex')) {
       this.patch({ firmware: { name: file.name, data: parseIntelHex(buffer), convertedFromHex: true } })
-      this.appendLog('info', 'Converted Hex to bin')
+      // Upstream logs this through logInfo, which drops it unless a flash is running, so it is never
+      // shown (a proven upstream bug, docs/bug-proofs/dfu-loader.md row 53). The port always adds it.
+      this.patch({ log: [...this.snapshot.log, { kind: 'info', text: 'Converted Hex to bin' }] })
     } else {
       this.patch({ firmware: { name: file.name, data: buffer, convertedFromHex: false } })
     }

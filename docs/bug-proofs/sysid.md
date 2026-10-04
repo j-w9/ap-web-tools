@@ -10,18 +10,19 @@ on Python it rests on a quoted reading of the Python source (SysID.js strings an
 `upstream/modules/build/pyAircraftIden-1.0-py3-none-any.whl`), and anything that would need a Python run
 to be certain is marked as such.
 
-| #   | Bug                                                              | Verdict                                                               |
-| --- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 1   | Multirotor yaw preset bounds do not line up with parameter order | PROVEN (misalignment); the SLSQP failure clause is NOT PROVEN         |
-| 2   | Transfer function and state space forms share field ids          | PROVEN                                                                |
-| 3   | Gravity compensation indexes ATT by the output's sample number   | PROVEN (reads outside the ATT window it computed; NaN past ATT's end) |
-| 4   | Each State space selection adds another Generate fields handler  | NOT PROVEN                                                            |
-| 5   | First progress line is wiped                                     | PROVEN                                                                |
-| 6   | Low-pass cutoff converted with 2 \* 3.14                         | PROVEN                                                                |
-| 7   | A ticked multiplier with an empty value is ignored               | NOT PROVEN                                                            |
-| 8   | Instanced messages offered in the pickers cannot be read         | PROVEN                                                                |
+| #   | Bug                                                               | Verdict                                                              |
+| --- | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1   | Multirotor yaw preset bounds do not line up with parameter order  | PROVEN (misalignment), FIXED; the SLSQP failure clause is NOT PROVEN |
+| 2   | Transfer function and state space forms share field ids           | PROVEN, FIXED                                                        |
+| 3   | Gravity compensation indexes ATT by the output's sample number    | PROVEN, FIXED (reads outside the ATT window it computed)             |
+| 4   | Each State space selection adds another Generate fields handler   | NOT PROVEN (reproduced)                                              |
+| 5   | First progress line is wiped                                      | PROVEN, FIXED                                                        |
+| 6   | Low-pass cutoff converted with 2 \* 3.14                          | PROVEN, FIXED                                                        |
+| 7   | A ticked multiplier with an empty value is ignored                | NOT PROVEN                                                           |
+| 8   | Instanced messages offered in the pickers cannot be read          | PROVEN, FIXED                                                        |
+| 9   | Each model selection or Generate click appends another option set | NOT PROVEN (presentation only)                                       |
 
-PROVEN: 6. NOT PROVEN: 2.
+PROVEN: 6 (all fixed in the port). NOT PROVEN: 3 (row 4 reproduced; row 7 reproduced; row 9 presentation only).
 
 pyAircraftIden paths below are inside the wheel (`AircraftIden/...`); line numbers are those of the
 unzipped files.
@@ -76,6 +77,8 @@ Smallest port change: in `apps/sysid/src/analysis/presets.ts` `MR_Yaw`, list `pa
 pyAircraftIden's cell order (`Nr, Nped, wlag, Npedp, wlg` with bounds `(-1,0), (0,80), (-50,0), (-10,10), (0,50)`),
 so each bound field also sits next to the name of the parameter it constrains.
 
+**Status: FIXED.** Port: `apps/sysid/src/analysis/presets.ts:119` (`MR_Yaw` params `Nr, Nped, wlag, Npedp, wlg`, bounds reordered to match). Tests: `MR_Yaw parameter order (proven upstream bug fixed)` › `upstream lists Npedp before wlag with their bounds; the port lists them in cell order` and `%s: parameter fields are in pyAircraftIden cell order`; `presets match upstream index.html setters` › `MR_Yaw` compares upstream through the field-order map (`apps/sysid/src/analysis/presets.test.ts`). Every other preset is unchanged.
+
 ## 2. Transfer function and state space forms share field ids
 
 Row: _`SysID/index.html` `createInputFields` (`input_name_1`, `output_name_1`, ...). After Transfer
@@ -122,6 +125,8 @@ Smallest port change: stop sharing slots between the forms in `apps/sysid/src/an
 (`slotOwner` always gives the State Space slots to the State Space form) and drop the
 "shared with the transfer function form" note in `App.tsx`.
 
+**Status: FIXED.** Port: `apps/sysid/src/analysis/setup.ts:201-230` (`readSlot`/`writeSlot` take the form; `slotOwner` removed), `request.ts` (each model reads its own form), `App.tsx` (the shared-slot note is gone). Tests: `state space: Submit reads its own form after Transfer function was selected (upstream throws)` (`apps/sysid/src/analysis/request.test.ts`; upstream rejects, the port gives what upstream gives with no transfer function form) and `after opening the transfer function form, presets still write into the state space form` (`setup.test.ts`); upstream's preset result is asserted in `proofs/sysid`.
+
 ## 3. Gravity compensation indexes ATT by the output's sample number
 
 Row: _`SysID/SysID.js` `run_*_ID` (`ang_data_arr[att_ind1 + j]`). Only aligned when ATT is logged with
@@ -167,6 +172,8 @@ Smallest port change: in `apps/sysid/src/analysis/prepare.ts` `compensate`, inde
 sample nearest in time to output sample j (`nearestIndex(attTime, outputTime[j])`, passing the output's
 sliced TimeUS), instead of `attStart + j`.
 
+**Status: FIXED.** Port: `apps/sysid/src/analysis/prepare.ts:59` `compensate` uses `nearestIndex(attTime, outputTime[j])` for every output sample whose time lies within ATT's logged span; samples outside that span keep upstream's `attStart + j` (so past the end of ATT they stay NaN, as upstream). Test: `gravity compensation with ATT logged slower than the output` › `each sample uses the ATT sample nearest in time (upstream reads ATT[j], then NaN)` (`apps/sysid/src/analysis/request.test.ts`): upstream gives `k·10` at 0.50 s and NaN from 1.05 s, the port `k·floor(j/2)`; every other global equals upstream's. The existing synthetic and SITL oracle cases (ATT logged with the output) are unchanged.
+
 ## 4. Each State space selection adds another Generate fields handler
 
 Row: _`SysID/index.html` `ss_select` change handler. After toggling model types one click runs the
@@ -188,8 +195,15 @@ inside `index.html:808` `document.getElementById("ss_select").addEventListener("
 `index.html:827-829` the alert; `index.html:836` `populate_log_message_select()` appends options to all
 four containers (`SysID.js:350-359, 382`).
 
-Note: the row's "The port runs it once" is a deviation the standard does not cover (the bug is not
-proven); it changes only the alert count and the hidden form's option list.
+Note: the row's "The port runs it once" was a deviation the standard does not cover (the bug is not
+proven).
+
+**Status: reproduced.** The port now runs one generator per installed handler:
+`apps/sysid/src/analysis/setup.ts` `generateClick` (with `Setup.generateHandlers`, counted in
+`selectModel`), so the alert appears once per handler (`App.tsx` shows one notice per alert) and the
+fields end as one run leaves them. Tests: `generateClick (every installed handler runs)`
+(`apps/sysid/src/analysis/setup.test.ts`). The extra option set appended to the hidden transfer
+function selects is row 9.
 
 ## 5. First progress line is wiped
 
@@ -217,6 +231,8 @@ the later progress lines.
 
 Smallest port change: in `apps/sysid/src/App.tsx` `startPython`, remove the `clearOutput()` after
 `loadPython(appendOutput)` (or clear before starting the load).
+
+**Status: FIXED.** Port: `apps/sysid/src/App.tsx:47-55` `startPython` no longer calls `clearOutput()`. No port unit test (the call lived in the React page); upstream's behaviour is asserted in `proofs/sysid` (`writes "Initializing Pyodide..." and main() clears it in the same task`), and `loadPython` still writes that line first (`apps/sysid/src/python/runtime.ts:199`).
 
 ## 6. Low-pass cutoff converted with 2 \* 3.14
 
@@ -247,6 +263,8 @@ in rad/s.
 Smallest port change: in `apps/sysid/src/python/transfer_function.py:17` and
 `apps/sysid/src/python/state_space.py:38`, use `/(2*math.pi)` (`math` is already imported by both
 upstream scripts, `SysID.js:494, 787`).
+
+**Status: FIXED.** Port: `apps/sysid/src/python/transfer_function.py:19` and `state_space.py:40` use `2*math.pi`. Test: `transfer_function.py` / `state_space.py` › `is upstream code with only the cutoff conversion changed to 2*math.pi` (`apps/sysid/src/python/scripts.test.ts`, comparing the code lines with the scripts embedded in upstream `SysID.js`).
 
 ## 7. A ticked multiplier with an empty value is ignored
 
@@ -299,3 +317,33 @@ before.
 Smallest port change: in `apps/sysid/src/analysis/columns.ts` (`upstreamColumn`, used by
 `requireColumn`), resolve a `NAME[n]` message to instance n of NAME instead of reporting it as
 unreadable.
+
+**Status: FIXED.** Port: `apps/sysid/src/analysis/columns.ts:19` `upstreamColumn` resolves `NAME[n]` to instance n of NAME. Test: `transfer function: an instanced message reads that instance (upstream throws)` (`apps/sysid/src/analysis/request.test.ts`): upstream rejects with `Cannot read properties of undefined (reading 'length')` for `IMU[0]` and `IMU[1]`; the port's Python globals equal those upstream builds when `get('IMU[n]')` is answered by the parser's own `get_instance` (`instanceAwareParser`).
+
+## 9. Each model selection or Generate click appends another option set to existing selects (new row)
+
+Row: _`SysID/SysID.js` `populate_log_message_select` appends "None" and every message type to the
+message and field selects of all four containers each time it runs, without clearing them. It runs on
+every Transfer function selection and on every Generate fields handler run, so selects that survive
+(the State Space fields while Transfer function is selected, the hidden transfer function fields while
+Generate is clicked) list every message again._
+
+**Verdict: NOT PROVEN.** The lists grow, but the selected values do not change and no computed result
+depends on the duplicates. Nothing in the original states that each message must be listed once; the
+comment says only `// Add select options from log` (`index.html:800`, `:835`). This is a UI quirk with no
+stated intent.
+
+Tests: `SysID: populate_log_message_select appends another option set to existing selects` ›
+`selecting Transfer function after generating doubles the State Space message lists` (the State Space
+Input 1 message list becomes the original list twice, same selection) and `every Generate fields click
+appends a set to the transfer function selects, once that form exists` (two clicks give three copies).
+
+Evidence: `SysID.js:340-360` (`populate` only appends: `message.appendChild(option("None"))`, one
+`appendChild` per type, `field.appendChild(option("None"))`), `SysID.js:382-393` (all four containers,
+every select whose id contains `_name_`), `index.html:793-801` (Transfer function selection recreates
+only its own fields, then calls `populate_log_message_select()`), `index.html:832-836` (Generate fields
+recreates only the State Space fields, then calls it).
+
+**Status: not reproduced (presentation).** The duplicated entries change no value or result; under
+`docs/porting-policy.md` ("Presentation and convenience are free") the port's pickers list each message
+once. Flagged for review, since the bug is not proven.

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createContext, runInContext } from 'node:vm'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { buildSyntheticLog } from '@apwt/dataflash/testing'
+import { buildSyntheticLog, LogWriter } from '@apwt/dataflash/testing'
 import { DataflashParserFacade } from './parser-facade.js'
 import { DEFAULT_CUSTOM_HTML, SANDBOX_DOCUMENT } from './documents.js'
 import { parseUpstream, readFixture, repoRoot, upstreamDir, type UpstreamParser } from '../test-utils/upstream.js'
@@ -80,21 +80,43 @@ describe.each(['copter-sitl.bin', 'copter-files.bin', 'synthetic'])('log facade 
     for (const key of Object.keys(upAtt)) expectSameColumn(att[key], upAtt[key], `ATT.${key}`)
   })
 
-  it('throws like upstream when an instanced message is read without an instance', () => {
+  it('returns undefined where upstream throws for an instanced message read without an instance (proven bug #119)', () => {
+    // Upstream's result for the bug input; proofs/video-overlay reproduces it on its own.
     expect(() => up.get('IMU', 'GyrX')).toThrow(TypeError)
-    expect(() => mine.get('IMU', 'GyrX')).toThrow(TypeError)
+    expect(() => up.get('IMU')).toThrow(TypeError)
+    expect(() => up.get_instance('IMU', undefined, 'GyrX')).toThrow(TypeError)
+    // Corrected: the same `undefined` as upstream's other no-data paths.
+    expect(mine.get('IMU', 'GyrX')).toBeUndefined()
+    expect(mine.get('IMU')).toBeUndefined()
+    expect(mine.get_instance('IMU', undefined, 'GyrX')).toBeUndefined()
   })
 
   it('gives the same start time', () => {
     expect(mine.extractStartTime()?.getTime()).toBe(up.extractStartTime()?.getTime())
   })
 
-  it('builds messageTypes exactly as upstream: units, multipliers, complexFields, key order', () => {
+  it('builds messageTypes as upstream: units, multipliers, complexFields, key order; µ for 1e-6 (proven bug)', () => {
     expect(Object.keys(mine.messageTypes)).toEqual(Object.keys(up.messageTypes))
+    let relabelled = 0
     for (const [name, info] of Object.entries(up.messageTypes)) {
       const ours = mine.messageTypes[name]
       expect(ours === undefined ? undefined : Object.keys(ours), name).toEqual(Object.keys(info))
-      expect(structuredClone(ours), name).toEqual(structuredClone(info))
+      // Upstream labels multiplier 1e-6 with `n` (nano); the port with `µ` (js-dataflash-parser.md #2).
+      // Every other value is upstream's exactly.
+      const expected = structuredClone(info) as { complexFields?: Record<string, { units: string; multiplier: unknown }> }
+      for (const field of Object.values(expected.complexFields ?? {})) {
+        if (field.multiplier !== 0.000001) continue
+        expect(field.units.startsWith('n'), `${name} upstream`).toBe(true)
+        field.units = '\u00b5' + field.units.slice(1)
+        relabelled++
+      }
+      expect(structuredClone(ours), name).toEqual(expected)
+    }
+    expect(relabelled).toBeGreaterThan(0)
+    if (up.messageTypes['IMU'] !== undefined) {
+      const timeUs = (t: unknown) => (t as { complexFields: Record<string, { units: string }> }).complexFields['TimeUS']?.units
+      expect(timeUs(up.messageTypes['IMU'])).toBe('ns')
+      expect(timeUs(mine.messageTypes['IMU'])).toBe('µs')
     }
   })
 
@@ -189,5 +211,38 @@ describe('widget documents', () => {
     expect(new URL('../modules/JsDataflashParser/parser.js', 'https://host/apps/video-overlay/').pathname).toBe(
       '/apps/modules/JsDataflashParser/parser.js'
     )
+  })
+})
+
+describe('log facade for widget scripts: FMTU for an undefined type (proven parser bug, js-dataflash-parser.md #3)', () => {
+  function bytes(withBadRecord: boolean): ArrayBuffer {
+    const w = new LogWriter()
+    w.defineFormat(0x80, 'FMT', 'BBnNZ', 'Type,Length,Name,Format,Columns')
+    w.defineFormat(0xb1, 'FMTU', 'QBNN', 'TimeUS,FmtType,UnitIds,MultIds')
+    w.defineFormat(30, 'IMU', 'QBf', 'TimeUS,I,T')
+    if (withBadRecord) w.write('FMTU', [0, 99, '-#', '--'])
+    w.write('FMTU', [0, 30, 's#O', 'F--'])
+    for (let i = 0; i < 4; i++) w.write('IMU', [i, i % 2, 20 + i])
+    return w.toBytes().slice().buffer
+  }
+
+  it('skips the record where upstream abandons every later FMTU', async () => {
+    const up = await parseUpstream(bytes(true))
+    const mine = new DataflashParserFacade()
+    mine.processData(bytes(true), [])
+    // Upstream: the IMU FMTU after the bad record is never applied.
+    expect(up.messageTypes['IMU']?.instances).toBeUndefined()
+    expect(up.messageTypes['IMU[0]']).toBeUndefined()
+    // Port: the same messageTypes as upstream (µ for 1e-6 aside) for the log without the bad record.
+    const clean = await parseUpstream(bytes(false))
+    expect(mine.messageTypes['IMU']?.instances).toEqual({ 0: 'IMU[0]', 1: 'IMU[1]' })
+    expect(Object.keys(mine.messageTypes)).toEqual(Object.keys(clean.messageTypes))
+    const expected = structuredClone(clean.messageTypes) as unknown as Record<
+      string,
+      { complexFields: Record<string, { units: string }> }
+    >
+    for (const name of ['IMU', 'IMU[0]', 'IMU[1]']) expected[name]!.complexFields['TimeUS']!.units = 'µs'
+    expect(structuredClone(mine.messageTypes)).toEqual(expected)
+    expect(mine.get_instance('IMU', 1, 'T')).toEqual(clean.get_instance('IMU', 1, 'T'))
   })
 })

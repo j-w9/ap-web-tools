@@ -3,10 +3,11 @@
  *
  * Upstream builds its signal pickers as DOM fields with ids such as `input_name_1` and
  * `output_name_1`. The transfer function form and the state space form create fields with the
- * same ids, and `getElementById` returns the transfer function's, which come first in the page.
- * So once the transfer function form has been opened, the state space identification and its
- * presets use the transfer function's input and first output. This model keeps that rule in one
- * place ({@link sharedSlots}) so the same data is used.
+ * same ids, and `getElementById` returns the transfer function's, which come first in the page,
+ * so once the transfer function form had been opened the state space identification and its
+ * presets used the hidden transfer function form's input and first output. That is a proven
+ * upstream bug (docs/bug-proofs/sysid.md, row 2) and is fixed here: each form reads and writes
+ * its own signal fields ({@link readSlot}, {@link writeSlot}).
  */
 import { PRESETS, type PresetChoice, type PresetOutput } from './presets.js'
 import type { CompensationAxis, OutputSource, SignalSource } from './prepare.js'
@@ -89,6 +90,11 @@ export interface Setup {
   readonly tfSignals: TransferFunctionSignals | null
   readonly tf: TransferFunctionForm
   readonly ss: StateSpaceForm
+  /**
+   * How many "Generate fields" click handlers upstream has installed: its `ss_select` change
+   * handler adds one more every time State space is selected, and each runs on one click.
+   */
+  readonly generateHandlers: number
 }
 
 /** What the pickers can offer: the loaded log's messages, or nothing before a log is loaded. */
@@ -122,7 +128,8 @@ export const INITIAL_SETUP: Setup = {
     bounds: [],
     constraintFields: [],
     matrices: null
-  }
+  },
+  generateHandlers: 0
 }
 
 // ---------- Picker values ----------
@@ -179,38 +186,39 @@ export function selectModel(setup: Setup, model: ModelType, options: PickerOptio
       return { ...setup, model, tfSignals: { input: newSignal(options), output: newOutput(options) } }
     case 'state-space':
       // The preset dropdown is recreated (back to manual); generated fields are kept.
-      return { ...setup, model, ss: { ...setup.ss, preset: 'manual' } }
+      return { ...setup, model, ss: { ...setup.ss, preset: 'manual' }, generateHandlers: setup.generateHandlers + 1 }
   }
 }
 
-// ---------- The input and output slots, resolved as upstream's getElementById does ----------
+// ---------- The input and output slots of each form ----------
 
 export type Slot = { readonly kind: 'input' } | { readonly kind: 'output'; readonly index: number }
 
-/** Which form's fields a slot resolves to: the transfer function's when it has that slot. */
-export function slotOwner(setup: Setup, slot: Slot): 'tf' | 'ss' {
-  const tfHasSlot = setup.tfSignals !== null && (slot.kind === 'input' || slot.index === 0)
-  return tfHasSlot ? 'tf' : 'ss'
-}
+/** The form whose signal fields are read or written. */
+export type Form = 'tf' | 'ss'
 
-/** The fields a slot resolves to, or `undefined` where upstream finds no element. */
-export function readSlot(setup: Setup, slot: { kind: 'input' }): SignalFields | undefined
-export function readSlot(setup: Setup, slot: { kind: 'output'; index: number }): OutputFields | undefined
-export function readSlot(setup: Setup, slot: Slot): SignalFields | OutputFields | undefined {
-  const tf = setup.tfSignals
-  if (slotOwner(setup, slot) === 'tf' && tf) return slot.kind === 'input' ? tf.input : tf.output
+/** A form's fields for a slot, or `undefined` where that form has no such field. */
+export function readSlot(setup: Setup, form: Form, slot: { kind: 'input' }): SignalFields | undefined
+export function readSlot(setup: Setup, form: Form, slot: { kind: 'output'; index: number }): OutputFields | undefined
+export function readSlot(setup: Setup, form: Form, slot: Slot): SignalFields | OutputFields | undefined {
+  if (form === 'tf') {
+    const tf = setup.tfSignals
+    if (!tf) return undefined
+    if (slot.kind === 'input') return tf.input
+    return slot.index === 0 ? tf.output : undefined
+  }
   const ss = setup.ss.signals
   if (!ss) return undefined
   return slot.kind === 'input' ? ss.input : ss.outputs[slot.index]
 }
 
-/** Replace the fields a slot resolves to. */
-export function writeSlot(setup: Setup, slot: Slot, update: (fields: OutputFields) => OutputFields): Setup {
-  const tf = setup.tfSignals
-  if (slotOwner(setup, slot) === 'tf' && tf) {
-    return slot.kind === 'input'
-      ? { ...setup, tfSignals: { ...tf, input: signalOnly(update(asOutput(tf.input))) } }
-      : { ...setup, tfSignals: { ...tf, output: update(tf.output) } }
+/** Replace a form's fields for a slot (no change where that form has no such field). */
+export function writeSlot(setup: Setup, form: Form, slot: Slot, update: (fields: OutputFields) => OutputFields): Setup {
+  if (form === 'tf') {
+    const tf = setup.tfSignals
+    if (!tf) return setup
+    if (slot.kind === 'input') return { ...setup, tfSignals: { ...tf, input: signalOnly(update(asOutput(tf.input))) } }
+    return slot.index === 0 ? { ...setup, tfSignals: { ...tf, output: update(tf.output) } } : setup
   }
   const ss = setup.ss.signals
   if (!ss) return setup
@@ -333,9 +341,9 @@ export function generateFields(setup: Setup, options: PickerOptions): GenerateOu
     if (!options.loaded) {
       return { setup: next, alert: null, error: 'Load a log before generating preset fields: the presets pick messages from it.' }
     }
-    next = writeSlot(next, { kind: 'input' }, (f) => choose(f, preset.input.message, preset.input.field, options))
+    next = writeSlot(next, 'ss', { kind: 'input' }, (f) => choose(f, preset.input.message, preset.input.field, options))
     preset.outputs.forEach((output, index) => {
-      next = writeSlot(next, { kind: 'output', index }, (f) => applyPresetOutput(f, output, options))
+      next = writeSlot(next, 'ss', { kind: 'output', index }, (f) => applyPresetOutput(f, output, options))
     })
   }
 
@@ -357,4 +365,30 @@ export function generateFields(setup: Setup, options: PickerOptions): GenerateOu
     })
   }
   return { setup: { ...next, ss: { ...next.ss, matrices, bounds } }, alert: null, error: null }
+}
+
+export interface GenerateClickOutcome {
+  readonly setup: Setup
+  /** Every alert the click raises, in order (upstream shows one `alert()` per handler run). */
+  readonly alerts: readonly string[]
+  readonly error: string | null
+}
+
+/**
+ * One click on "Generate fields": upstream runs every installed handler (see
+ * {@link Setup.generateHandlers}) in turn, each starting from what the previous one left. The
+ * handlers are identical, so the fields end as one run leaves them; an alert is raised once per run.
+ */
+export function generateClick(setup: Setup, options: PickerOptions): GenerateClickOutcome {
+  const runs = Math.max(1, setup.generateHandlers)
+  let current = setup
+  const alerts: string[] = []
+  let error: string | null = null
+  for (let i = 0; i < runs; i++) {
+    const outcome = generateFields(current, options)
+    current = outcome.setup
+    if (outcome.alert !== null) alerts.push(outcome.alert)
+    error ??= outcome.error
+  }
+  return { setup: current, alerts, error }
 }

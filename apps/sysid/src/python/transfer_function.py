@@ -1,5 +1,7 @@
 # Verbatim from upstream SysID/SysID.js run_transfer_function_ID.
 # Inputs are Python globals set by runtime.ts; results are read back from the *_js globals.
+# One change, a proven upstream bug fix (docs/bug-proofs/sysid.md, row 6): the rad/s cutoff is
+# converted to Hz with 2*math.pi instead of upstream's 2*3.14.
 from pyodide.ffi import to_js
 import numpy as np
 import math
@@ -14,7 +16,7 @@ t_start = float(t_start)
 t_end = float(t_end)
 f_start = float(f_start)
 f_end = float(f_end)
-f_cutoff = float(f_cutoff)/(2*3.14)
+f_cutoff = float(f_cutoff)/(2*math.pi)
 matplotlib.use("module://matplotlib_pyodide.html5_canvas_backend")
 
 def butter_lowpass(cutoff, fs, order=5):

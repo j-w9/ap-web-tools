@@ -72,6 +72,23 @@ function serialise(node: FakeNode): unknown {
   return { tag: node.tag, style, html: node.innerHTML, children: node.children.map(serialise) }
 }
 
+/** Every text node's value in a serialised body, in document order. */
+function texts(node: unknown): unknown[] {
+  if (Array.isArray(node)) return node.flatMap(texts)
+  if (typeof node !== 'object' || node === null) return []
+  if ('text' in node) return [node.text]
+  return 'children' in node ? texts(node.children) : []
+}
+
+/** The border colour of each top-level widget area in a serialised body. */
+function borderColors(body: unknown): unknown[] {
+  return Array.isArray(body)
+    ? body.map((div: unknown) =>
+        typeof div === 'object' && div !== null && 'style' in div ? Reflect.get(Object(div.style), 'borderColor') : undefined
+      )
+    : []
+}
+
 type Step = { readonly frame: unknown } | { readonly broadcast: unknown }
 
 interface Run {
@@ -210,21 +227,58 @@ describe('sandbox page against upstream SandBox.html', () => {
     ])
   })
 
-  it('reproduces the stuck widget of a script that returns a primitive (upstream bug)', () => {
-    expectSame([
-      { frame: { script: 'div.appendChild(document.createTextNode("old"))\nreturn 0', options: {} } },
+  it('proven bug #159: a script that returns a primitive can still be edited', () => {
+    const steps = (end: string): Step[] => [
+      { frame: { script: `div.appendChild(document.createTextNode("old"))${end}`, options: {} } },
       { frame: { options: {} } },
-      { frame: { script: 'div.appendChild(document.createTextNode("new"))', options: {} } },
+      {
+        frame: {
+          script:
+            'div.appendChild(document.createTextNode("new"))\nhandle_msg = function (msg) { div.appendChild(document.createTextNode(msg._name)) }',
+          options: {}
+        }
+      },
       { broadcast: { MAVLink: { _name: 'A' } } }
-    ])
+    ]
+    // Upstream: every options message throws at `"handle_options" in 0` and the edit never loads;
+    // the old script (whose instance is 0) then fails on the message.
+    const theirs = runUpstream(steps('\nreturn 0'))
+    expect(theirs.threw).toEqual([false, true, true, false])
+    expect(texts(theirs.body)).toEqual(['TypeError: user_class.handle_msg is not a function'])
+    // Port: the edit loads, exactly as upstream loads it for a script that returns nothing.
+    for (const name of USER_GLOBALS) Reflect.deleteProperty(globalThis, name)
+    const ours = runPort(steps('\nreturn 0'))
+    expect(ours.threw).toEqual([false, false, false, false])
+    expect(texts(ours.body)).toEqual(['new', 'A'])
+    for (const name of USER_GLOBALS) Reflect.deleteProperty(globalThis, name)
+    expect(ours).toEqual(runUpstream(steps('')))
   })
 
-  it('reproduces the failed report of a script that throws null (upstream bug)', () => {
-    expectSame([
-      { frame: { script: 'handle_msg = function () { throw null }', options: {} } },
-      { broadcast: { MAVLink: { _name: 'A' } } },
-      { broadcast: { MAVLink: { _name: 'B' } } }
-    ])
+  it('proven bug #160: a script that throws null, undefined or a Symbol is reported and stopped', () => {
+    const cases: [thrown: string, sameAs: string][] = [
+      ['null', '"null"'],
+      ['undefined', '"undefined"'],
+      ['Symbol("s")', '"Symbol(s)"']
+    ]
+    for (const [thrown, sameAs] of cases) {
+      const steps = (value: string): Step[] => [
+        { frame: { script: `handle_msg = function () { throw ${value} }`, options: {} } },
+        { broadcast: { MAVLink: { _name: 'A' } } },
+        { broadcast: { MAVLink: { _name: 'B' } } }
+      ]
+      // Upstream: the report itself throws, the border stays grey and every message throws again.
+      const theirs = runUpstream(steps(thrown))
+      expect(theirs.threw, thrown).toEqual([false, true, true])
+      expect(borderColors(theirs.body), thrown).toEqual(['#c8c8c8'])
+      // Port: reported (red border, the value as text) and stopped, exactly as upstream reports the
+      // same text thrown as a string.
+      for (const name of USER_GLOBALS) Reflect.deleteProperty(globalThis, name)
+      const ours = runPort(steps(thrown))
+      expect(ours.threw, thrown).toEqual([false, false, false])
+      expect(borderColors(ours.body), thrown).toEqual(['red'])
+      for (const name of USER_GLOBALS) Reflect.deleteProperty(globalThis, name)
+      expect(ours, thrown).toEqual(runUpstream(steps(sameAs)))
+    }
   })
 
   it('reports thrown non-errors and missing handlers as upstream', () => {

@@ -27,6 +27,16 @@ type Step =
   | 'reset'
   | 'refit'
 
+/**
+ * A step that hits a proven upstream bug the port fixes (docs/bug-proofs/thrust-expo.md): instead
+ * of comparing the whole state, `check` asserts upstream's (buggy) result and the port's corrected
+ * one. Every other step must still match upstream exactly.
+ */
+interface FixedStep {
+  readonly fixed: Step
+  readonly check: (port: ThrustExpoSession, page: UpstreamPage) => void
+}
+
 function applyPort(s: ThrustExpoSession, step: Step): ThrustExpoSession {
   if (step === 'example') return loadExample(s)
   if (step === 'reset') return reset(s)
@@ -112,14 +122,16 @@ async function expectSameState(s: ThrustExpoSession, page: UpstreamPage, label: 
   else expect(() => paramFileText(s), `${label}: save fails`).toThrow(expected.message)
 }
 
-async function run(steps: readonly Step[]): Promise<ThrustExpoSession> {
+async function run(steps: readonly (Step | FixedStep)[]): Promise<ThrustExpoSession> {
   const page = loadUpstreamPage()
   let s = createSession()
   await expectSameState(s, page, 'initial')
-  for (const [i, step] of steps.entries()) {
+  for (const [i, entry] of steps.entries()) {
+    const step = typeof entry === 'object' && 'fixed' in entry ? entry.fixed : entry
     applyUpstream(page, step)
     s = applyPort(s, step)
-    await expectSameState(s, page, `step ${i} ${JSON.stringify(step)}`)
+    if (typeof entry === 'object' && 'fixed' in entry) entry.check(s, page)
+    else await expectSameState(s, page, `step ${i} ${JSON.stringify(step)}`)
   }
   return s
 }
@@ -148,12 +160,23 @@ describe('the page matches upstream event by event', () => {
     expect(paramFileText(s)).toContain('MOT_THST_HOVER,')
   })
 
-  it('keeps a manual expo, but refits for 0 or an empty input (upstream bug)', async () => {
+  it('keeps a manual expo, refits an empty input, and keeps an entered 0 (proven upstream bug fixed)', async () => {
     await run([
       'example',
       { commit: 'MOT_THST_EXPO', text: '0.5' },
       { commit: 'MOT_THST_EXPO', text: '0.12345' },
-      { commit: 'MOT_THST_EXPO', text: '0' },
+      {
+        fixed: { commit: 'MOT_THST_EXPO', text: '0' },
+        check: (port, page) => {
+          // Upstream refits and overwrites the entered 0 with the fit.
+          expect(page.api.params.MOT_THST_EXPO!.value).toBe(0.38500000000000106)
+          expect(page.input('MOT_THST_EXPO').value).toBe('0.385')
+          // The port keeps the entered 0 (linear).
+          expect(port.params.MOT_THST_EXPO).toBe(0)
+          expect(port.display.MOT_THST_EXPO).toBe('0.000')
+          expect(port.plot.kind === 'data' && port.plot.lin.setting).toBe('fixed')
+        }
+      },
       { commit: 'MOT_THST_EXPO', text: '' },
       { commit: 'MOT_THST_EXPO', text: '-0.3' },
       { commit: 'MOTOR_COUNT', text: '6' },
@@ -169,7 +192,7 @@ describe('the page matches upstream event by event', () => {
     expect(after.hoverSave).toBe(false)
   })
 
-  it('applies the MOT_SPIN_MIN rule per keystroke, comparing text (upstream bug)', async () => {
+  it('applies the MOT_SPIN_MIN rule per keystroke, comparing numbers (proven upstream bug fixed)', async () => {
     await run([
       { typeSpinMin: '0' },
       { typeSpinMin: '0.1' },
@@ -178,24 +201,70 @@ describe('the page matches upstream event by event', () => {
       { commit: 'MOT_SPIN_ARM', text: '0.2' },
       'example',
       { commit: 'MOT_SPIN_ARM', text: '10' },
-      { typeSpinMin: '2' },
-      { commit: 'MOT_SPIN_MIN', text: '2' },
+      {
+        fixed: { typeSpinMin: '2' },
+        check: (port, page) => {
+          // Upstream compares "2" < "10" as strings (false) and lets min 2 stand below arm 10.
+          expect(page.input('MOT_SPIN_MIN').value).toBe('2')
+          expect(page.api.params.MOT_SPIN_MIN!.value).toBe(2)
+          // The port compares numbers and raises min to the arm value.
+          expect(port.display.MOT_SPIN_MIN).toBe('10')
+          expect(port.params.MOT_SPIN_MIN).toBe(10)
+        }
+      },
+      {
+        fixed: { commit: 'MOT_SPIN_MIN', text: '2' },
+        check: (port, page) => {
+          // `change` only replots: the value stays what the last keystroke left in each.
+          expect(page.api.params.MOT_SPIN_MIN!.value).toBe(2)
+          expect(port.params.MOT_SPIN_MIN).toBe(10)
+          expect(port.display.MOT_SPIN_MIN).toBe(page.input('MOT_SPIN_MIN').value)
+        }
+      },
       { commit: 'MOT_SPIN_ARM', text: '0.05' },
       { typeSpinMin: '' },
       { commit: 'MOT_SPIN_MIN', text: '' }
     ])
   })
 
-  it('reads parameter files as upstream: commas only, untrimmed names, MOT_SPIN_MIN shown but not used', async () => {
+  it('reads parameter files as upstream: commas only, untrimmed names; a loaded MOT_SPIN_MIN is used (proven upstream bug fixed)', async () => {
     const file =
       'MOT_PWM_MAX,1950\nMOT_PWM_MIN,1050\nMOT_SPIN_ARM,0.08\nMOT_SPIN_MAX,0.92\nMOT_SPIN_MIN,0.13\n' +
       'MOT_THST_EXPO,0.58\nMOT_THST_HOVER,0.3\nATC_RAT_RLL_P,0.1\n# comment\nMOTOR_COUNT,6\r\n COPTER_AUW,3\n' +
       'MOT_PWM_MIN\t1200\nCOPTER_AUW=2\nMOT_SPIN_MAX,0.9,extra'
-    const first = await run([{ paramFile: file }])
-    expect(first.display.MOT_SPIN_MIN).toBe('0.13')
-    expect(first.params.MOT_SPIN_MIN).toBe(0.15)
-    // Loading again: MOT_SPIN_ARM's line now applies the MOT_SPIN_MIN text the first load left.
-    const again = await run([{ paramFile: file }, 'example', { paramFile: file }, { paramFile: 'MOT_THST_EXPO,0.4' }])
+    const loaded: FixedStep = {
+      fixed: { paramFile: file },
+      check: (port, page) => {
+        // Upstream shows 0.13 but keeps using and saving 0.15.
+        expect(page.input('MOT_SPIN_MIN').value).toBe('0.13')
+        expect(page.api.params.MOT_SPIN_MIN!.value).toBe(0.15)
+        // The port uses and saves what the box shows.
+        expect(port.display.MOT_SPIN_MIN).toBe('0.13')
+        expect(port.params.MOT_SPIN_MIN).toBe(0.13)
+        expect(paramFileText(port)).toContain('MOT_SPIN_MIN,0.13')
+        // Everything else the file set matches upstream.
+        for (const name of FIELD_NAMES) {
+          expect(port.display[name], name).toBe(page.input(name).value)
+          if (name !== 'MOT_SPIN_MIN') expect(port.params[name], name).toEqual(page.api.params[name]!.value)
+        }
+      }
+    }
+    const first = await run([loaded])
+    expect(first.params.MOT_SPIN_MIN).toBe(0.13)
+    // Loading again: MOT_SPIN_ARM's line applies the MOT_SPIN_MIN text the first load left, so
+    // upstream catches up and the two match again.
+    const again = await run([
+      loaded,
+      {
+        fixed: 'example',
+        check: (port, page) => {
+          expect(page.api.params.MOT_SPIN_MIN!.value).toBe(0.15)
+          expect(port.params.MOT_SPIN_MIN).toBe(0.13)
+        }
+      },
+      { paramFile: file },
+      { paramFile: 'MOT_THST_EXPO,0.4' }
+    ])
     expect(again.params.MOT_SPIN_MIN).toBe(0.13)
   })
 
@@ -205,7 +274,15 @@ describe('the page matches upstream event by event', () => {
       { paramFile: 'MOT_PWM_MAX\nMOT_THST_HOVER,abc\nMOT_PWM_MIN,1e-7' },
       { paramFile: 'MOT_SPIN_ARM,' }
     ])
-    expect(() => paramFileText(s)).toThrow('Could not convert NaN to float string')
+    // Upstream's message (matched by expectSameState) plus the names of the empty inputs.
+    expect(() => paramFileText(s)).toThrow(
+      'MOT_SPIN_ARM, MOT_PWM_MAX, MOT_THST_HOVER are empty. Could not convert NaN to float string'
+    )
+  })
+
+  it('names a single empty input when saving fails (proven upstream bug fixed)', async () => {
+    const s = await run([{ commit: 'MOT_PWM_MAX', text: '' }])
+    expect(() => paramFileText(s)).toThrow('MOT_PWM_MAX is empty. Could not convert NaN to float string')
   })
 
   it('refits after table changes, with mixed typed, pasted and cleared cells', async () => {

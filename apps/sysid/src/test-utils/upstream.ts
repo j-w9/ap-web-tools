@@ -14,6 +14,20 @@ export interface UpstreamParser {
   processData(buffer: ArrayBuffer, msgs: string[]): unknown
   messageTypes: Record<string, { expressions: string[]; instances?: Record<string, string> }>
   get(name: string, field: string): unknown
+  get_instance(name: string, instance: number, field: string): unknown
+}
+
+/**
+ * The parser with `get('NAME[n]', field)` answered by its own `get_instance(NAME, n, field)`: what
+ * upstream would read with the instanced-message bug fixed (docs/bug-proofs/sysid.md, row 8).
+ */
+export function instanceAwareParser(parser: UpstreamParser): UpstreamParser {
+  return Object.assign(Object.create(parser) as UpstreamParser, {
+    get(name: string, field: string): unknown {
+      const m = /^(.+)\[(\d+)\]$/.exec(name)
+      return m ? parser.get_instance(m[1]!, Number(m[2]), field) : parser.get(name, field)
+    }
+  })
 }
 type UpstreamCtor = new (sendPostMessage: boolean) => UpstreamParser
 

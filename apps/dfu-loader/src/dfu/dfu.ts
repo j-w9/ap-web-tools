@@ -525,17 +525,20 @@ export class DfuDevice {
   }
 
   /**
-   * Resolves when `usb` reports this device disconnected; rejects after `timeout` ms (if > 0).
-   *
-   * Reproduced upstream bug: upstream writes an `onTimeout` handler (remove the listener, reject
-   * with "Disconnect timeout expired") but passes `reject` itself to `setTimeout`. So a timeout
-   * rejects with no reason and the listener stays attached until this device disconnects.
+   * Resolves when `usb` reports this device disconnected; after `timeout` ms (if > 0) removes the
+   * listener and rejects with "Disconnect timeout expired".
    */
   waitDisconnected(timeout: number, usb: USB = navigator.usb): Promise<this> {
     return new Promise((resolve, reject) => {
       let timeoutID: ReturnType<typeof setTimeout> | undefined
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- reproduces upstream's reasonless rejection
-      if (timeout > 0) timeoutID = setTimeout(() => reject(), timeout)
+      // Upstream writes this handler and then schedules a bare `reject` instead, so a timeout rejects
+      // with no reason and leaves the listener attached (a proven upstream bug,
+      // docs/bug-proofs/dfu-loader.md row 148). The port uses the handler as written.
+      const onTimeout = () => {
+        usb.removeEventListener('disconnect', onDisconnect)
+        if (!this.disconnected) reject(new DfuError('Disconnect timeout expired'))
+      }
+      if (timeout > 0) timeoutID = setTimeout(onTimeout, timeout)
       const onDisconnect = (event: USBConnectionEvent) => {
         if (event.device === this.usbDevice) {
           if (timeout > 0) clearTimeout(timeoutID)
@@ -593,8 +596,9 @@ export class DfuDevice {
       state = await this.getState()
     }
     if (state !== DfuState.dfuIDLE) {
-      // Reproduced upstream bug: it prints `state.state` of a number, which is always undefined.
-      throw new DfuError('Failed to return to idle state after abort: state undefined')
+      // Upstream prints `state.state` of a number, which is always undefined (a proven upstream bug,
+      // docs/bug-proofs/dfu-loader.md row 147). The port prints the state.
+      throw new DfuError(`Failed to return to idle state after abort: state ${state}`)
     }
   }
 

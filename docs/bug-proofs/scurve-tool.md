@@ -6,13 +6,13 @@ Emscripten build (`SCurveTool/ardupilot/wpnav.js`, `wpnav.wasm`) in `node:vm`, w
 Plotly, and returns what `replot()` hands to Plotly. Paths below are relative to `upstream/`;
 firmware paths are relative to `upstream/modules/ardupilot/` (f3836cf).
 
-| #   | Row                                                    | Verdict            |
-| --- | ------------------------------------------------------ | ------------------ |
-| 1   | Mission silently truncated at 1000 s of simulated time | NOT PROVEN         |
-| 2   | Empty number field simulated as NaN                    | NOT PROVEN         |
-| 3   | Target hover labels N and E swapped                    | PROVEN (help text) |
-| 4   | Waypoint hover prints the whole meta array             | NOT PROVEN         |
-| 5   | Path colorbar never displayed                          | NOT PROVEN         |
+| #   | Row                                                    | Verdict       |
+| --- | ------------------------------------------------------ | ------------- |
+| 1   | Mission silently truncated at 1000 s of simulated time | NOT PROVEN    |
+| 2   | Empty number field simulated as NaN                    | NOT PROVEN    |
+| 3   | Target hover labels N and E swapped                    | PROVEN, FIXED |
+| 4   | Waypoint hover prints the whole meta array             | NOT PROVEN    |
+| 5   | Path colorbar never displayed                          | NOT PROVEN    |
 
 Rows 4 and 5 depend on how Plotly renders a template or a default. The original loads
 `../modules/plotly.js/dist/plotly.min.js` (`SCurveTool/index.html:16`) from the `modules/plotly.js`
@@ -88,6 +88,11 @@ E.
 
 Smallest port change: none; the port already labels them correctly (recorded as presentation).
 Only the classification changes to a proven fix.
+
+Status: FIXED. Port: `apps/scurve-tool/src/ui/traces.ts` `targetTrace`
+(`N = %{x:.0f} m<br>E = %{y:.0f} m`). Test: `target hover labels` › `upstream swaps N and E; the
+port labels x as N and y as E` (`apps/scurve-tool/src/ui/traces.test.ts`). No code change was
+needed.
 
 ## 4. Waypoint hover prints the whole meta array
 

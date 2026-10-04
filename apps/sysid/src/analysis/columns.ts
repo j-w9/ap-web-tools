@@ -1,9 +1,12 @@
 /**
  * Reading log columns the way upstream SysID does, through JsDataflashParser's
- * `log.get(name, field)`. That lookup matches the FMT name exactly, so it returns nothing for the
- * `NAME[i]` instance entries the message lists offer (and for instanced messages in general),
- * for types with a format but no records, and for unknown fields. SysID then crashes on the
- * missing array; here that becomes a {@link MissingDataError}.
+ * `log.get(name, field)`. That lookup matches the FMT name exactly, so it returns nothing for
+ * instanced messages by their base name, for types with a format but no records, and for unknown
+ * fields. SysID then crashes on the missing array; here that becomes a {@link MissingDataError}.
+ *
+ * Proven upstream bug fixed (docs/bug-proofs/sysid.md, row 8): upstream's pickers offer the
+ * `NAME[n]` instance entries but `log.get('NAME[n]', ...)` returns nothing, so Submit crashed. The
+ * port reads instance n of NAME, as the parser's own `get_instance(NAME, n, field)` does.
  */
 import type { DataflashLog, NumericColumn } from '@apwt/dataflash'
 
@@ -14,6 +17,12 @@ export class MissingDataError extends Error {
 
 /** The numbers upstream's `log.get(message, field)` returns, or `undefined` where it returns nothing usable. */
 export function upstreamColumn(log: DataflashLog, message: string, field: string): NumericColumn | undefined {
+  const instanced = /^(.+)\[(\d+)\]$/.exec(message)
+  if (instanced) {
+    const [, base = '', instance = ''] = instanced
+    const n = Number(instance)
+    return log.messageType(base)?.instances?.has(n) ? log.getNumbers(base, field, n) : undefined
+  }
   const info = log.messageType(message)
   // No records (or no such format), or an instanced message: upstream has no flat offsets for it.
   if (info === undefined || info.instances !== undefined) return undefined
@@ -27,7 +36,7 @@ export function requireColumn(log: DataflashLog, message: string, field: string)
     throw new MissingDataError(
       message === '' || message === 'None'
         ? 'Choose a message and field for every input and output.'
-        : `${message}.${field} has no data SysID can read. Instanced messages (shown as NAME[n]) and text fields cannot be used.`
+        : `${message}.${field} has no data SysID can read. Text fields cannot be used.`
     )
   }
   return column

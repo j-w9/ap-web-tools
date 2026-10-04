@@ -82,19 +82,15 @@ export interface CropResult {
  * Leaflet's `toGeoJSON()` gives for the crop polygon (rounded to 6 decimals, as upstream uses it).
  *
  * Upstream hands every feature to `intersect`, which throws on a non-polygon feature (an unclosed
- * way, say) and stops the crop part way, leaving only the features clipped before it on the map.
- * The port stops at the same feature with the same partial result and reports the error.
+ * way, say) and stops the crop with an error. That is a proven bug
+ * (docs/bug-proofs/geofence-generator.md): non-polygon features are skipped here, as upstream's
+ * `add_feature` skips them for display, so every polygon is cropped and no error is raised.
  */
 export function cropFeatures(features: readonly OsmFeature[], crop: Ring): CropResult {
   const cropPolygon: Feature<Polygon> = { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [crop] } }
   const out: OsmFeature[] = []
   for (const feature of features) {
-    if (!isPolygonal(feature)) {
-      return {
-        features: out,
-        error: new Error(`Turf intersect cannot crop a ${feature.geometry.type} feature (${featureId(feature)})`)
-      }
-    }
+    if (!isPolygonal(feature)) continue
     let clipped: Feature<Polygon | MultiPolygon> | null
     try {
       clipped = intersect(feature, cropPolygon)

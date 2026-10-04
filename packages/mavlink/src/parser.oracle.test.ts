@@ -3,6 +3,12 @@
 // produce the same messages and the same discarded byte runs (upstream's BAD_DATA messages), in the
 // same order, with the same counters and signing state afterwards. Signatures, SHA-256 and the
 // signing timestamp are compared byte for byte.
+//
+// One proven upstream bug is fixed (#150, see docs/bug-proofs/mavlink.md): when a frame fails on its
+// checksum or its incompatibility flags, the port drops only the start marker, as the TODO in
+// upstream's `parsePayload` says it should. The port is compared with upstream's processor with that
+// TODO applied (`applyResyncTodo`); wherever no such failure occurs, unpatched upstream is asserted to
+// give exactly the same result, and the bug inputs below also pin unpatched upstream's output.
 import { beforeAll, describe, expect, it } from 'vitest'
 import { crcAccumulate, crcX25 } from './crc.js'
 import type { MessageDescriptor } from './descriptor.js'
@@ -12,6 +18,7 @@ import { sha256 } from './sha256.js'
 import { createSignature, INCOMPAT_FLAG_SIGNED, MavlinkSigning, signingTimestamp } from './signing.js'
 import { random } from './test-utils/random.js'
 import {
+  applyResyncTodo,
   loadUpstream,
   type UpstreamHeader,
   type UpstreamMavlink,
@@ -71,19 +78,35 @@ function rawFrame(descriptor: MessageDescriptor, payload: Uint8Array, options: F
 
 type Mode = 'no key' | 'key' | 'key, allow even ids'
 
-/** Upstream and package parsers configured alike. */
-function parsers(mode: Mode): { theirs: UpstreamProcessor; ours: MavlinkParser; signing: MavlinkSigning | undefined } {
+/** An upstream processor configured for `mode`. */
+function upstreamProcessor(mode: Mode): UpstreamProcessor {
   const theirs = new upstream.MAVLink20Processor(null, 255, 190)
-  if (mode === 'no key') return { theirs, ours: new MavlinkParser({ messages: ALL_MESSAGES }), signing: undefined }
+  if (mode === 'no key') return theirs
   theirs.signing.secret_key = KEY
   theirs.signing.timestamp = T0
   if (mode === 'key, allow even ids') theirs.signing.allow_unsigned_callback = (_processor, msgId) => msgId % 2 === 0
+  return theirs
+}
+
+/**
+ * Upstream (with its resync TODO applied, the oracle for the #150 fix), unpatched upstream, and the
+ * package parser, configured alike.
+ */
+function parsers(mode: Mode): {
+  theirs: UpstreamProcessor
+  unpatched: UpstreamProcessor
+  ours: MavlinkParser
+  signing: MavlinkSigning | undefined
+} {
+  const theirs = applyResyncTodo(upstreamProcessor(mode))
+  const unpatched = upstreamProcessor(mode)
+  if (mode === 'no key') return { theirs, unpatched, ours: new MavlinkParser({ messages: ALL_MESSAGES }), signing: undefined }
   const signing = new MavlinkSigning({
     secretKey: KEY,
     timestamp: T0,
     ...(mode === 'key, allow even ids' ? { allowUnsigned: (header) => header.messageId % 2 === 0 } : {})
   })
-  return { theirs, ours: new MavlinkParser({ messages: ALL_MESSAGES, signing }), signing }
+  return { theirs, unpatched, ours: new MavlinkParser({ messages: ALL_MESSAGES, signing }), signing }
 }
 
 function describeUpstream(m: UpstreamMessage): string {
@@ -112,19 +135,42 @@ function describeOurs(e: ParseEvent): string {
   }
 }
 
-/** Feeds `chunks` to both parsers and checks that everything observable agrees. Returns our events. */
+const signingState = (s: UpstreamProcessor['signing']): unknown => ({
+  counts: [s.sig_count, s.goodsig_count, s.badsig_count, s.unsigned_count, s.reject_count],
+  streams: { ...s.stream_timestamps },
+  timestamp: s.timestamp
+})
+
+/**
+ * Feeds `chunks` to the parsers and checks that everything observable agrees with upstream (its
+ * resync TODO applied). When no frame failed on its checksum or incompatibility flags, unpatched
+ * upstream must agree exactly too. Returns our events.
+ */
 function compare(mode: Mode, chunks: readonly Uint8Array[]): ParseEvent[] {
-  const { theirs, ours, signing } = parsers(mode)
+  const { theirs, unpatched, ours, signing } = parsers(mode)
   const expected: string[] = []
+  const original: string[] = []
   const actual: string[] = []
   const events: ParseEvent[] = []
   for (const chunk of chunks) {
     for (const m of theirs.parseBuffer(chunk) ?? []) expected.push(describeUpstream(m))
+    for (const m of unpatched.parseBuffer(chunk) ?? []) original.push(describeUpstream(m))
     const found = ours.parse(chunk)
     events.push(...found)
     actual.push(...found.map(describeOurs))
   }
   expect(actual).toEqual(expected)
+  if (!events.some((e) => e.kind === 'garbage' && e.reason !== 'noise')) {
+    expect(original).toEqual(expected)
+    expect([unpatched.total_bytes_received, unpatched.total_packets_received, unpatched.total_receive_errors]).toEqual([
+      theirs.total_bytes_received,
+      theirs.total_packets_received,
+      theirs.total_receive_errors
+    ])
+    // Without a key each processor's signing timestamp is the clock at its creation, so only keyed
+    // modes (timestamp T0) are compared.
+    if (signing !== undefined) expect(signingState(unpatched.signing)).toEqual(signingState(theirs.signing))
+  }
   expect(ours.stats).toMatchObject({
     bytesReceived: theirs.total_bytes_received,
     messagesReceived: theirs.total_packets_received,
@@ -143,6 +189,14 @@ function compare(mode: Mode, chunks: readonly Uint8Array[]): ParseEvent[] {
     expect(signing.timestamp).toBe(s.timestamp)
   }
   return events
+}
+
+/** Unpatched upstream's messages for `chunks`: names, with BAD_DATA's reason. */
+function upstreamOutput(mode: Mode, chunks: readonly Uint8Array[]): string[] {
+  const theirs = upstreamProcessor(mode)
+  return chunks.flatMap((chunk) =>
+    (theirs.parseBuffer(chunk) ?? []).map((m) => (m._name === 'BAD_DATA' ? `BAD_DATA ${String(m._reason)}` : m._name))
+  )
 }
 
 const kinds = (events: readonly ParseEvent[]): string[] =>
@@ -193,23 +247,40 @@ describe('framing matches upstream parseBuffer', () => {
     expect(kinds(events)).toEqual(['garbage:noise', 'HEARTBEAT', 'garbage:noise', 'ATTITUDE', 'garbage:noise'])
   })
 
-  it('a bad checksum discards the whole frame and the next frame is decoded', () => {
+  it('a bad checksum drops the start marker, then the rest of the frame as noise, and the next frame is decoded', () => {
     const bad = frame.slice()
     bad[12] = bad[12]! ^ 1
-    expect(kinds(compare('no key', [concat(bad, attitude)]))).toEqual(['garbage:crc', 'ATTITUDE'])
+    const input = [concat(bad, attitude)]
+    // Upstream drops the whole frame in one BAD_DATA (proven bug #150).
+    expect(upstreamOutput('no key', input)).toEqual([
+      'BAD_DATA invalid MAVLink CRC in msgID 0, got 55315 checksum, calculated payload checksum as 22956',
+      'ATTITUDE'
+    ])
+    expect(kinds(compare('no key', input))).toEqual(['garbage:crc', 'garbage:noise', 'ATTITUDE'])
   })
 
-  it('a false start marker in noise swallows the claimed length, losing the frames inside it (upstream bug)', () => {
+  it('a false start marker in noise no longer swallows the frames inside its claimed length (proven bug #150)', () => {
     // 0xFD then length 40: upstream waits for 52 bytes and discards them, including the HEARTBEAT.
     const noise = Uint8Array.of(0xfd, 40, 0, 0, 0, 1, 1, 0, 0, 0)
-    const events = compare('no key', [concat(noise, frame, new Uint8Array(30), attitude)])
-    expect(kinds(events)).toEqual(['garbage:crc', 'garbage:noise', 'ATTITUDE'])
+    const input = [concat(noise, frame, new Uint8Array(30), attitude)]
+    expect(upstreamOutput('no key', input)).toEqual([
+      'BAD_DATA invalid MAVLink CRC in msgID 0, got 0 checksum, calculated payload checksum as 48391',
+      'BAD_DATA Bad prefix (0)',
+      'ATTITUDE'
+    ])
+    expect(kinds(compare('no key', input))).toEqual(['garbage:crc', 'garbage:noise', 'HEARTBEAT', 'garbage:noise', 'ATTITUDE'])
   })
 
-  it('a corrupted length byte discards the bytes it claims (upstream bug)', () => {
+  it('a corrupted length byte no longer discards the frames inside the bytes it claims (proven bug #150)', () => {
     const bad = frame.slice()
     bad[1] = 30
-    expect(kinds(compare('no key', [concat(bad, attitude, attitude)]))).toEqual(['garbage:crc', 'garbage:noise', 'ATTITUDE'])
+    const input = [concat(bad, attitude, attitude)]
+    expect(upstreamOutput('no key', input)).toEqual([
+      'BAD_DATA invalid MAVLink CRC in msgID 0, got 2826 checksum, calculated payload checksum as 42993',
+      'BAD_DATA Bad prefix (12)',
+      'ATTITUDE'
+    ])
+    expect(kinds(compare('no key', input))).toEqual(['garbage:crc', 'garbage:noise', 'ATTITUDE', 'ATTITUDE'])
   })
 
   it('unknown message ids consume the frame without a checksum check', () => {
@@ -219,8 +290,13 @@ describe('framing matches upstream parseBuffer', () => {
   })
 
   it('truncated frames wait for the claimed length, then fail', () => {
-    const events = compare('no key', [frame.subarray(0, 15), attitude])
-    expect(kinds(events)).toEqual(['garbage:crc', 'garbage:noise'])
+    const input = [frame.subarray(0, 15), attitude]
+    // Upstream's failed frame swallows the start of the ATTITUDE (proven bug #150); the port finds it.
+    expect(upstreamOutput('no key', input)).toEqual([
+      'BAD_DATA invalid MAVLink CRC in msgID 0, got 258 checksum, calculated payload checksum as 2628',
+      'BAD_DATA Bad prefix (1)'
+    ])
+    expect(kinds(compare('no key', input))).toEqual(['garbage:crc', 'garbage:noise', 'ATTITUDE'])
     expect(compare('no key', [frame.subarray(0, 2), new Uint8Array(0), frame.subarray(2)]).length).toBe(1)
   })
 
@@ -237,14 +313,23 @@ describe('framing matches upstream parseBuffer', () => {
     ])
   })
 
-  it('refuses incompatibility flags other than SIGNED after taking the whole frame', () => {
+  it('refuses incompatibility flags other than SIGNED, dropping only the start marker', () => {
     const two = rawFrame(HEARTBEAT, heartbeatPayload, { incompatFlags: 2 })
     // 0x03 has SIGNED set, so 13 more bytes belong to the frame.
     const three = concat(rawFrame(HEARTBEAT, heartbeatPayload, { incompatFlags: 3 }), new Uint8Array(13))
     const compat = rawFrame(HEARTBEAT, heartbeatPayload, { compatFlags: 0x80 })
-    expect(kinds(compare('no key', [concat(two, three, compat)]))).toEqual([
+    const input = [concat(two, three, compat)]
+    // Upstream takes each refused frame whole (proven bug #150).
+    expect(upstreamOutput('no key', input)).toEqual([
+      'BAD_DATA Unsupported MAVLink incompatibility flags',
+      'BAD_DATA Unsupported MAVLink incompatibility flags',
+      'HEARTBEAT'
+    ])
+    expect(kinds(compare('no key', input))).toEqual([
       'garbage:incompat-flags',
+      'garbage:noise',
       'garbage:incompat-flags',
+      'garbage:noise',
       'HEARTBEAT'
     ])
   })

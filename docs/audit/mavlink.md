@@ -27,7 +27,9 @@ entries.
 
 ## Tests
 
-Oracle tests run upstream `mavlink.js` unmodified in `node:vm` (`src/test-utils/upstream.ts`):
+Oracle tests run upstream `mavlink.js` unmodified in `node:vm` (`src/test-utils/upstream.ts`). Where
+a proven upstream bug is fixed (see "Proven upstream bugs fixed" below), they assert upstream's result
+for the bug input and the corrected result, and identity everywhere else:
 
 - `src/oracle.test.ts`, definitions: the same 347 message ids, names and CRC_EXTRA; every message's
   fields in XML order and wire layout (the jspack format string derived from the descriptors equals
@@ -35,8 +37,9 @@ Oracle tests run upstream `mavlink.js` unmodified in `node:vm` (`src/test-utils/
   `NAME_ENUM_END = last + 1` included).
 - `src/oracle.test.ts`, payloads: 8 random payloads of every message (any bytes, including text with
   NULs and bytes above 127) decoded by both and compared field by field, then re-encoded by upstream
-  `pack` and by the package to the same frame bytes. jspack value packing: integer clamping and
-  truncation, NaN, -0, float32 ties, long strings, characters above U+00FF, byte arrays, missing
+  `pack` and by the package to the same frame bytes (TEST_TYPES, which upstream cannot pack, is
+  re-encoded by the package only). jspack value packing: integer clamping and truncation, NaN, -0
+  (upstream's +0 and the port's signed zero), float32 ties, long strings, characters above U+00FF, byte arrays, missing
   float elements and omitted extensions, the omitted-array cursor shift with its checksum holes, and
   the cases where upstream's `pack` throws.
 - `src/parser.oracle.test.ts`, framing: the same chunks fed to `MAVLink20Processor.parseBuffer` and to
@@ -49,10 +52,16 @@ Oracle tests run upstream `mavlink.js` unmodified in `node:vm` (`src/test-utils/
   and signing (good, replayed, stale new stream, wrong key, unsigned, with and without an
   allow-unsigned callback, no key). A fuzz test of 40 random streams (valid, signed, replayed,
   corrupted, truncated, unknown-id, bad-flag frames and noise, three signing modes, three chunkings)
-  asserts every path was taken.
+  asserts every path was taken. The port is compared with upstream's processor with the TODO in its
+  `parsePayload` applied (`applyResyncTodo`, the #150 fix); wherever no frame fails on its checksum or
+  incompatibility flags, unpatched upstream must give the same result too, and the named bad-CRC,
+  false-start, corrupted-length, truncated and incompatibility-flag cases pin unpatched upstream's
+  output.
 - `src/parser.oracle.test.ts`, signing: signed frames byte for byte against upstream `pack` for link
   ids 0/7/255, timestamps 0 to past 2^48 and a 16-byte key; SHA-256 and `create_signature` against
   `mavlink20.sha256` / `create_signature` for 13 lengths and short/long keys; the initial timestamp.
+- `src/sha256.test.ts`: SHA-256 against Node's `crypto`, and (with `APWT_SLOW_PROOFS=1`) the
+  2^29-byte input upstream hashes wrongly (#156).
 - `src/fixtures.test.ts`: port of upstream `tests/mavlink.test.cjs` on `tests/fixtures/mavlink.json`.
 - `src/generated.test.ts`: the checked-in `src/generated/` equals the generator's output.
 
@@ -113,13 +122,23 @@ All are API shape: the same bytes, values and decisions, in a typed form.
 
 ## Upstream bugs reproduced
 
-| Location                                                                   | Reproduction                                                                                        | Effect                                                                                                                                                |
-| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `parsePayload` slices `expected_length` before `decode` (its own TODO)     | Noise containing `0xFD 40 ...`, or a frame whose length byte is corrupted, followed by good frames  | The parser waits for, then discards, up to 280 bytes, losing the good frames inside them                                                              |
-| jspack `_En754(undefined)`                                                 | Omit a float extension (DISTANCE_SENSOR `horizontal_fov`) or give a short float array (`q: [0.5]`)  | NaN (0x7F800001) is sent instead of 0                                                                                                                 |
-| jspack `WouldPack` value cursor, `x25Crc` `forEach` over a sparse array    | BATTERY_STATUS without `voltages_ext` but with `mode` and `fault_bitmask`                           | `mode` sends 0, `fault_bitmask` sends `mode`'s value, and the checksum skips the unwritten bytes, so receivers drop the frame                         |
-| jspack `_En754` sign test `v < 0`                                          | Encode -0                                                                                           | +0 is sent                                                                                                                                            |
-| jspack has no `_EnChar`; `_EnString` / `_EnInt64` of `undefined`           | Encode TEST_TYPES; omit AUTOPILOT_VERSION `uid2` or HOME_POSITION `time_usec` (optional extensions) | `pack` throws a TypeError; the port throws `RangeError` (crash clause)                                                                                |
-| `decode` sets `m.crc` after the fields                                     | Receive CUBEPILOT_FIRMWARE_UPDATE_START                                                             | Its `crc` field reads as the frame checksum (reproduced by Telemetry Dashboard's widget adapter; the package keeps fields separate)                   |
-| `mavlink20.sha256` length block                                            | Hash 512 MiB or more                                                                                | Wrong digest; unreachable for signing (at most 306 bytes)                                                                                             |
-| `create_signature` copies the key into a 32-byte slot followed by the data | A key that is not 32 bytes                                                                          | Shorter keys are zero-padded; longer ones act as their first 32 bytes, or throw when longer than 32 + data; unreachable from the tools (SHA-256 keys) |
+| Location                                                                   | Reproduction                                                                                       | Effect                                                                                                                                                |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| jspack `_En754(undefined)`                                                 | Omit a float extension (DISTANCE_SENSOR `horizontal_fov`) or give a short float array (`q: [0.5]`) | NaN (0x7F800001) is sent instead of 0                                                                                                                 |
+| jspack `WouldPack` value cursor, `x25Crc` `forEach` over a sparse array    | BATTERY_STATUS without `voltages_ext` but with `mode` and `fault_bitmask`                          | `mode` sends 0, `fault_bitmask` sends `mode`'s value, and the checksum skips the unwritten bytes, so receivers drop the frame                         |
+| `_EnString` / `_EnInt64` of `undefined`                                    | Omit AUTOPILOT_VERSION `uid2` or HOME_POSITION `time_usec` (optional extensions)                   | `pack` throws a TypeError; the port throws `RangeError` (crash clause)                                                                                |
+| `decode` sets `m.crc` after the fields                                     | Receive CUBEPILOT_FIRMWARE_UPDATE_START                                                            | Its `crc` field reads as the frame checksum (reproduced by Telemetry Dashboard's widget adapter; the package keeps fields separate)                   |
+| `create_signature` copies the key into a 32-byte slot followed by the data | A key that is not 32 bytes                                                                         | Shorter keys are zero-padded; longer ones act as their first 32 bytes, or throw when longer than 32 + data; unreachable from the tools (SHA-256 keys) |
+
+## Proven upstream bugs fixed
+
+Each is proven in [`../bug-proofs/mavlink.md`](../bug-proofs/mavlink.md) and fixed in the port (commit
+pending). The oracle tests assert upstream's result for the bug input, the corrected result, and
+identity everywhere else.
+
+| Location                                                                      | Reproduction                                                                                       | Upstream                                                                      | Port                                                                                                                                                                                                      |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parsePayload` slices `expected_length` before `decode` (its own TODO) (#150) | Noise containing `0xFD 40 ...`, or a frame whose length byte is corrupted, followed by good frames | Waits for, then discards, up to 280 bytes, losing the good frames inside them | When the frame fails on its checksum or incompatibility flags, only the start marker is dropped (`parser.ts` `next()`); a frame with an unknown message id still consumes its claimed length, as upstream |
+| jspack `_En754` sign test `v < 0` (#153)                                      | Encode -0                                                                                          | +0 is sent                                                                    | -0 is sent with its sign bit (`encode.ts` `writeFloat`)                                                                                                                                                   |
+| jspack has no `_EnChar` (#154, TEST_TYPES only)                               | Encode TEST_TYPES                                                                                  | `pack` throws a TypeError                                                     | The scalar `char` is packed as its character code, 0 for an empty string (`encode.ts` `packPayload`)                                                                                                      |
+| `mavlink20.sha256` length block (#156)                                        | Hash 512 MiB or more                                                                               | Wrong digest; unreachable for signing (at most 306 bytes)                     | The full 64-bit bit length is written (`sha256.ts`)                                                                                                                                                       |

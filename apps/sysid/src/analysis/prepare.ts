@@ -34,24 +34,46 @@ function multiplierValue(text: string | null): number | null {
   return text ? parseFloat(text) : null
 }
 
-function sliceWindow(log: DataflashLog, source: SignalSource, startS: number, endS: number): number[] {
+interface Window {
+  readonly timeUs: number[]
+  readonly values: number[]
+}
+
+function sliceWindow(log: DataflashLog, source: SignalSource, startS: number, endS: number): Window {
   const time = requireColumn(log, source.message, 'TimeUS')
   const values = requireColumn(log, source.message, source.field)
-  return Array.from(values).slice(nearestIndex(time, startS * US_PER_S), nearestIndex(time, endS * US_PER_S))
+  const first = nearestIndex(time, startS * US_PER_S)
+  const last = nearestIndex(time, endS * US_PER_S)
+  return { timeUs: Array.from(time).slice(first, last), values: Array.from(values).slice(first, last) }
 }
 
 /**
- * Upstream gravity compensation. ATT is indexed from its own sample nearest the window start
- * with the output's sample index, so it is only aligned when ATT is logged with the output;
- * reading past the end of ATT gives NaN, as in upstream.
+ * Upstream gravity compensation, with the proven indexing bug fixed (docs/bug-proofs/sysid.md,
+ * row 3). Upstream finds the ATT window by time but then reads ATT at the window start plus the
+ * output's sample index, which leaves the window (and the array, giving NaN) whenever the output
+ * is logged more often than ATT. Here each output sample whose time lies within ATT's logged span
+ * uses the ATT sample nearest to it in time. Where ATT is logged with the output (the System ID
+ * case) that is the same sample upstream reads. Samples outside ATT's span keep upstream's value,
+ * including NaN past the end of ATT.
  */
-function compensate(log: DataflashLog, data: number[], axis: CompensationAxis, mult: number, startS: number): void {
+function compensate(
+  log: DataflashLog,
+  data: number[],
+  dataTimeUs: readonly number[],
+  axis: CompensationAxis,
+  mult: number,
+  startS: number
+): void {
   const attTime = requireColumn(log, 'ATT', 'TimeUS')
   const attStart = nearestIndex(attTime, startS * US_PER_S)
   const angle = Array.from(requireColumn(log, 'ATT', axis))
+  const firstAtt = attTime[0] ?? NaN
+  const lastAtt = attTime[attTime.length - 1] ?? NaN
   const sign = axis === 'Roll' ? 1 : -1
   for (let j = 0; j < data.length; j++) {
-    const term = (Math.PI / 180) * mult * G * (angle[attStart + j] ?? NaN)
+    const t = dataTimeUs[j] ?? NaN
+    const index = t >= firstAtt && t <= lastAtt ? nearestIndex(attTime, t) : attStart + j
+    const term = (Math.PI / 180) * mult * G * (angle[index] ?? NaN)
     data[j] = sign > 0 ? data[j]! + term : data[j]! - term
   }
 }
@@ -74,10 +96,11 @@ export function prepareSignals(
   const inputData = Array.from(requireColumn(log, input.message, input.field)).slice(first, last)
 
   const outputData = outputs.map((output) => {
-    let data = sliceWindow(log, output, startS, endS)
+    const window = sliceWindow(log, output, startS, endS)
+    let data = window.values
     const multiplier = multiplierValue(output.multiplier)
     if (multiplier !== null) data = data.map((value) => value * multiplier)
-    if (output.compensation !== null) compensate(log, data, output.compensation, multiplier ?? 1, startS)
+    if (output.compensation !== null) compensate(log, data, window.timeUs, output.compensation, multiplier ?? 1, startS)
     return data
   })
 

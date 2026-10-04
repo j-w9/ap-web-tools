@@ -9,19 +9,19 @@ are in `upstream/AILogAnalyzer/`.
 Claims about how the OpenAI API reacts (a rejected message, an expiring run, files still being deleted) cannot be proven
 from the repository: neither the tool's code nor its help text states the API's behaviour. Those parts are NOT PROVEN.
 
-| Row | Bug                                                                             | Verdict    |
-| --- | ------------------------------------------------------------------------------- | ---------- |
-| 132 | `get` returns only the last instance of an instanced message                    | NOT PROVEN |
-| 133 | Numeric columns uploaded as `{"0": …}` objects                                  | NOT PROVEN |
-| 134 | A no-data failure drops the remembered file                                     | NOT PROVEN |
-| 135 | Successful calls in a mixed batch submitted without output                      | NOT PROVEN |
-| 136 | Message posted while the run is still cancelling                                | NOT PROVEN |
-| 137 | `.log` files offered but never read                                             | PROVEN     |
-| 138 | Every `output.json` on the account deleted, without waiting                     | NOT PROVEN |
-| 139 | Only a 401 while connecting asks for a new key                                  | NOT PROVEN |
-| 140 | Errors in the tool handler and in the first connection are unhandled            | PROVEN     |
-| 141 | Input re-enabled while tool data is uploaded                                    | NOT PROVEN |
-| 142 | Assistant text appended across messages; a delta without text shows "undefined" | NOT PROVEN |
+| Row | Bug                                                                             | Verdict       |
+| --- | ------------------------------------------------------------------------------- | ------------- |
+| 132 | `get` returns only the last instance of an instanced message                    | NOT PROVEN    |
+| 133 | Numeric columns uploaded as `{"0": …}` objects                                  | NOT PROVEN    |
+| 134 | A no-data failure drops the remembered file                                     | NOT PROVEN    |
+| 135 | Successful calls in a mixed batch submitted without output                      | NOT PROVEN    |
+| 136 | Message posted while the run is still cancelling                                | NOT PROVEN    |
+| 137 | `.log` files offered but never read                                             | PROVEN, FIXED |
+| 138 | Every `output.json` on the account deleted, without waiting                     | NOT PROVEN    |
+| 139 | Only a 401 while connecting asks for a new key                                  | NOT PROVEN    |
+| 140 | Errors in the tool handler and in the first connection are unhandled            | PROVEN, FIXED |
+| 141 | Input re-enabled while tool data is uploaded                                    | NOT PROVEN    |
+| 142 | Assistant text appended across messages; a delta without text shows "undefined" | NOT PROVEN    |
 
 PROVEN 2, NOT PROVEN 9.
 
@@ -145,6 +145,13 @@ the fix.)
 notice that the file was not read (only `.bin` logs are read) and skip `setChartsAtLogReady`; the picker may keep
 `.log` (nothing removed). The earlier log, if any, stays as it was, as now.
 
+**Status: FIXED.** `apps/ai-log-analyzer/src/analysis/log-file.ts` (`readsLogFile`, upstream's
+`.bin` test; `logNotReadText`) and the log handler in `apps/ai-log-analyzer/src/App.tsx`. For `flight.log`: before,
+`Processing flight.log...` then "Log File Ready" with no log read; after, `Processing flight.log...` then the error notice
+`flight.log was not read: only .bin logs can be analysed.`, no "Log File Ready", and the earlier log (if any) stays in
+use. `.bin` files and logs handed over by another tool are read exactly as before. Test:
+`apps/ai-log-analyzer/src/analysis/log-file.test.ts` (upstream's result is asserted by the proofs tests above).
+
 ## 138. Every `output.json` on the account deleted, without waiting
 
 **Row:** `window.get` (`filesList.data.forEach(… && openai.files.del(id))`): files of that name from other tools are
@@ -213,6 +220,15 @@ elsewhere), instead of being dropped.
 **Smallest port change:** none in behaviour; the port already shows these errors under the crash clause of
 `docs/porting-policy.md` (`apps/ai-log-analyzer/src/chat/session.ts`, and the tool path in `chat/turn.ts`). Record it as
 a proven fix rather than a presentation difference.
+
+**Status: FIXED; no port change needed.** Confirmed: `apps/ai-log-analyzer/src/chat/session.ts`
+`connectAssistant` catches a failed connection from the key form and shows its text (e.g. `Could not initialize
+assistant`); `apps/ai-log-analyzer/src/chat/turn.ts` `runTurn` catches errors from the tool flow
+(`assistant/openai-backend.ts` `toolFlowFailure`, e.g. a failed `files.list`) and shows them. Tests:
+`apps/ai-log-analyzer/src/chat/upstream-flow.test.ts` "a 401 at send time while creating the thread shows both upstream
+lines" (upstream's unhandled rejection side by side with the port's notice), `chat/turn.test.ts` "turns thrown errors
+into notices instead of rejecting", `assistant/openai-backend.test.ts` "names failures in the tool flow, and stream
+errors with upstream text".
 
 ## 141. Input re-enabled while tool data is uploaded
 

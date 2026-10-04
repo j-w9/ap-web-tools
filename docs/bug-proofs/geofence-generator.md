@@ -12,14 +12,14 @@ six bugs are listed under "Upstream bugs reproduced" in
 Line numbers below are `upstream/GeofenceGenerator/GeofenceGenerator.js` unless another file is
 named.
 
-| #   | Bug                                                | Verdict    | Reference                                                      |
-| --- | -------------------------------------------------- | ---------- | -------------------------------------------------------------- |
-| 1   | `line_intersects` always returns false             | PROVEN     | Contradicts itself (comments and algorithm), geometry          |
-| 2   | Every download edits the feature (pop, rotate 228) | NOT PROVEN | No failure; intent of the rotation not stated                  |
-| 3   | Only the first `/` and `\` replaced in file names  | PROVEN     | Contradicts itself ("sanitize name for use in file")           |
-| 4   | Crop stops at a non-polygon feature                | PROVEN     | It fails (throws); row mis-describes the effect                |
-| 5   | Failed search keeps the previous features          | NOT PROVEN | Failure is reported; keeping the last results is a fair intent |
-| 6   | `wrap_180` does not wrap below -180                | PROVEN     | Contradicts ArduPilot `wrap_180` and its documented range      |
+| #   | Bug                                                | Verdict       | Reference                                                      |
+| --- | -------------------------------------------------- | ------------- | -------------------------------------------------------------- |
+| 1   | `line_intersects` always returns false             | PROVEN, FIXED | Contradicts itself (comments and algorithm), geometry          |
+| 2   | Every download edits the feature (pop, rotate 228) | NOT PROVEN    | No failure; intent of the rotation not stated                  |
+| 3   | Only the first `/` and `\` replaced in file names  | PROVEN, FIXED | Contradicts itself ("sanitize name for use in file")           |
+| 4   | Crop stops at a non-polygon feature                | PROVEN, FIXED | It fails (throws); row mis-describes the effect                |
+| 5   | Failed search keeps the previous features          | NOT PROVEN    | Failure is reported; keeping the last results is a fair intent |
+| 6   | `wrap_180` does not wrap below -180                | PROVEN, FIXED | Contradicts ArduPilot `wrap_180` and its documented range      |
 
 ## 1. `line_intersects` always returns false
 
@@ -71,6 +71,15 @@ undefined.
 build `r1 = [e1x - s1x, e1y - s1y]`, `r2 = [e2x - s2x, e2y - s2y]` and `ss2_ss1` likewise and keep
 the rest of upstream's test; in `simplifyRings`, `break` instead of throwing when `target === null`
 (no finite candidate).
+
+**Status: FIXED.** Port: `apps/geofence-generator/src/analysis/simplify.ts`
+`lineIntersects` (vectors as `[dx, dy]`) and `simplifyRings` (`break` when no finite candidate is
+left). Tests: `simplify.test.ts` "lineIntersects (upstream line_intersects, proven comma-operator
+bug fixed)" (crossing pair; 500 random pairs: true exactly where they properly cross, upstream
+`false` throughout) and "does not create the self-intersection upstream creates (proven bug
+fixed)" (comb: upstream 95 vertices, self-intersecting; port not self-intersecting). The six
+`simplifyRings matches upstream simplify_poly` lake cases are unchanged and still identical to
+upstream.
 
 ## 2. Every download edits the feature: closing point dropped, rings rotated 228 places
 
@@ -129,6 +138,11 @@ A_B/C_D\E.waypoints".
 **Smallest port change:** `apps/geofence-generator/src/analysis/fence.ts` `fenceFileName`:
 `name.replaceAll('/', '_').replaceAll('\\', '_')`.
 
+**Status: FIXED.** Port: `apps/geofence-generator/src/analysis/fence.ts`
+`fenceFileName`. Test: `fence.test.ts` "replaces every / and \\ (proven bug fixed; upstream only
+the first)" (`A/B/C\D\E`: upstream `A_B/C_D\E.waypoints`, port `A_B_C_D_E.waypoints`); names
+with at most one of each still match upstream.
+
 ## 4. Crop stops at a non-polygon feature
 
 **Row:** `apply_crop` (`turf.intersect` on every feature): an unclosed `natural=water` way (a
@@ -165,6 +179,11 @@ polygons are exactly the ones the original shows before it throws.
 
 **Smallest port change:** `apps/geofence-generator/src/analysis/features.ts` `cropFeatures`:
 `if (!isPolygonal(feature)) continue` instead of returning the error.
+
+**Status: FIXED.** Port: `apps/geofence-generator/src/analysis/features.ts`
+`cropFeatures` (`if (!isPolygonal(feature)) continue`). Test: `features.test.ts` "skips a feature
+that is not a polygon (proven bug fixed; upstream throws there)": upstream throws, the port
+returns no error and exactly the polygons upstream shows.
 
 ## 5. Failed search keeps the previous features
 
@@ -229,3 +248,9 @@ from the antimeridian are unchanged bit for bit.
 **Smallest port change:** `apps/geofence-generator/src/analysis/cartesian.ts` `wrap180`:
 `let r = (angle + 180) % 360; if (r < 0) r += 360; return r - 180`. (Adding 360 unconditionally,
 `((a + 180) % 360 + 360) % 360`, would round non-negative remainders and change normal outputs.)
+
+**Status: FIXED.** Port: `apps/geofence-generator/src/analysis/cartesian.ts`
+`wrap180`. Tests: `cartesian.test.ts` "wraps angles below -180 (proven bug fixed): -200 is 160,
+upstream -200", "converts across the antimeridian symmetrically; upstream does not (proven bug
+fixed)", and "wrap180 and longitudeScale" (identical to upstream for every random angle at or
+above -180).

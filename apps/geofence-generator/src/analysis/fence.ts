@@ -102,9 +102,10 @@ export function formatWaypoints(fence: Fence): string {
 }
 
 /**
- * File name for a fence, as upstream sanitises it: `String.replace` with a string pattern, so only
- * the first `/` and the first `\\` become `_` (docs/upstream-bugs.md).
+ * File name for a fence: every `/` and `\\` becomes `_`. Upstream's `String.replace` with a string
+ * pattern replaces only the first of each, against its own "sanitize name for use in file" (a
+ * proven bug, see docs/bug-proofs/geofence-generator.md).
  */
 export function fenceFileName(name: string): string {
-  return `${name.replace('/', '_').replace('\\', '_')}.waypoints`
+  return `${name.replaceAll('/', '_').replaceAll('\\', '_')}.waypoints`
 }

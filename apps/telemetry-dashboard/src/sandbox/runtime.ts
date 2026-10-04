@@ -8,12 +8,13 @@
  * runtime then calls. Any exception (at load or in a handler) replaces the widget with an error
  * report and stops the script until it is edited or new options arrive.
  *
- * Upstream's quirks are kept: a script that returns a primitive (`return 0` before the appended
- * `return this`) makes every later options message throw at `"handle_options" in user_class`,
- * which also skips a script sent in the same message, so the widget can no longer be edited; and
- * an error report that itself fails (a script throwing null) leaves the script running.
+ * Two proven upstream bugs are fixed (docs/bug-proofs/telemetry-dashboard.md): a script that
+ * returns a primitive (`return 0` before the appended `return this`) made every later options
+ * message throw at `"handle_options" in user_class`, skipping a script sent in the same message so
+ * the widget could no longer be edited (#159); and a thrown null, undefined or Symbol made the error
+ * report itself throw, leaving the script running (#160).
  */
-import { inOperatorError, jsString, nullPropertyError, type JsonObject } from '../layout/json.js'
+import { jsString, type JsonObject } from '../layout/json.js'
 
 /** The page side the runtime draws on, injectable for tests. */
 export interface SandboxPage<Div> {
@@ -89,8 +90,9 @@ export class SandboxRuntime<Div> {
     if (!this.running && this.userScript !== null) this.loadUserScript()
     const user = this.userClass
     if (user === null || user === undefined) return
-    // `"handle_options" in user_class` threw for a primitive, outside any try (see above).
-    if (typeof user !== 'object' && typeof user !== 'function') throw inOperatorError('handle_options', user)
+    // A primitive has no `handle_options`. Upstream's `"handle_options" in user_class` threw here,
+    // outside any try, so the script in the same message never loaded (proven bug #159).
+    if (typeof user !== 'object' && typeof user !== 'function') return
     // `handle_options` is optional.
     if (!('handle_options' in user)) return
     try {
@@ -123,11 +125,11 @@ export function concatString(value: unknown): string {
 
 /**
  * Where an error happened in the user script, from `err.stack` (upstream regex and offset; a
- * thrown value without a stack gives none). Throws, as upstream's `err.stack` did, for a thrown
- * null or undefined.
+ * thrown value without a stack gives none). A thrown null or undefined has no stack: upstream's
+ * `err.stack` threw there and the error report never finished (proven bug #160).
  */
 export function errorLocation(error: unknown): { readonly line: number; readonly column: string } | null {
-  if (error === null || error === undefined) throw nullPropertyError(error, 'stack')
+  if (error === null || error === undefined) return null
   const stack: unknown = Reflect.get(Object(error), 'stack')
   const match = /<(?:(?:anonymous)|(?:Function))>:([0-9]*):([0-9]*)/m.exec(jsString(stack))
   if (match === null) return null

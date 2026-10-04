@@ -19,8 +19,10 @@ Oracles (upstream JavaScript run side by side with the port):
   widget type.
 - `widgets/parser-facade.test.ts`: the parser facade against upstream's `JsDataflashParser` for two
   logs and a synthetic log with every field type: `messageTypes` (keys, key order, `expressions`,
-  `units`, `multipliers`, `complexFields`, `instances`), every field of every message and instance
-  through `get`/`get_instance` (values and array types), the instanced-message throw, instance keys,
+  `units`, `multipliers`, `complexFields`, `instances`; `µ` for 1e-6 and a skipped undefined-type FMTU,
+  the parser's proven fixes), every field of every message and instance
+  through `get`/`get_instance` (values and array types), the instanced-message read without an
+  instance (upstream throws, the port returns `undefined`: proven bug #119), instance keys,
   fresh copies, `stats`, `extractStartTime`, and results created in the calling document's realm.
 - `widgets/layout-file.test.ts`: bundled defaults byte-identical, file shapes.
 
@@ -94,11 +96,33 @@ Browser constraints and crashes:
 
 ## Upstream bugs reproduced
 
-See `docs/upstream-bugs.md`: `[object File]` message; instanced message read without instance
-throws; `Invalid DateTime` without GPS time; a video without audio stops the panel; duration and
-offset from records by file position; sandbox script run twice on load; a log that fails to parse
+See `docs/upstream-bugs.md`: `[object File]` message; `Invalid DateTime` without GPS time; duration
+and offset from records by file position; sandbox script run twice on load; a log that fails to parse
 is still sent later; won't-fit reported before the type check; failed layouts leave earlier widgets
 created and the grid in batch mode.
+
+## Proven upstream bugs fixed
+
+Proven to the standard in [`../bug-proofs/README.md`](../bug-proofs/README.md); verdicts, reproductions
+and fix details are in [`../bug-proofs/video-overlay.md`](../bug-proofs/video-overlay.md).
+
+- **#119** An instanced message read without an instance (`log.get('IMU', 'GyrX')`) threw a TypeError
+  in upstream's parser; the port's facade returns `undefined`, like the parser's other no-data
+  paths, so the default widget scripts report "Unknown log message" (`widgets/parser-facade.ts`
+  `get_instance`; test `parser-facade.test.ts` "returns undefined where upstream throws ...").
+- **#120** A video without an audio track stopped the video panel after the FPS; the port fills in
+  resolution, duration, codec (video codec alone), start/end and export size, and matches format,
+  video codec and frame rate, leaving the audio codec as it was (`App.tsx` `openVideo`,
+  `analysis/export-formats.ts` `inputCodecText`, `matchSelectionToInput`; tests in
+  `export-formats.test.ts` "... (proven upstream bug #120)").
+- **Parser fixes in the widget log facade** (proven in
+  [`../bug-proofs/js-dataflash-parser.md`](../bug-proofs/js-dataflash-parser.md), #2 and #3, and fixed in
+  `@apwt/dataflash`): the facade's `messageTypes` follow the corrected parser. Multiplier 1e-6 is labelled
+  with `µ` (upstream `n`: `IMU.TimeUS` `ns` → `µs`), and an FMTU for an undefined message type is skipped
+  instead of abandoning every later FMTU, so its units and instances match the instances the facade takes
+  from `@apwt/dataflash` (`widgets/parser-facade.ts` `MULTIPLIER_PREFIX`, `fmtuUnits`; tests
+  `parser-facade.test.ts` "builds messageTypes as upstream ... µ for 1e-6 (proven bug)" and "FMTU for an
+  undefined type ... skips the record where upstream abandons every later FMTU").
 
 ## UI audit
 

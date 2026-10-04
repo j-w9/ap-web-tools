@@ -10,20 +10,20 @@ No USB DFU 1.1, DfuSe or Intel HEX specification text is available locally, so n
 on one. Browser behaviour is cited only where `node_modules/typescript/lib/lib.dom.d.ts` (MDN text)
 states it.
 
-| Row (`upstream-bugs.md` line) | Bug                                                  | Verdict                                        |
-| ----------------------------- | ---------------------------------------------------- | ---------------------------------------------- |
-| 51                            | Intel HEX extended linear address records ignored    | **PROVEN** (512 KiB clause mis-described)      |
-| 52                            | Start address change leaves upload size above max    | NOT PROVEN                                     |
-| 53                            | "Converted Hex to bin" never shown                   | **PROVEN** (presentation)                      |
-| 54                            | Functional descriptor properties line overwritten    | **PROVEN** (presentation; successful connects) |
-| 55                            | Undefined `dnloadButton` and `commandName`           | **PROVEN** (both)                              |
-| 143                           | Properties line stays after a failed connect         | NOT PROVEN                                     |
-| 144                           | Start address verdict survives a reconnect           | **PROVEN**                                     |
-| 145                           | Enter in a DfuSe field starts flashing               | NOT PROVEN                                     |
-| 146                           | Flash Bootloader can be pressed again during a flash | NOT PROVEN (stays a deliberate fix, by policy) |
-| 147                           | `abortToIdle` prints `state.state` of a number       | **PROVEN** (unreachable from the page)         |
-| 148                           | `waitDisconnected` timeout passes `reject`           | **PROVEN**                                     |
-| 149                           | Crashes on unusual devices (five sites)              | 3 sites **PROVEN**, 2 NOT PROVEN (see the row) |
+| Row (`upstream-bugs.md` line) | Bug                                                  | Verdict                                                          |
+| ----------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
+| 51                            | Intel HEX extended linear address records ignored    | **PROVEN** (512 KiB clause mis-described); FIXED                 |
+| 52                            | Start address change leaves upload size above max    | NOT PROVEN                                                       |
+| 53                            | "Converted Hex to bin" never shown                   | **PROVEN** (presentation); FIXED                                 |
+| 54                            | Functional descriptor properties line overwritten    | **PROVEN** (presentation; successful connects); FIXED, no change |
+| 55                            | Undefined `dnloadButton` and `commandName`           | **PROVEN** (both); FIXED                                         |
+| 143                           | Properties line stays after a failed connect         | NOT PROVEN                                                       |
+| 144                           | Start address verdict survives a reconnect           | **PROVEN**; FIXED                                                |
+| 145                           | Enter in a DfuSe field starts flashing               | NOT PROVEN                                                       |
+| 146                           | Flash Bootloader can be pressed again during a flash | NOT PROVEN (stays a deliberate fix, by policy)                   |
+| 147                           | `abortToIdle` prints `state.state` of a number       | **PROVEN** (unreachable from the page); FIXED                    |
+| 148                           | `waitDisconnected` timeout passes `reject`           | **PROVEN**; FIXED                                                |
+| 149                           | Crashes on unusual devices (five sites)              | 3 sites **PROVEN** (FIXED, no change needed), 2 NOT PROVEN       |
 
 Counts: 12 rows; 7 PROVEN, 4 NOT PROVEN, row 149 split (parseSubDescriptors, erase, autoConnect
 PROVEN; open, fixInterfaceNames NOT PROVEN).
@@ -38,6 +38,12 @@ PROVEN; open, fixInterfaceNames NOT PROVEN).
 
 **Verdict: PROVEN** for the overlay. The "bytes beyond 512 KiB are dropped" clause is mis-described,
 and the start-address clause is not a bug claim that can be proven.
+
+**Status: FIXED.** Port: `apps/dfu-loader/src/dfu/util.ts` `parseIntelHex` applies
+type 4 records (offset `baseAddr + addr - origin`, origin the lowest base used by a data record). Test:
+`apps/dfu-loader/src/dfu/util.test.ts` › `parseIntelHex` › `places 8 KiB at 0x0800F000 contiguously
+across the 64 KiB boundary (upstream overlays it)` (and the 64 bytes at 0x0807FFF0 case); every file
+inside one segment still converts exactly as upstream.
 
 **Tests:** `R51: parseIntelHex places data records at their 16-bit address and never applies type 4
 records`; `R51: offsets never pass 0xFFFF + 255, so nothing is ever written near the 512 KiB end of the
@@ -109,6 +115,12 @@ never performs) should do on a start address change. Stays reproduced.
 
 **Verdict: PROVEN** (presentation only; no computed value changes).
 
+**Status: FIXED.** Port: `apps/dfu-loader/src/dfu/session.ts` `chooseFile` adds the
+entry whether or not a flash is running. Tests: `apps/dfu-loader/src/dfu/session.test.ts` ›
+`flashes a converted .hex to a manifestation tolerant device` (upstream log `[]`, port log
+`[Converted Hex to bin]`; after the flash both logs are identical) and `logs nothing when a .bin file
+is chosen, as upstream`.
+
 **Test:** `R53: "Converted Hex to bin" is dropped when no flash is running`. Choosing `bootloader.hex`
 converts the file (the flash writes the 4 decoded bytes, `[1, 2, 3, 4]`) and the download log stays
 empty.
@@ -141,6 +153,10 @@ Version=...` line is computed but never visible. Port shows it (presentation).
 **Verdict: PROVEN** for successful connects (presentation only). "Never visible" is mis-described for
 failed connects: row 143 shows the line staying visible when connecting stops.
 
+**Status: FIXED (no port change needed).** The port already shows the line
+(`apps/dfu-loader/src/ui/DeviceInfo.tsx:28`), pinned by `session.test.ts` › `connect` tests reading
+`connected.properties`.
+
 **Test:** `R54: on a successful connect the properties line is appended, then overwritten`. After a
 successful F4 connect `#dfuInfo` is exactly the summary line and the memory summary; it contains no
 `WillDetach`.
@@ -169,6 +185,13 @@ info.
 > (crash clause).
 
 **Verdict: PROVEN** (both).
+
+**Status: FIXED.** `dnloadButton`: `apps/dfu-loader/src/dfu/session.ts` `connect`
+finishes connecting and sets `flashEnabled: false` for a DFU-mode interface with CanDnload=false
+(it used to refuse with an error). Test: `apps/dfu-loader/src/dfu/session.test.ts` › `connect` ›
+`connects a DFU interface that cannot download with Flash Bootloader disabled (upstream throws)`.
+`commandName`: no port change needed (`apps/dfu-loader/src/dfu/dfuse.ts:132`), pinned by
+`dfu.test.ts` (upstream `ReferenceError: commandName is not defined`).
 
 **Tests:** `R55: a DFU interface without CanDnload throws ReferenceError: dnloadButton is not defined`
 (status shows `ReferenceError: dnloadButton is not defined`, the page stays disconnected);
@@ -226,6 +249,12 @@ repeated line on retries is a UI quirk with no stated intent. Stays reproduced.
 > refuses until the field is edited. Reproduced.
 
 **Verdict: PROVEN.**
+
+**Status: FIXED.** Port: `apps/dfu-loader/src/dfu/session.ts` `connect` sets
+`customValidity: ''` with the first writable segment address. Test:
+`apps/dfu-loader/src/dfu/session.test.ts` › `start address field` › `runs the change handler only when
+the text changed, as the browser fires change` (after the reconnect upstream keeps `Address outside of
+memory map`, the port has `''` and validates; every other field is identical).
 
 **Test:** `R144: the start address custom validity survives a reconnect and blocks Flash Bootloader`.
 Connect an F4, enter `0x1000` (custom validity `Address outside of memory map`), disconnect, reconnect:
@@ -306,6 +335,11 @@ not established by a local reference.
 **Verdict: PROVEN** (not reachable from the page: `abortToIdle` is called only from `do_upload`,
 `dfu.js:547`, `dfuse.js:291`, `dfuse.js:294`, and the page never uploads).
 
+**Status: FIXED.** Port: `apps/dfu-loader/src/dfu/dfu.ts` `abortToIdle` interpolates
+the state. Test: `apps/dfu-loader/src/dfu/dfu.test.ts` › `fails abort-to-idle when the device stays in
+error, naming the state (upstream: "state undefined")` (upstream `... state undefined`, port
+`... state 10`; transfers and logs identical).
+
 **Test:** `R147: abortToIdle reports "state undefined"`. A device left in state 5 after ABORT rejects
 with `Failed to return to idle state after abort: state undefined`.
 
@@ -329,6 +363,12 @@ always undefined:
 > reason and leaves the `disconnect` listener attached. The page only logs it. Reproduced.
 
 **Verdict: PROVEN** (effect on the page: none visible; `dfu-util.js:559-562` only logs to the console).
+
+**Status: FIXED.** Port: `apps/dfu-loader/src/dfu/dfu.ts` `waitDisconnected` uses
+the timeout handler as written. Test: `apps/dfu-loader/src/dfu/dfu.test.ts` › `times out with
+"Disconnect timeout expired" and removes its listener (upstream: no reason, listener stays)` (upstream
+rejects with `undefined` and keeps 1 listener; the port rejects with `Disconnect timeout expired` and
+keeps 0).
 
 **Test:** `R148: waitDisconnected rejects with no reason on timeout and leaves its listener attached`.
 `waitDisconnected(10)` rejects with `undefined` and one `disconnect` listener remains on
@@ -375,6 +415,8 @@ local source states.
 
 ### `parseSubDescriptors`: zero-length descriptor: PROVEN
 
+**Status: FIXED (no port change needed)** (`apps/dfu-loader/src/dfu/dfu.ts:266-267`).
+
 **Test:** `R149 parseSubDescriptors: a zero-length descriptor never terminates`. Bytes
 `[0, 5, 0, 0]` run until the vm's 200 ms timeout (`Script execution timed out after 200ms`).
 
@@ -389,6 +431,10 @@ loop condition never changes: `dfu.js:319` `while (remainingData.byteLength > 2)
 descriptor` (`apps/dfu-loader/src/dfu/dfu.ts:266-267`).
 
 ### `erase`: range across a gap in the memory map: PROVEN
+
+**Status: FIXED (no port change needed)** (`apps/dfu-loader/src/dfu/dfuse.ts:203`, pinned by
+`dfu.test.ts`, which expects `Address 8008000 outside of memory map` where upstream throws a
+TypeError).
 
 **Test:** `R149 erase: a range across a gap in the memory map throws a TypeError`. Map
 `@Flash /0x08000000/01*016Kg/0x08008000/01*016Kg`, erase 0x9000 bytes from 0x08000000: one
@@ -417,6 +463,9 @@ configuration descriptor the device returns. Whether a browser can ever present 
 established from local sources.
 
 ### `autoConnect`: unhandled rejection and undeclared `vidField`: PROVEN
+
+**Status: FIXED (no port change needed)**: the port has no `vidField` and shows the error
+(`apps/dfu-loader/src/dfu/session.ts` `autoConnect`).
 
 **Tests:** `R149 autoConnect: the undeclared vidField throws after a successful connect (unhandled)`
 (landing-page serial, F4 device: connected, then an unhandled `ReferenceError: vidField is not

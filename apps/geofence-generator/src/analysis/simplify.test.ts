@@ -84,20 +84,35 @@ describe('areas match upstream', () => {
   })
 })
 
-describe('lineIntersects reproduces upstream line_intersects', () => {
-  it('never reports a crossing, like upstream (comma-operator bug)', () => {
+/** Orientation test, independent of the cross-product form: do the segments properly cross? */
+function properlyCross(a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[]): boolean {
+  const orient = (p: readonly number[], q: readonly number[], r: readonly number[]) =>
+    Math.sign((q[0]! - p[0]!) * (r[1]! - p[1]!) - (q[1]! - p[1]!) * (r[0]! - p[0]!))
+  return orient(a, b, c) * orient(a, b, d) < 0 && orient(c, d, a) * orient(c, d, b) < 0
+}
+
+describe('lineIntersects (upstream line_intersects, proven comma-operator bug fixed)', () => {
+  it('reports two crossing segments as crossing; upstream reports false', () => {
     expect(upstream.line_intersects([0, 0], [10, 10], [0, 10], [10, 0])).toBe(false)
-    expect(lineIntersects([0, 0], [10, 10], [0, 10], [10, 0])).toBe(false)
-    expect(crosses([0, 0], [10, 10], [0, 10], [10, 0])).toBe(true)
+    expect(lineIntersects([0, 0], [10, 10], [0, 10], [10, 0])).toBe(true)
+    expect(properlyCross([0, 0], [10, 10], [0, 10], [10, 0])).toBe(true)
   })
 
-  it('agrees with upstream on random segments', () => {
+  it('on random segments: true exactly where they cross; identical to upstream (false) elsewhere', () => {
     const next = rng(5)
+    let crossings = 0
     for (let k = 0; k < 500; k++) {
       const point = (): [number, number] => [(next() - 0.5) * 100, (next() - 0.5) * 100]
       const [a, b, c, d] = [point(), point(), point(), point()]
-      expect(lineIntersects(a, b, c, d)).toBe(upstream.line_intersects(a, b, c, d))
+      expect(upstream.line_intersects(a, b, c, d)).toBe(false)
+      if (properlyCross(a, b, c, d)) {
+        crossings++
+        expect(lineIntersects(a, b, c, d)).toBe(true)
+      } else {
+        expect(lineIntersects(a, b, c, d)).toBe(upstream.line_intersects(a, b, c, d))
+      }
     }
+    expect(crossings).toBeGreaterThan(0)
   })
 })
 
@@ -141,10 +156,11 @@ describe('simplifyRings behaviour', () => {
     if (shape?.kind === 'circle') expect(shape.radiusM).toBeCloseTo(3, 0)
   })
 
-  it('can create a self-intersection, exactly as upstream does', () => {
+  it('does not create the self-intersection upstream creates (proven bug fixed)', () => {
     // A comb of narrow slots cut down from the top edge. Under each slot tip the bottom edge dips
     // slightly; the dip vertex has the smallest triangle, and removing it puts the bottom edge
-    // straight across the slot. Upstream's guard never fires, so it removes it anyway.
+    // straight across the slot. Upstream's guard never fires, so it removes it anyway; the port's
+    // guard keeps those vertices.
     const x: number[] = []
     const y: number[] = []
     const teeth = 30
@@ -161,10 +177,18 @@ describe('simplifyRings behaviour', () => {
     x.push(0)
     y.push(100)
     expect(selfIntersects(x, y)).toBe(false)
+    const theirs = upstreamShapes([{ x, y }])[0]
+    expect(theirs?.kind).toBe('polygon')
+    if (theirs?.kind === 'polygon') {
+      expect(theirs.x).toHaveLength(95)
+      expect(selfIntersects(theirs.x, theirs.y)).toBe(true)
+    }
     const shapes = simplifyRings([{ x, y }])
-    expect(shapes).toEqual(upstreamShapes([{ x, y }]))
     const shape = shapes[0]
     expect(shape?.kind).toBe('polygon')
-    if (shape?.kind === 'polygon') expect(selfIntersects(shape.x, shape.y)).toBe(true)
+    if (shape?.kind === 'polygon') {
+      expect(selfIntersects(shape.x, shape.y)).toBe(false)
+      expect(totalPoints(shapes)).toBeLessThanOrEqual(SIMPLIFY_LIMITS.maxNodes)
+    }
   })
 })

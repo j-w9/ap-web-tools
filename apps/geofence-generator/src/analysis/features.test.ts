@@ -105,7 +105,7 @@ describe('cropping matches upstream add_crop / apply_crop', () => {
     }
   })
 
-  it('stops at a feature that is not a polygon, as upstream throws there', async () => {
+  it('skips a feature that is not a polygon (proven bug fixed; upstream throws there)', async () => {
     const withLine: OsmFixtureElement[] = [
       { kind: 'way', id: 102, tags: { landuse: 'reservoir' }, ring: lakeRing(25, 8.55, 47.28, 60, 2) },
       // An unclosed natural=water way: osmtogeojson makes it a LineString.
@@ -116,7 +116,9 @@ describe('cropping matches upstream add_crop / apply_crop', () => {
     expect(features.map((f) => f.geometry.type).sort()).toEqual(['LineString', 'Polygon', 'Polygon'])
     expect(() => upstream.addCrop(bounds, project, cropA)).toThrow()
     const result = cropFeatures(features, cropA)
-    expect(result.error).not.toBeNull()
+    expect(result.error).toBeNull()
+    // Upstream crops every polygon before it reaches the line (osmtogeojson lists polygons first),
+    // so the port's result is exactly what upstream shows before its error.
     expect(splitPolygons(result.features).map((p) => p.rings)).toEqual(
       upstream.layers().map((l) => l.feature.geometry.coordinates)
     )

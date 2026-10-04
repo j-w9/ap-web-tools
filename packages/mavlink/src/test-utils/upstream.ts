@@ -91,6 +91,46 @@ export interface UpstreamMavlink {
   readonly MAVLink20Processor: new (logger: null, srcSystem: number, srcComponent: number) => UpstreamProcessor
 }
 
+/** The parts of an upstream processor that `applyResyncTodo` patches. */
+interface UpstreamProcessorInternals {
+  buf: Uint8Array
+  bufInError: Uint8Array
+  parsePayload(): UpstreamMessage | null
+  concat_buffer(a: Uint8Array, b: Uint8Array): Uint8Array
+}
+
+function hasInternals(value: object): value is UpstreamProcessorInternals {
+  return 'parsePayload' in value && 'concat_buffer' in value && 'buf' in value
+}
+
+/**
+ * Applies the TODO in upstream's own `parsePayload` (`mavlink.js:19178-19180`) to one processor:
+ * "if the message is not well formed (correct prefix by accident), cut-off 1 char only". When
+ * `decode` fails on the frame checksum or on unsupported incompatibility flags, only the start
+ * marker is reported (as BAD_DATA) and dropped, and the rest of the bytes taken go back in front of
+ * the buffer. Everything else is upstream's code unchanged. This is the oracle for the port's fix of
+ * proven upstream bug #150 (see `docs/bug-proofs/mavlink.md`).
+ */
+export function applyResyncTodo(processor: UpstreamProcessor): UpstreamProcessor {
+  if (!hasInternals(processor)) throw new Error('not an upstream MAVLink20Processor')
+  const original = processor.parsePayload.bind(processor)
+  processor.parsePayload = () => {
+    try {
+      return original()
+    } catch (error) {
+      // The error comes from the vm's realm, so `instanceof Error` would be false.
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : ''
+      if (/^(invalid MAVLink CRC|Unsupported MAVLink incompatibility flags)/.test(message)) {
+        const taken = processor.bufInError
+        processor.buf = processor.concat_buffer(taken.slice(1), processor.buf)
+        processor.bufInError = taken.slice(0, 1)
+      }
+      throw error
+    }
+  }
+  return processor
+}
+
 function isUpstream(value: unknown): value is UpstreamMavlink {
   return typeof value === 'object' && value !== null && 'mavlink20' in value && 'MAVLink20Processor' in value
 }

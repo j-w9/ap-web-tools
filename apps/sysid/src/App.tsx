@@ -6,11 +6,10 @@ import { stateSpaceInputs, transferFunctionInputs } from './analysis/request.js'
 import {
   INITIAL_SETUP,
   NO_LOG,
-  generateFields,
+  generateClick,
   onLogLoaded,
   readSlot,
   selectModel,
-  slotOwner,
   writeSlot,
   type OutputFields,
   type PickerOptions,
@@ -26,7 +25,7 @@ import {
   type TransferFunctionOutputs
 } from './python/runtime.js'
 import { ClearOutputButton, ConsolePanel } from './ui/ConsolePanel.js'
-import { appendOutput, clearOutput } from './ui/console.js'
+import { appendOutput } from './ui/console.js'
 import { Rail, type PythonStatus } from './ui/Rail.js'
 import type { PickerContext } from './ui/SignalPicker.js'
 import { StateSpaceSetup } from './ui/StateSpaceSetup.js'
@@ -47,10 +46,9 @@ let pythonLoad: Promise<PythonRuntime> | null = null
 
 function startPython(): Promise<PythonRuntime> {
   if (pythonLoad === null) {
+    // Upstream's main() cleared the output right after init_pyodide() had started, wiping its first
+    // "Initializing Pyodide..." line; that proven bug is fixed here (docs/bug-proofs/sysid.md, row 5).
     pythonLoad = loadPython(appendOutput)
-    // Upstream's main() clears the output right after init_pyodide() has started, wiping its
-    // first "Initializing Pyodide..." line.
-    clearOutput()
   }
   return pythonLoad
 }
@@ -75,7 +73,7 @@ export function App() {
   const [fileName, setFileName] = useState<string | null>(null)
   const [setup, setSetup] = useState<Setup>(INITIAL_SETUP)
   const [error, setError] = useState<string | null>(null)
-  const [alert, setAlert] = useState<string | null>(null)
+  const [alerts, setAlerts] = useState<readonly string[]>([])
   const [python, setPython] = useState<PythonRuntime | null>(null)
   const [pythonStatus, setPythonStatus] = useState<PythonStatus>('loading')
   const [tfResult, setTfResult] = useState<TransferFunctionOutputs | null>(null)
@@ -139,7 +137,7 @@ export function App() {
   const submit = () => {
     if (!sysLog) return
     setError(null)
-    setAlert(null)
+    setAlerts([])
     const requirePython = (): PythonRuntime => {
       if (!python) throw new Error('Python is still loading. Wait for "Python ready" and submit again.')
       return python
@@ -169,7 +167,7 @@ export function App() {
         })()
         if (!request) return
         if (!request.ok) {
-          setAlert(request.alert)
+          setAlerts([request.alert])
           return
         }
         void run(() => {
@@ -185,10 +183,9 @@ export function App() {
   }
 
   const generate = () => {
-    setAlert(null)
-    const outcome = generateFields(setup, options)
+    const outcome = generateClick(setup, options)
     setSetup(outcome.setup)
-    setAlert(outcome.alert)
+    setAlerts(outcome.alerts)
     setError(outcome.error)
   }
 
@@ -198,9 +195,8 @@ export function App() {
 
   const tfSignals = setup.tfSignals
   const ssOutputCount = setup.ss.signals?.outputs.length ?? 0
-  const ssInput = readSlot(setup, { kind: 'input' }) ?? null
-  const ssOutputs = Array.from({ length: ssOutputCount }, (_, index) => readSlot(setup, { kind: 'output', index }) ?? null)
-  const shared = setup.ss.signals !== null && slotOwner(setup, { kind: 'input' }) === 'tf'
+  const ssInput = readSlot(setup, 'ss', { kind: 'input' }) ?? null
+  const ssOutputs = Array.from({ length: ssOutputCount }, (_, index) => readSlot(setup, 'ss', { kind: 'output', index }) ?? null)
 
   const facts: LogFact[] | null = sysLog
     ? [
@@ -260,8 +256,8 @@ export function App() {
             input={tfSignals.input}
             output={tfSignals.output}
             form={setup.tf}
-            onInputChange={(f: SignalFields) => setSetup((s) => writeSlot(s, { kind: 'input' }, (o) => ({ ...o, ...f })))}
-            onOutputChange={(f: OutputFields) => setSetup((s) => writeSlot(s, { kind: 'output', index: 0 }, () => f))}
+            onInputChange={(f: SignalFields) => setSetup((s) => writeSlot(s, 'tf', { kind: 'input' }, (o) => ({ ...o, ...f })))}
+            onOutputChange={(f: OutputFields) => setSetup((s) => writeSlot(s, 'tf', { kind: 'output', index: 0 }, () => f))}
             onFormChange={(tf) => setSetup((s) => ({ ...s, tf }))}
           />
         </Section>
@@ -269,20 +265,20 @@ export function App() {
 
       {setup.model === 'state-space' && (
         <Section title="State space" help="Choose a preset or enter the sizes, generate the fields, then fill in the matrices.">
-          {alert && <Notice variant="warning">{alert}</Notice>}
-          {shared && (
-            <p className="apwt-section__help sysid-note">
-              Input 1 and Output 1 are shared with the transfer function form, as in the original tool.
-            </p>
-          )}
+          {alerts.map((text, i) => (
+            // One notice per upstream alert(): repeated handlers raise the same text more than once.
+            <Notice key={i} variant="warning">
+              {text}
+            </Notice>
+          ))}
           <StateSpaceSetup
             context={context}
             form={setup.ss}
             input={setup.ss.signals ? ssInput : null}
             outputs={ssOutputs}
             onFormChange={(ss) => setSetup((s) => ({ ...s, ss }))}
-            onInputChange={(f) => setSetup((s) => writeSlot(s, { kind: 'input' }, (o) => ({ ...o, ...f })))}
-            onOutputChange={(index, f) => setSetup((s) => writeSlot(s, { kind: 'output', index }, () => f))}
+            onInputChange={(f) => setSetup((s) => writeSlot(s, 'ss', { kind: 'input' }, (o) => ({ ...o, ...f })))}
+            onOutputChange={(index, f) => setSetup((s) => writeSlot(s, 'ss', { kind: 'output', index }, () => f))}
             onGenerate={generate}
           />
         </Section>

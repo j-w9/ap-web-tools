@@ -56,6 +56,8 @@ export class MenuWidget extends Widget {
   private readonly widgetDiv: HTMLDivElement
   private readonly sizeDiv: HTMLDivElement
   private grid: GridStack | null
+  /** Closes this menu's connection; set once `init` has opened it. */
+  private disposeConnection: (() => void) | null = null
 
   constructor(rawOptions: unknown, host: MenuHost) {
     super('WidgetMenu', menuOptions(rawOptions), false, host)
@@ -106,7 +108,8 @@ export class MenuWidget extends Widget {
       show: () => connectionTip.show(),
       hide: () => connectionTip.hide()
     })
-    connectionTip.setContent(connectionPanel)
+    connectionTip.setContent(connectionPanel.element)
+    this.disposeConnection = () => connectionPanel.dispose()
     connect.button.onclick = () => connectionTip.show()
 
     new ResizeObserver(() => this.updateSize()).observe(this.el)
@@ -142,6 +145,9 @@ export class MenuWidget extends Widget {
   }
 
   override destroy(): void {
+    // Proven bugs #68/#158 (docs/bug-proofs/telemetry-dashboard.md): upstream left the socket open.
+    this.disposeConnection?.()
+    this.disposeConnection = null
     this.grid?.destroy()
     this.grid = null
     super.destroy()

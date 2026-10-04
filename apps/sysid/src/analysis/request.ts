@@ -38,8 +38,8 @@ function missing(what: string): never {
 
 /** Python inputs of the transfer function identification. */
 export function transferFunctionInputs(log: DataflashLog, setup: Setup): TransferFunctionInputs {
-  const input = readSlot(setup, { kind: 'input' }) ?? missing('Input 1')
-  const output = readSlot(setup, { kind: 'output', index: 0 }) ?? missing('Output 1')
+  const input = readSlot(setup, 'tf', { kind: 'input' }) ?? missing('Input 1')
+  const output = readSlot(setup, 'tf', { kind: 'output', index: 0 }) ?? missing('Output 1')
   const tStart = setup.startTime.trim()
   const tEnd = setup.endTime.trim()
   // Upstream multiplies the text by 1e6, i.e. Number(text).
@@ -70,9 +70,9 @@ export function stateSpaceInputs(log: DataflashLog, setup: Setup): StateSpaceReq
   const numParams = parseInt(ss.params, 10)
   if (Number.isNaN(numOutputs) || numOutputs <= 0) return { ok: false, alert: SIZE_ALERT }
 
-  const input = readSlot(setup, { kind: 'input' }) ?? missing('Input 1')
+  const input = readSlot(setup, 'ss', { kind: 'input' }) ?? missing('Input 1')
   const outputs = Array.from({ length: numOutputs }, (_, index) => {
-    const fields = readSlot(setup, { kind: 'output', index })
+    const fields = readSlot(setup, 'ss', { kind: 'output', index })
     return fields ?? missing(`Output ${index + 1}`)
   })
   const symVar = Array.from({ length: Math.max(0, numParams) }, (_, i) => {

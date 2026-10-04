@@ -160,38 +160,42 @@ describe('signing', () => {
 
 describe('framing', () => {
   it('MAVLink 1, coalesced frames, noise and bad CRC recover to the next frame', () => {
+    // A bad checksum drops only the start marker; the rest of the frame is then noise (proven upstream
+    // bug #150 fixed, see docs/bug-proofs/mavlink.md; upstream drops the frame in one piece).
     const p = parser()
     expect(kinds(p.parse(fromHex(fixtures.v1)))).toEqual(['HEARTBEAT'])
     const packet = fromHex(fixtures.messages[0]!.hex)
     const bad = packet.slice()
     bad[10] = bad[10]! ^ 1
     const events = p.parse(Uint8Array.from([1, 2, 3, ...packet, ...bad, ...packet]))
-    expect(kinds(events)).toEqual(['garbage:noise', 'HEARTBEAT', 'garbage:crc', 'HEARTBEAT'])
+    expect(kinds(events)).toEqual(['garbage:noise', 'HEARTBEAT', 'garbage:crc', 'garbage:noise', 'HEARTBEAT'])
     expect(p.stats).toMatchObject({ messagesReceived: 3, crcErrors: 1, droppedBytes: 3 + bad.length })
     expect(p.parse(new Uint8Array(0))).toEqual([])
   })
 
-  it('a corrupted length byte discards as many bytes as it claims, as upstream does', () => {
-    // Upstream bug, reproduced: the good frame inside the claimed length is lost with the bad one.
+  it('a corrupted length byte drops only its start marker, so the good frame inside the claimed length is decoded', () => {
+    // Proven upstream bug #150, fixed (see docs/bug-proofs/mavlink.md): upstream discards all
+    // 200 + 12 claimed bytes, losing the good frame with the bad one.
     const packet = fromHex(fixtures.messages[0]!.hex)
     const bad = packet.slice()
     bad[1] = 200
     const p = parser()
     const events = p.parse(Uint8Array.from([...bad, ...packet, ...new Uint8Array(200)]))
-    expect(kinds(events)).toEqual(['garbage:crc', 'garbage:noise'])
-    expect(events[0]).toMatchObject({ bytes: { length: 200 + 12 } })
+    expect(kinds(events)).toEqual(['garbage:crc', 'garbage:noise', 'HEARTBEAT', 'garbage:noise'])
+    expect(events[0]).toMatchObject({ bytes: { length: 1 } })
     expect(p.stats).toMatchObject({
-      messagesReceived: 0,
+      messagesReceived: 1,
       crcErrors: 1,
-      receiveErrors: 2,
-      droppedBytes: bad.length + packet.length + 200
+      receiveErrors: 3,
+      droppedBytes: bad.length + 200
     })
   })
 
   it('unknown incompatibility flags and truncated packets are not delivered', () => {
     const packet = fromHex(fixtures.messages[0]!.hex)
     packet[2] = 2
-    expect(kinds(parser().parse(packet))).toEqual(['garbage:incompat-flags'])
+    // Only the start marker is dropped; the rest is noise (proven upstream bug #150, fixed).
+    expect(kinds(parser().parse(packet))).toEqual(['garbage:incompat-flags', 'garbage:noise'])
     const p = parser()
     expect(p.parse(fromHex(fixtures.messages[0]!.hex).subarray(0, 5))).toEqual([])
     expect(p.buffered).toBe(5)

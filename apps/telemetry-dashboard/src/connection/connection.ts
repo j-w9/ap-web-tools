@@ -76,10 +76,9 @@ export interface ConnectionView {
  * its partly received frame, the signing key and timestamps, the outgoing sequence number and
  * source ids. Every connection (one per menu widget) uses it.
  *
- * Until a passphrase is given the key is unset and every frame is accepted unchecked. Once set, it
- * stays set for every later connection (only outgoing signing is switched off without a
- * passphrase) and unsigned frames are refused; the stream timestamps it has seen are kept when the
- * key changes. The parser package takes its signing state at construction, so it is created with
+ * Until a passphrase is given the key is unset and every frame is accepted unchecked. While set,
+ * unsigned frames are refused; a connection made without a passphrase clears it again (upstream
+ * kept it, proven bug #69). The stream timestamps it has seen are kept when the key changes. The parser package takes its signing state at construction, so it is created with
  * a signing state whose key is filled in (and unsigned frames refused) when a passphrase arrives.
  */
 export interface MavlinkProcessor {
@@ -116,6 +115,12 @@ export function createMavlinkProcessor(nowMs: number): MavlinkProcessor {
 function setSigningKey(processor: MavlinkProcessor, passphrase: string): void {
   processor.signing.secretKey.set(signingKeyFromPassphrase(passphrase))
   processor.keySet = true
+}
+
+/** No key: nothing is verified, as on a fresh page (upstream: `secret_key.length == 0`). */
+function clearSigningKey(processor: MavlinkProcessor): void {
+  processor.signing.secretKey.fill(0)
+  processor.keySet = false
 }
 
 /** Settings read from the connection form when upstream read them. */
@@ -222,6 +227,17 @@ export class ConnectionController {
     this.setInputs(false)
   }
 
+  /**
+   * The menu that owns this connection was removed: close its socket and stop its heartbeat.
+   * Upstream never did, so a re-created menu left the old socket feeding the page (proven bugs #68
+   * and #158, docs/bug-proofs/telemetry-dashboard.md).
+   */
+  dispose(): void {
+    this.disconnect()
+    this.options.timers.clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = undefined
+  }
+
   private connect(url: string, passphrase: string | null, auto: boolean): void {
     this.disconnect()
     this.setInputs(true)
@@ -237,6 +253,10 @@ export class ConnectionController {
     if (passphrase !== null && passphrase.length > 0) {
       setSigningKey(processor, passphrase)
       processor.signOutgoing = true
+    } else {
+      // Proven bug #69 (docs/bug-proofs/telemetry-dashboard.md): upstream kept the last key, so a
+      // connection with the field empty ("Signing disabled") still refused unsigned frames.
+      clearSigningKey(processor)
     }
 
     let link: SocketLike

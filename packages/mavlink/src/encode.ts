@@ -85,15 +85,18 @@ function float32TiesAway(value: number): number {
   return Math.abs(value - nearest) === Math.abs(other - value) && Math.abs(other) > Math.abs(nearest) ? other : nearest
 }
 
-/** jspack `_En754`: NaN as mantissa 1, and +0 for -0 (its sign test is `v < 0`). */
+/**
+ * jspack `_En754`: NaN as mantissa 1. Upstream packs -0 as +0 (its sign test is `v < 0`); the port
+ * keeps the sign, as IEEE 754 requires (proven upstream bug #153, see `docs/bug-proofs/mavlink.md`).
+ */
 function writeFloat(view: DataView, type: 'float' | 'double', offset: number, value: number): void {
   if (Number.isNaN(value)) {
     if (type === 'float') view.setUint32(offset, NAN_FLOAT_BITS, true)
     else view.setBigUint64(offset, (BigInt(NAN_DOUBLE_HIGH_BITS) << 32n) | 1n, true)
   } else if (type === 'float') {
-    view.setFloat32(offset, value === 0 ? 0 : float32TiesAway(value), true)
+    view.setFloat32(offset, float32TiesAway(value), true)
   } else {
-    view.setFloat64(offset, value === 0 ? 0 : value, true)
+    view.setFloat64(offset, value, true)
   }
 }
 
@@ -172,7 +175,8 @@ function packPayload(descriptor: MessageDescriptor, fields: object, version: 1 |
     const type = field.type
     if (type === 'char') {
       // `_EnString`: each character's code, stored in a byte (so its low 8 bits); NUL after the end.
-      if (field.arrayLength === undefined) onError(UPSTREAM_THROWS + ' (jspack cannot pack a scalar char)')
+      // A scalar char is its first character's code, 0 for an empty string: upstream's jspack has no
+      // char encoder and throws (proven upstream bug #154, see `docs/bug-proofs/mavlink.md`).
       if (value === undefined) onError(UPSTREAM_THROWS + ' (jspack cannot pack an omitted string)')
       if (typeof value !== 'string') onError(`expected a string, got ${typeof value}`)
       for (let i = 0; i < Math.min(count, value.length); i++) payload[field.offset + i] = value.charCodeAt(i)

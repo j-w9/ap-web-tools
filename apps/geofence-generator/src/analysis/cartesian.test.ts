@@ -12,10 +12,33 @@ describe('cartesian conversion matches upstream', () => {
     for (let i = 0; i < 200; i++) {
       const angle = (next() - 0.5) * 800
       const lat = (next() - 0.5) * 180
-      expect(wrap180(angle)).toBe(upstream.wrap_180(angle))
+      // Upstream leaves angles below -180 unwrapped (proven bug); elsewhere identical.
+      if (angle >= -180) expect(wrap180(angle)).toBe(upstream.wrap_180(angle))
+      else {
+        expect(wrap180(angle)).toBeGreaterThanOrEqual(-180)
+        expect(wrap180(angle)).toBeLessThan(180)
+      }
       expect(longitudeScale(lat)).toBe(upstream.longitude_scale(lat))
     }
     expect(longitudeScale(90)).toBe(0.01)
+  })
+
+  it('wraps angles below -180 (proven bug fixed): -200 is 160, upstream -200', () => {
+    expect(upstream.wrap_180(-200)).toBe(-200)
+    expect(wrap180(-200)).toBe(160)
+    expect(upstream.wrap_180(-600)).toBe(-240)
+    expect(wrap180(-600)).toBe(120)
+    for (const a of [-180, -179.999, 0, 179.999, 180, 200, 540, 1e6]) expect(wrap180(a)).toBe(upstream.wrap_180(a))
+  })
+
+  it('converts across the antimeridian symmetrically; upstream does not (proven bug fixed)', () => {
+    const theirs = upstream.convertToCartesian([[-179.999, 0]], 1, [179.999, 0])
+    expect(theirs.y[0]).toBe(-40074561.570032075)
+    const mine = toCartesian([[-179.999, 0]], [179.999, 0])
+    const mirror = toCartesian([[179.999, 0]], [-179.999, 0])
+    expect(mirror.y[0]).toBe(upstream.convertToCartesian([[179.999, 0]], 1, [-179.999, 0]).y[0])
+    expect(mirror.y[0]).toBeCloseTo(-222.637690037636, 6)
+    expect(mine.y[0]).toBeCloseTo(222.637690037636, 6)
   })
 
   it.each([

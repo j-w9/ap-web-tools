@@ -114,12 +114,17 @@ describe('formatWaypoints', () => {
 })
 
 describe('fenceFileName', () => {
-  it.each(['A/B', 'A/B/C\\D\\E', 'plain', '\\/x/'])('replaces only the first / and \\, as upstream: %s', async (name) => {
+  it.each(['A/B', 'plain', 'A\\B', 'A/B\\C'])('matches upstream with at most one / and one \\: %s', async (name) => {
     const theirs = await upstream.generateFence(feature([lakeRing(19, 0, 0, 40, 1)], name), name)
     expect(fenceFileName(name)).toBe(theirs.fileName)
   })
 
-  it('keeps later separators', () => {
-    expect(fenceFileName('A/B/C\\D\\E')).toBe('A_B/C_D\\E.waypoints')
+  it.each([
+    ['A/B/C\\D\\E', 'A_B/C_D\\E.waypoints', 'A_B_C_D_E.waypoints'],
+    ['\\/x/', '__x/.waypoints', '__x_.waypoints']
+  ])('replaces every / and \\ (proven bug fixed; upstream only the first): %s', async (name, upstreamName, portName) => {
+    const theirs = await upstream.generateFence(feature([lakeRing(19, 0, 0, 40, 1)], name), name)
+    expect(theirs.fileName).toBe(upstreamName)
+    expect(fenceFileName(name)).toBe(portName)
   })
 })

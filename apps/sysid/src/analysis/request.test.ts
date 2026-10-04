@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { LogWriter } from '@apwt/dataflash/testing'
 import { buildSyntheticSidLog } from '../test-utils/synthetic-sid.js'
-import { runUpstream, upstreamParse, type UpstreamParser } from '../test-utils/upstream.js'
+import { instanceAwareParser, runUpstream, upstreamParse, type UpstreamParser } from '../test-utils/upstream.js'
 import type { StateSpaceInputs, TransferFunctionInputs } from '../python/runtime.js'
 import { MissingDataError } from './columns.js'
 import { loadLog, type SysIdLog } from './log.js'
@@ -80,8 +81,8 @@ describe('Python inputs match upstream (synthetic SID log)', () => {
 
   const tfSetup = (output: Partial<NonNullable<Setup['tfSignals']>['output']>): Setup => {
     let s = selectModel(base, 'transfer-function', pickerOptions(log))
-    s = writeSlot(s, { kind: 'input' }, (f) => ({ ...f, message: 'RATE', field: 'YOut' }))
-    s = writeSlot(s, { kind: 'output', index: 0 }, (f) => ({ ...f, message: 'SIDD', field: 'Gz', ...output }))
+    s = writeSlot(s, 'tf', { kind: 'input' }, (f) => ({ ...f, message: 'RATE', field: 'YOut' }))
+    s = writeSlot(s, 'tf', { kind: 'output', index: 0 }, (f) => ({ ...f, message: 'SIDD', field: 'Gz', ...output }))
     return { ...s, tf: { numerator: 'b1*s + b0', denominator: 'a2*s**2 + a1*s + a0', params: 'b1 b0 a2 a1 a0' } }
   }
 
@@ -119,15 +120,28 @@ describe('Python inputs match upstream (synthetic SID log)', () => {
     }
   })
 
-  it('transfer function: instanced and unselected messages fail where upstream throws', async () => {
+  it('transfer function: unselected and empty messages fail where upstream throws', async () => {
     for (const [message, field] of [
-      ['IMU[0]', 'GyrZ'],
       ['None', 'None'],
       ['EMPT', 'Never']
     ] as const) {
-      const setup = writeSlot(tfSetup({}), { kind: 'input' }, (f) => ({ ...f, message, field }))
+      const setup = writeSlot(tfSetup({}), 'tf', { kind: 'input' }, (f) => ({ ...f, message, field }))
       await expect(runUpstream('tf', parser, setup)).rejects.toThrow()
       expect(() => transferFunctionInputs(log.log, setup)).toThrow(MissingDataError)
+    }
+  })
+
+  // Proven upstream bug fixed (docs/bug-proofs/sysid.md, row 8): upstream offers IMU[0] but
+  // `get('IMU[0]', ...)` returns nothing and Submit throws. The port reads instance 0, as upstream
+  // would if `get` resolved the name through the parser's own `get_instance`.
+  it('transfer function: an instanced message reads that instance (upstream throws)', async () => {
+    for (const message of ['IMU[0]', 'IMU[1]']) {
+      const setup = writeSlot(tfSetup({}), 'tf', { kind: 'input' }, (f) => ({ ...f, message, field: 'GyrZ' }))
+      await expect(runUpstream('tf', parser, setup)).rejects.toThrow("Cannot read properties of undefined (reading 'length')")
+      const corrected = instanceAwareParser(parser)
+      const mine = transferFunctionInputs(log.log, setup)
+      expect(mine.inputData.length).toBeGreaterThan(100)
+      expectSameGlobals(tfGlobals(mine), (await runUpstream('tf', corrected, setup)).globals)
     }
   })
 
@@ -148,8 +162,43 @@ describe('Python inputs match upstream (synthetic SID log)', () => {
       const result = stateSpaceInputs(log.log, setup)
       expect(result.ok).toBe(true)
       if (!result.ok) return
-      expectSameGlobals(ssGlobals(result.inputs), (await runUpstream('ss', parser, setup)).globals)
+      // With the transfer function form opened first, upstream's preset filled the hidden form and
+      // Submit read it back, so upstream ran on the preset's signals all the same. The port keeps
+      // them in the state space form (row 2 fix); the page upstream would build is the one without
+      // the transfer function form's fields.
+      const page = openTfFirst ? { ...setup, tfSignals: null } : setup
+      expectSameGlobals(ssGlobals(result.inputs), (await runUpstream('ss', parser, page)).globals)
     }
+  })
+
+  // Proven upstream bug fixed (docs/bug-proofs/sysid.md, row 2): after Transfer function has been
+  // selected, upstream's state space Submit reads the hidden transfer function fields ("None") and
+  // throws. The port reads the state space form, giving what upstream gives when the transfer
+  // function form was never opened.
+  it('state space: Submit reads its own form after Transfer function was selected (upstream throws)', async () => {
+    const options = pickerOptions(log)
+    let s = selectModel(base, 'transfer-function', options)
+    s = selectModel(s, 'state-space', options)
+    s = { ...s, ss: { ...s.ss, outputs: '1', order: '1', params: '1', constraints: '0' } }
+    s = generateFields(s, options).setup
+    s = writeSlot(s, 'ss', { kind: 'input' }, (f) => ({ ...f, message: 'RATE', field: 'YOut' }))
+    s = writeSlot(s, 'ss', { kind: 'output', index: 0 }, (f) => ({ ...f, message: 'SIDD', field: 'Gz' }))
+    s = {
+      ...s,
+      ss: {
+        ...s.ss,
+        paramNames: ['a'],
+        bounds: [{ min: '-1', max: '1' }],
+        matrices: s.ss.matrices && { ...s.ss.matrices, a: [['a']], b: [['1']], h0: [['1']], h1: [['0']] }
+      }
+    }
+    expect(s.tfSignals?.input).toEqual({ message: 'None', field: 'None' })
+    await expect(runUpstream('ss', parser, s)).rejects.toThrow("Cannot read properties of undefined (reading 'length')")
+    const result = stateSpaceInputs(log.log, s)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.inputs.inputData.length).toBeGreaterThan(100)
+    expectSameGlobals(ssGlobals(result.inputs), (await runUpstream('ss', parser, { ...s, tfSignals: null })).globals)
   })
 
   it('state space: sizes edited after generating read missing cells as null and NaN bounds', async () => {
@@ -207,8 +256,8 @@ describe('Python inputs match upstream (real SITL log)', () => {
     expect(range).not.toBeNull()
     let s = selectModel(onLogLoaded(INITIAL_SETUP), 'transfer-function', pickerOptions(log))
     s = { ...s, startTime: String(range?.[0]), endTime: '60', startFreq: '1', endFreq: '50', cutoffFreq: '100' }
-    s = writeSlot(s, { kind: 'input' }, (f) => ({ ...f, message: 'RATE', field: 'ROut' }))
-    s = writeSlot(s, { kind: 'output', index: 0 }, (f) => ({
+    s = writeSlot(s, 'tf', { kind: 'input' }, (f) => ({ ...f, message: 'RATE', field: 'ROut' }))
+    s = writeSlot(s, 'tf', { kind: 'output', index: 0 }, (f) => ({
       ...f,
       message: 'ATT',
       field: 'Roll',
@@ -219,5 +268,56 @@ describe('Python inputs match upstream (real SITL log)', () => {
     const mine = transferFunctionInputs(log.log, s)
     expect(mine.inputData.length).toBeGreaterThan(100)
     expectSameGlobals(tfGlobals(mine), (await runUpstream('tf', parser, s)).globals)
+  })
+})
+
+// Proven upstream bug fixed (docs/bug-proofs/sysid.md, row 3): upstream compensates output sample j
+// with ATT[att_ind1 + j], which with a 20 Hz output and 10 Hz ATT reads attitude from twice the
+// time and then runs off the end of ATT (NaN) although ATT covers the window. The port uses the ATT
+// sample nearest in time.
+describe('gravity compensation with ATT logged slower than the output', () => {
+  function misalignedLog(): Uint8Array {
+    const w = new LogWriter()
+    w.defineFormat(0x80, 'FMT', 'BBnNZ', 'Type,Length,Name,Format,Columns')
+    w.defineFormat(0x86, 'ATT', 'Qff', 'TimeUS,Roll,Pitch')
+    w.defineFormat(0x87, 'RATE', 'Qf', 'TimeUS,YOut')
+    w.defineFormat(0x88, 'SIDD', 'Qf', 'TimeUS,Ay')
+    // RATE and SIDD at 20 Hz for 2 s; ATT at 10 Hz over the same 2 s, Roll = its sample number.
+    for (let i = 0; i < 40; i++) {
+      const t = i * 50_000
+      w.write('RATE', [t, i])
+      w.write('SIDD', [t, 0])
+      if (i % 2 === 0) w.write('ATT', [t, i / 2, 0])
+    }
+    w.write('ATT', [2_000_000, 20, 0])
+    return w.toBytes()
+  }
+
+  it('each sample uses the ATT sample nearest in time (upstream reads ATT[j], then NaN)', async () => {
+    const bytes = misalignedLog()
+    const parser = await upstreamParse(bytes)
+    const log = loadLog(bytes.slice().buffer)
+    let s = selectModel({ ...onLogLoaded(INITIAL_SETUP), startTime: '0', endTime: '2' }, 'transfer-function', pickerOptions(log))
+    s = writeSlot(s, 'tf', { kind: 'input' }, (f) => ({ ...f, message: 'RATE', field: 'YOut' }))
+    s = writeSlot(s, 'tf', { kind: 'output', index: 0 }, (f) => ({
+      ...f,
+      message: 'SIDD',
+      field: 'Ay',
+      compensationOn: true,
+      compensationAxis: 'Roll'
+    }))
+    const k = (Math.PI / 180) * 9.81
+    const theirs = (await runUpstream('tf', parser, s)).globals['output_data'] as number[]
+    expect(theirs).toHaveLength(39)
+    expect(theirs[10]).toBeCloseTo(k * 10, 12) // 0.50 s compensated with the attitude logged at 1.00 s
+    expect(theirs.slice(21).every(Number.isNaN)).toBe(true) // 1.05 s on: NaN although ATT covers it
+
+    const mine = transferFunctionInputs(log.log, s)
+    // Sample j is at j * 50 ms; the nearest 10 Hz ATT sample is j / 2 (ties go to the earlier one).
+    expect(mine.outputData).toEqual(Array.from({ length: 39 }, (_, j) => k * Math.floor(j / 2)))
+    // Everything else is what upstream hands to Python.
+    const { output_data: _mineOut, ...mineRest } = tfGlobals(mine)
+    const { output_data: _theirOut, ...theirRest } = (await runUpstream('tf', parser, s)).globals
+    expectSameGlobals(mineRest, theirRest)
   })
 })

@@ -11,13 +11,15 @@ Oracles (upstream JavaScript run in `node:vm` side by side with the port):
 - `mavlink/legacy-message.test.ts`: random frames of every message upstream defines (all 347),
   decoded by upstream's `MAVLink20Processor.parseChar` and by the port's parser plus adapter, must be
   strictly identical (all fields, metadata, `_header`, `_msgbuf`, `_payload`, `crc`), including signed
-  frames.
+  frames, except CUBEPILOT_FIRMWARE_UPDATE_START's `crc` (proven bug #155, asserted both ways).
 - `mavlink/legacy-namespace.test.ts`: the rebuilt `mavlink20` global against upstream's: every
   numeric constant (enum entries, `*_ENUM_END`, `MAVLINK_MSG_ID_*`) with the same value and no extra
   ones, the same `map` ids and message classes, and the MAVLink Inspector's component lookup.
 - `connection/connection.test.ts`: heartbeat frames (plain and signed) byte for byte against
-  upstream's `heartbeat.pack()`; signed frames accepted unchecked before a key is set; two
-  connections interleaving bytes into the shared parser decode what upstream's parser decodes.
+  upstream's `heartbeat.pack()`; signed frames accepted unchecked before a key is set; unsigned
+  frames after reconnecting without a passphrase (upstream refuses, the port accepts: #69); two
+  connections interleaving bytes into the shared parser (upstream's result asserted; the port
+  differs only by the MAVLink parser's proven #150 resync).
 - `layout/loader.test.ts`: upstream `add_widget`, `load_widgets`, `load_layout` (and `init_grid`,
   `clear_grid`, `grid_set_edit`, `new_widget`) against the port's loader over the same recording
   fake grid: same grid operations, widget constructions, alerts and errors, for the default layout
@@ -27,8 +29,10 @@ Oracles (upstream JavaScript run in `node:vm` side by side with the port):
   form definition and content, script, `srcdoc`, sub grid size and widgets, and thrown messages).
 - `sandbox/page.test.ts`: upstream `Widgets/SandBox.html`'s script against the port's runtime and
   page drawing over one fake document, fed the same message sequences (normal use, load, syntax and
-  handler errors with line snippets, retries, `handle_options`, falsy broadcasts, and the two bugs
-  below).
+  handler errors with line snippets, retries, `handle_options`, falsy broadcasts). For proven bugs
+  #159 and #160 the test asserts upstream's result and that the port's equals upstream's for the
+  nearest well-behaved script (no `return 0`; the same text thrown as a string).
+- `dashboard/palette-imports.test.ts`: palette example loading, including a failed file (#71).
 - `layout/link.test.ts`: link compression against upstream's `compress_layout` run as written.
 - `layout/layout.test.ts`: bundled layouts and widgets are upstream's files (content unchanged).
 
@@ -97,13 +101,30 @@ icon) rendered. That is content a layout carries, not chrome, so it is reproduce
 reason given does not hold: sandbox iframes run layout scripts with `allow-scripts
 allow-same-origin` on the dashboard's origin, so a layout can already run code there.
 
+## Proven upstream bugs fixed
+
+Fixed because each is proven (`docs/bug-proofs/telemetry-dashboard.md`, `docs/bug-proofs/mavlink.md`
+for #155). Tests show upstream's result, the corrected result, and identity everywhere else.
+
+- **#68 / #158 Re-created menu leaves its socket open** (so two sockets fed one parser): removing a
+  menu closes its connection and heartbeat (`ConnectionController.dispose`, called from
+  `MenuWidget.destroy`). Two menus that are both live still share the parser, as upstream.
+- **#69 Passphrase stays active:** connecting with the field empty clears the key, so unsigned frames
+  are accepted, as on a fresh page.
+- **#71 Palette never initialises if an example fails:** a failed file settles
+  (`dashboard/palette-imports.ts`) and is simply missing from the palette.
+- **#159 Stuck sandbox after a primitive script result:** an options message returns quietly, so the
+  edited script in the same message loads.
+- **#160 Sandbox script throwing null (or undefined, or a Symbol) keeps running:** the report
+  completes (value as text, red border) and the script stops.
+- **#155 Frame checksum overwrote a field called `crc`:** CUBEPILOT_FIRMWARE_UPDATE_START's `crc` is
+  the payload value in widget messages.
+
 ## Upstream bugs reproduced
 
-See `docs/upstream-bugs.md`: second connection from a re-created menu; passphrase stays active;
-two connections feeding one parser; `[object File]` message; palette never initialises if an
-example fails; stuck sandbox after a primitive script result; sandbox script throwing null keeps
-running; settings popup updated only while shown; text frames fed as zeros; won't-fit reported
-before the type check; failed layouts leave earlier widgets created and the grid in batch mode.
+See `docs/upstream-bugs.md`: `[object File]` message; settings popup updated only while shown; text
+frames fed as zeros; won't-fit reported before the type check; failed layouts leave earlier widgets
+created and the grid in batch mode.
 
 ## UI audit
 

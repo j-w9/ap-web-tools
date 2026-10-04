@@ -6,9 +6,9 @@
  * results depend on that (docs/upstream-bugs.md):
  *
  * - `MOT_SPIN_MIN` updates its value only on `input` events (typing), where it is also held at or
- *   above `MOT_SPIN_ARM` by comparing the two texts as strings; its `change` event only replots.
- *   A parameter file sets the text with a `change` event, so a loaded `MOT_SPIN_MIN` is shown but
- *   not used, until `MOT_SPIN_ARM` changes or the user types in it.
+ *   above `MOT_SPIN_ARM`; its `change` event only replots. Two proven upstream bugs are fixed here
+ *   (docs/bug-proofs/thrust-expo.md): upstream compares the two texts as strings (here as numbers),
+ *   and a `MOT_SPIN_MIN` loaded from a parameter file is shown but not used (here it is used).
  * - Every plot update writes the chosen expo (unrounded) to `params` and shows it to 3 decimals.
  * - `MOT_THST_HOVER` is saved once any estimate has been made, with the last value it was given,
  *   until Reset.
@@ -167,9 +167,17 @@ function updatePlotData(d: Draft, thrustExpo: number | null): void {
   }
 }
 
-/** `MOT_SPIN_MIN` `input` handler: string comparison with the arm text, then store the value. */
+/**
+ * `MOT_SPIN_MIN` `input` handler: raise it to the arm value when below it, then store the value.
+ * Proven upstream bug fixed: upstream compares the two texts as strings (so arm 10 lets min 2 stand,
+ * and min ".2" is lowered to arm 0.1); here they are compared as numbers. With either box empty the
+ * outcome is upstream's (an empty min takes the arm text, an empty arm never raises min).
+ */
 function spinMinInput(d: Draft): void {
-  if (d.display.MOT_SPIN_MIN < d.display.MOT_SPIN_ARM) d.display.MOT_SPIN_MIN = d.display.MOT_SPIN_ARM
+  const min = d.display.MOT_SPIN_MIN
+  const arm = d.display.MOT_SPIN_ARM
+  const below = min === '' || arm === '' ? min < arm : Number.parseFloat(min) < Number.parseFloat(arm)
+  if (below) d.display.MOT_SPIN_MIN = arm
   d.params.MOT_SPIN_MIN = Number.parseFloat(d.display.MOT_SPIN_MIN)
 }
 
@@ -293,6 +301,9 @@ export function loadParamFile(s: ThrustExpoSession, text: string): ThrustExpoSes
     }
     if (!isFieldName(param)) continue
     d.display[param] = numberInputText(Number.parseFloat(String(value)))
+    // Proven upstream bug fixed: upstream sets MOT_SPIN_MIN's value only on `input`, so a loaded
+    // MOT_SPIN_MIN was shown but not used or saved (docs/bug-proofs/thrust-expo.md).
+    if (param === 'MOT_SPIN_MIN') d.params.MOT_SPIN_MIN = Number.parseFloat(d.display.MOT_SPIN_MIN)
     change(d, param)
   }
   return d
@@ -340,14 +351,18 @@ export function savedParams(s: ThrustExpoSession): { readonly name: MotorParamNa
 /**
  * Text of `ThrustExpo.param` (upstream `saveParamFile`): `NAME,value` lines, no trailing newline.
  *
- * @throws {Error} "Could not convert NaN to float string" when a saved value is not a number (an
- *   empty input), as upstream's `param_to_string` does.
+ * @throws {Error} when a saved value is not a number (an empty input). Upstream's `param_to_string`
+ *   throws "Could not convert NaN to float string" without saying which input; this message names
+ *   the empty inputs and keeps upstream's text (docs/bug-proofs/thrust-expo.md).
  */
 export function paramFileText(s: ThrustExpoSession): string {
+  const saved = savedParams(s)
+  const empty = saved.filter(({ value }) => value !== null && Number.isNaN(value)).map(({ name }) => name)
+  if (empty.length > 0) {
+    throw new Error(`${empty.join(', ')} ${empty.length > 1 ? 'are' : 'is'} empty. Could not convert NaN to float string`)
+  }
   // `param_to_string(null)` is "0" upstream (Math.fround(null) is 0).
-  return savedParams(s)
-    .map(({ name, value }) => `${name},${paramToString(value ?? 0)}`)
-    .join('\n')
+  return saved.map(({ name, value }) => `${name},${paramToString(value ?? 0)}`).join('\n')
 }
 
 /** File name upstream saves as. */

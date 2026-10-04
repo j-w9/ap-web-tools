@@ -219,8 +219,15 @@ const ADDRESS_HELP =
 const HEARTBEAT_HELP =
   'If enabled the dashboard will send a MAVLink heartbeat at 1Hz. The source system and component IDs can be selected and a optional signing passphrase provided.'
 
+/** The connection popup and a way to close its connection when the menu is removed. */
+export interface ConnectionPanel {
+  readonly element: HTMLDivElement
+  /** Closes the connection this panel opened (proven bug #68: upstream left it open). */
+  dispose(): void
+}
+
 /** Connection settings popup and its controller (upstream `setup_connect`). */
-export function createConnectionPanel(host: MenuHost, ui: ConnectionUi): HTMLDivElement {
+export function createConnectionPanel(host: MenuHost, ui: ConnectionUi): ConnectionPanel {
   const { element, body, close } = panel('Connection settings')
   close.onclick = () => ui.hide()
 
@@ -316,5 +323,5 @@ export function createConnectionPanel(host: MenuHost, ui: ConnectionUi): HTMLDiv
   }))
 
   controller.autoConnect(hash.ws, hash.signing)
-  return element
+  return { element, dispose: () => controller.dispose() }
 }
