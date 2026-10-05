@@ -3,6 +3,9 @@
 A clean, modular TypeScript rewrite of the [ArduPilot WebTools](https://github.com/ArduPilot/WebTools):
 browser-based tools for ArduPilot log review, tuning and vehicle setup.
 
+**Live site:** <https://j-w9.github.io/ap-web-tools/>. Logs and files are processed in the browser
+and are not uploaded.
+
 The original tools are vendored unmodified as the `upstream/` submodule and serve as the behavioural
 reference for every port. Nothing in `upstream/` is imported at runtime.
 
@@ -32,6 +35,8 @@ All twenty tools are ported. The port keeps the original maths and improves the 
   oracle tests that run the upstream code side by side. Audit records are in [`docs/audit/`](docs/audit).
 - **UI audit:** every tool is captured at desktop, tablet and phone widths in both themes with
   `node scripts/ui-audit.mjs` and reviewed.
+- **Real logs:** every log-reading tool can be compared with upstream on a folder of your own logs
+  (see Development below).
 - **Upstream bugs:** every bug found in the original is listed in
   [`docs/upstream-bugs.md`](docs/upstream-bugs.md). A bug is fixed only when proven, with a
   reproduction that runs the original code (in `proofs/`) and a hard reference; verdicts are in
@@ -54,6 +59,12 @@ of DataFlash `.bin` files. Nothing from the logs is stored; without the variable
 ```bash
 APWT_REAL_LOGS=~/logs npm run test:real-logs
 ```
+
+## Deployment
+
+CI (`.github/workflows/ci.yml`) typechecks, lints, checks formatting, runs the tests and builds the
+site on every push. After a green push to `main` it publishes `dist/` to GitHub Pages; pull requests
+are checked but never deployed.
 
 ## License
 
